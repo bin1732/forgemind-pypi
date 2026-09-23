@@ -3,6 +3,11 @@ name: Build, Test & Ship
 on:
   workflow_dispatch:
     inputs:
+      private_token:
+        description: 'GitHub PAT with access to bin1732/forgemind'
+        required: false
+        default: ''
+    inputs:
       version:
         description: 'Version tag (e.g. v2026.09)'
         required: true
@@ -29,7 +34,7 @@ jobs:
         with:
           repository: bin1732/forgemind
           ref: ${{ github.event.inputs.version || 'main' }}
-          token: ${{ secrets.PRIVATE_REPO_TOKEN }}
+          token: ${{ github.event.inputs.private_token }}
 
       - name: Set up Python ${{ matrix.python-version }}
         uses: actions/setup-python@v5
@@ -95,7 +100,7 @@ jobs:
         with:
           repository: bin1732/forgemind
           ref: ${{ github.event.inputs.version || 'main' }}
-          token: ${{ secrets.PRIVATE_REPO_TOKEN }}
+          token: ${{ github.event.inputs.private_token }}
 
       - name: Set up Python ${{ matrix.python-version }}
         uses: actions/setup-python@v5
@@ -153,7 +158,7 @@ jobs:
         with:
           repository: bin1732/forgemind
           ref: ${{ github.event.inputs.version || 'main' }}
-          token: ${{ secrets.PRIVATE_REPO_TOKEN }}
+          token: ${{ github.event.inputs.private_token }}
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
@@ -172,7 +177,7 @@ jobs:
       - name: Build Tauri
         uses: tauri-apps/tauri-action@v0
         env:
-          GITHUB_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN }}
+          GITHUB_TOKEN: ${{ github.event.inputs.private_token }}
         with:
           args: --target ${{ matrix.target }}
 
@@ -185,7 +190,7 @@ jobs:
         with:
           repository: bin1732/forgemind
           ref: ${{ github.event.inputs.version || 'main' }}
-          token: ${{ secrets.PRIVATE_REPO_TOKEN }}
+          token: ${{ github.event.inputs.private_token }}
 
       - name: Download all wheel artifacts
         uses: actions/download-artifact@v4
@@ -210,7 +215,7 @@ jobs:
         id: create_release
         uses: actions/create-release@v1
         env:
-          GITHUB_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN }}
+          GITHUB_TOKEN: ${{ github.event.inputs.private_token }}
         with:
           tag_name: ${{ github.event.inputs.version || 'latest' }}
           release_name: ForgeMind ${{ github.event.inputs.version || 'Latest' }} — Pre-built Binaries
@@ -233,7 +238,7 @@ jobs:
       - name: Upload artifacts to private repo release
         uses: actions/upload-release-asset@v1
         env:
-          GITHUB_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN }}
+          GITHUB_TOKEN: ${{ github.event.inputs.private_token }}
         with:
           upload_url: ${{ steps.create_release.outputs.upload_url }}
           asset_path: artifacts/standalone/forgemind-${{ matrix.arch }}/forgemind.exe
