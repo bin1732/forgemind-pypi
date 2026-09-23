@@ -43,58 +43,19 @@ jobs:
 
   build-standalone:
     needs: build-wheel
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          repository: bin1732/forgemind
-          ref: main
-          token: ${{ github.event.inputs.private_token }}
-          path: src
-
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
-
-      - name: Install PyInstaller
-        run: pip install pyinstaller
-
-      - name: Build standalone (no deps needed)
-        run: |
-          mkdir -p out
-          pyinstaller --onefile \
-            --name forgemind-ubuntu-x86_64 \
-            --paths src \
-            --add-data "src/forgemind:forgemind" \
-            --hidden-import=click \
-            --hidden-import=fastapi \
-            --hidden-import=uvicorn \
-            --hidden-import=polars \
-            --hidden-import=pandas \
-            --hidden-import=numpy \
-            --hidden-import=pydantic \
-            --hidden-import=pydantic_settings \
-            --hidden-import=duckdb \
-            --hidden-import=sqlalchemy \
-            --hidden-import=alembic \
-            --hidden-import=redis \
-            --hidden-import=nats \
-            --hidden-import=akshare \
-            --hidden-import=pkg_resources \
-            --console \
-            src/forgemind/cli.py
-          mv dist/forgemind-ubuntu-x86_64 out/
-
-      - name: Upload standalone
-        uses: actions/upload-artifact@v4
-        with:
-          name: standalone
-          path: out/
-          retention-days: 1
-
-  build-windows:
-    needs: build-wheel
-    runs-on: windows-latest
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-22.04  # GLIBC 2.35 for max compat
+            name: linux-x86_64
+            artifact_name: forgemind-linux-x86_64
+          - os: windows-latest
+            name: win64
+            artifact_name: forgemind-win64.exe
+          - os: macos-latest
+            name: macos-arm64
+            artifact_name: forgemind-macos-arm64
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -110,38 +71,58 @@ jobs:
       - shell: bash
         run: pip install pyinstaller
 
-      - name: Build Windows exe
+      - name: Build standalone (Linux)
+        if: matrix.os == 'ubuntu-22.04'
         shell: bash
         run: |
           mkdir -p out
           pyinstaller --onefile \
-            --name forgemind-win64.exe \
+            --name ${{ matrix.artifact_name }} \
             --paths src \
-            --add-data "src/forgemind;forgemind" \
-            --hidden-import=click \
-            --hidden-import=fastapi \
-            --hidden-import=uvicorn \
-            --hidden-import=polars \
-            --hidden-import=pandas \
-            --hidden-import=numpy \
-            --hidden-import=pydantic \
-            --hidden-import=pydantic_settings \
-            --hidden-import=duckdb \
-            --hidden-import=sqlalchemy \
-            --hidden-import=redis \
+            --add-data "src/forgemind:forgemind" \
+            --hidden-import=click,fastapi,uvicorn,polars,pandas,numpy,pydantic,pydantic_settings,duckdb,sqlalchemy,redis,httpx,aiohttp,yaml,akshare,langgraph,langchain \
             --console \
             src/forgemind/cli.py
-          mv dist/forgemind-win64.exe out/
+          mv dist/${{ matrix.artifact_name }} out/
 
-      - name: Upload Windows exe
+      - name: Build standalone (Windows)
+        if: matrix.os == 'windows-latest'
+        shell: bash
+        run: |
+          mkdir -p out
+          pyinstaller --onefile \
+            --name ${{ matrix.artifact_name }} \
+            --paths src \
+            --add-data "src/forgemind;forgemind" \
+            --hidden-import=click,fastapi,uvicorn,polars,pandas,numpy,pydantic,pydantic_settings,duckdb,sqlalchemy,redis,httpx,aiohttp,yaml,akshare,langgraph,langchain \
+            --console \
+            src/forgemind/cli.py
+          mv dist/${{ matrix.artifact_name }} out/
+
+      - name: Build standalone (macOS)
+        if: matrix.os == 'macos-latest'
+        shell: bash
+        run: |
+          mkdir -p out
+          pyinstaller --onefile \
+            --name ${{ matrix.artifact_name }} \
+            --paths src \
+            --add-data "src/forgemind:forgemind" \
+            --hidden-import=click,fastapi,uvicorn,polars,pandas,numpy,pydantic,pydantic_settings,duckdb,sqlalchemy,redis,httpx,aiohttp,yaml,akshare,langgraph,langchain \
+            --target-arch arm64 \
+            --console \
+            src/forgemind/cli.py
+          mv dist/${{ matrix.artifact_name }} out/
+
+      - name: Upload standalone
         uses: actions/upload-artifact@v4
         with:
-          name: standalone-win
+          name: standalone-${{ matrix.name }}
           path: out/
           retention-days: 1
 
   ship-to-private:
-    needs: [build-wheel, build-standalone, build-windows]
+    needs: [build-wheel, build-standalone]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -181,7 +162,17 @@ jobs:
 
           for f in pathlib.Path("artifacts").rglob("*"):
               if f.is_file():
-                  upload(f"artifacts/builds/{f.parent.name}/{f.name}", str(f))
+                  # Detect platform from filename
+            fname = f.name
+            if 'linux' in fname or 'ubuntu' in fname:
+                plat = 'linux'
+            elif 'win64' in fname or 'win' in fname:
+                plat = 'windows'
+            elif 'macos' in fname:
+                plat = 'macos'
+            else:
+                plat = 'source'
+            upload(f"artifacts/builds/{plat}/{fname}", str(f))
 
           manifest = {
               "version": "latest",
