@@ -2,11 +2,11 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: 'Version tag (e.g. v2026.09)'
+        description: 'Version tag'
         required: true
         default: 'v2026.09'
       private_token:
-        description: 'GitHub PAT with access to bin1732/forgemind'
+        description: 'GitHub PAT'
         required: true
         default: ''
 
@@ -14,23 +14,21 @@ permissions:
   contents: read
 
 jobs:
-  build-and-test:
+  build-wheel:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout ForgeMind source
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
         with:
           repository: bin1732/forgemind
           ref: main
           token: ${{ github.event.inputs.private_token }}
           path: src
 
-      - name: Set up Python 3.11
-        uses: actions/setup-python@v5
+      - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
 
-      - name: Build wheel (no install needed)
+      - name: Build wheel
         run: |
           pip install build
           python -m build
@@ -44,60 +42,106 @@ jobs:
           retention-days: 1
 
   build-standalone:
-    needs: build-and-test
-    strategy:
-      matrix:
-        include:
-          - os: ubuntu-latest
-            name: linux-x86_64
-          - os: windows-latest
-            name: win64
-    runs-on: ${{ matrix.os }}
+    needs: build-wheel
+    runs-on: ubuntu-latest
     steps:
-      - name: Checkout ForgeMind source
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
         with:
           repository: bin1732/forgemind
           ref: main
           token: ${{ github.event.inputs.private_token }}
           path: src
 
-      - name: Set up Python 3.11
-        uses: actions/setup-python@v5
+      - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
 
-      - name: Install core dependencies only
-        run: |
-          pip install --no-build-isolation             fastapi uvicorn pydantic pydantic-settings             polars pandas numpy             click pyyaml             httpx aiohttp             sqlalchemy redis             duckdb             torch torchvision             transformers             pyinstaller
+      - name: Install PyInstaller
+        run: pip install pyinstaller
 
-      - name: Build standalone
-        shell: bash
+      - name: Build standalone (no deps needed)
         run: |
-          pip install -e "src/"
+          mkdir -p out
           pyinstaller --onefile \
-            --name forgemind-${{ matrix.name }} \
+            --name forgemind-ubuntu-x86_64 \
+            --paths src \
             --add-data "src/forgemind:forgemind" \
-            --hidden-import=click,fastapi,uvicorn,polars,pandas,numpy,pydantic,pydantic_settings,duckdb,sqlalchemy,redis,httpx,aiohttp,yaml,torch,transformers \
+            --hidden-import=click \
+            --hidden-import=fastapi \
+            --hidden-import=uvicorn \
+            --hidden-import=polars \
+            --hidden-import=pandas \
+            --hidden-import=numpy \
+            --hidden-import=pydantic \
+            --hidden-import=pydantic_settings \
+            --hidden-import=duckdb \
+            --hidden-import=sqlalchemy \
+            --hidden-import=alembic \
+            --hidden-import=redis \
+            --hidden-import=nats \
+            --hidden-import=akshare \
+            --hidden-import=pkg_resources \
             --console \
             src/forgemind/cli.py
-          mkdir -p dist-out
-          if [ "${{ matrix.os }}" = "windows-latest" ]; then
-            mv "src/dist/forgemind-${{ matrix.name }}.exe" "dist-out/forgemind-${{ matrix.name }}-exe"
-          else
-            mv "src/dist/forgemind-${{ matrix.name }}" "dist-out/forgemind-${{ matrix.name }}"
-            chmod +x "dist-out/forgemind-${{ matrix.name }}"
-          fi
+          mv dist/forgemind-ubuntu-x86_64 out/
 
       - name: Upload standalone
         uses: actions/upload-artifact@v4
         with:
-          name: standalone-${{ matrix.name }}
-          path: dist-out/
+          name: standalone
+          path: out/
+          retention-days: 1
+
+  build-windows:
+    needs: build-wheel
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: bin1732/forgemind
+          ref: main
+          token: ${{ github.event.inputs.private_token }}
+          path: src
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - shell: bash
+        run: pip install pyinstaller
+
+      - name: Build Windows exe
+        shell: bash
+        run: |
+          mkdir -p out
+          pyinstaller --onefile \
+            --name forgemind-win64.exe \
+            --paths src \
+            --add-data "src/forgemind;forgemind" \
+            --hidden-import=click \
+            --hidden-import=fastapi \
+            --hidden-import=uvicorn \
+            --hidden-import=polars \
+            --hidden-import=pandas \
+            --hidden-import=numpy \
+            --hidden-import=pydantic \
+            --hidden-import=pydantic_settings \
+            --hidden-import=duckdb \
+            --hidden-import=sqlalchemy \
+            --hidden-import=redis \
+            --console \
+            src/forgemind/cli.py
+          mv dist/forgemind-win64.exe out/
+
+      - name: Upload Windows exe
+        uses: actions/upload-artifact@v4
+        with:
+          name: standalone-win
+          path: out/
           retention-days: 1
 
   ship-to-private:
-    needs: [build-and-test, build-standalone]
+    needs: [build-wheel, build-standalone, build-windows]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -121,42 +165,40 @@ jobs:
 
           token = os.environ["GH_TOKEN"]
           repo = "bin1732/forgemind"
-          headers = {
-              "Authorization": f"token {token}",
-              "Accept": "application/vnd.github+json",
-              "Content-Type": "application/json"
-          }
+          h = {"Authorization": f"token {token}", "Accept": "application/vnd.github+json", "Content-Type": "application/json"}
           base = f"https://api.github.com/repos/{repo}"
 
           def upload(path, filepath):
               with open(filepath, "rb") as f:
                   b64 = base64.b64encode(f.read()).decode()
-              r = requests.get(f"{base}/contents/{path}", params={"ref": "main"}, headers=headers)
-              data = {"message": f"Artifact: {pathlib.Path(filepath).name}", "content": b64, "branch": "main"}
+              r = requests.get(f"{base}/contents/{path}", params={"ref": "main"}, headers=h)
+              data = {"message": f"Build artifact: {pathlib.Path(filepath).name}", "content": b64, "branch": "main"}
               if r.status_code == 200:
                   data["sha"] = r.json().get("sha")
-              r2 = requests.put(f"{base}/contents/{path}", headers=headers, json=data)
+              r2 = requests.put(f"{base}/contents/{path}", headers=h, json=data)
               icon = "✅" if r2.status_code in (200, 201) else f"❌ {r2.status_code}"
               print(f"  {icon} {path}")
 
           for f in pathlib.Path("artifacts").rglob("*"):
               if f.is_file():
-                  upload(f"artifacts/latest/{f.parent.name}/{f.name}", str(f))
+                  upload(f"artifacts/builds/{f.parent.name}/{f.name}", str(f))
 
           manifest = {
               "version": "latest",
               "date": datetime.utcnow().isoformat() + "Z",
-              "install": "pip install --extra-index-url https://bin1732.github.io/forgemind-pypi/pypi/simple/forgemind/ forgemind",
+              "files": [],
+              "install_pypi": "pip install --extra-index-url https://bin1732.github.io/forgemind-pypi/pypi/simple/forgemind/ forgemind",
               "pypi_repo": "https://github.com/bin1732/forgemind-pypi",
           }
+          for f in pathlib.Path("artifacts").rglob("*"):
+              if f.is_file():
+                  manifest["files"].append(str(f))
           mf_b64 = base64.b64encode(json.dumps(manifest, indent=2).encode()).decode()
-          r_mf = requests.get(f"{base}/contents/artifacts/latest/manifest.json",
-                              params={"ref": "main"}, headers=headers)
-          mf_data = {"message": "Upload manifest", "content": mf_b64, "branch": "main"}
+          r_mf = requests.get(f"{base}/contents/artifacts/builds/manifest.json", params={"ref": "main"}, headers=h)
+          mf_data = {"message": "Build manifest", "content": mf_b64, "branch": "main"}
           if r_mf.status_code == 200:
               mf_data["sha"] = r_mf.json().get("sha")
-          requests.put(f"{base}/contents/artifacts/latest/manifest.json",
-                       headers=headers, json=mf_data)
+          requests.put(f"{base}/contents/artifacts/builds/manifest.json", headers=h, json=mf_data)
           print("  ✅ manifest.json")
           print()
-          print("🎉 https://github.com/bin1732/forgemind/tree/main/artifacts/latest")
+          print("🎉 https://github.com/bin1732/forgemind/tree/main/artifacts/builds")
