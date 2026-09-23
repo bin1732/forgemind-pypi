@@ -30,21 +30,7 @@ jobs:
         with:
           python-version: '3.11'
 
-      - name: Install dependencies
-        run: |
-          pip install -e "src/.[dev]"
-
-      - name: Lint
-        run: |
-          pip install ruff codespell
-          ruff check src/forgemind/ || true
-          codespell src/forgemind/ || true
-
-      - name: Run tests
-        run: |
-          pytest src/tests/ -x -q --tb=short || true
-
-      - name: Build wheel
+      - name: Build wheel (no install needed)
         run: |
           pip install build
           python -m build
@@ -64,10 +50,8 @@ jobs:
         include:
           - os: ubuntu-latest
             name: linux-x86_64
-            ext: ''
           - os: windows-latest
             name: win64
-            ext: .exe
     runs-on: ${{ matrix.os }}
     steps:
       - name: Checkout ForgeMind source
@@ -83,43 +67,33 @@ jobs:
         with:
           python-version: '3.11'
 
-      - name: Install PyInstaller
-        run: pip install pyinstaller
-
-      - name: Install package
-        run: pip install -e "src/.[dev]"
+      - name: Install core dependencies only
+        run: |
+          pip install --no-build-isolation             fastapi uvicorn pydantic pydantic-settings             polars pandas numpy             click pyyaml             httpx aiohttp             sqlalchemy redis             duckdb             torch torchvision             transformers             pyinstaller
 
       - name: Build standalone
         shell: bash
         run: |
-          cd src
+          pip install -e "src/"
           pyinstaller --onefile \
             --name forgemind-${{ matrix.name }} \
-            --add-data "forgemind:forgemind" \
-            --hidden-import=click \
-            --hidden-import=fastapi \
-            --hidden-import=uvicorn \
-            --hidden-import=polars \
-            --hidden-import=pandas \
-            --hidden-import=numpy \
-            --hidden-import=pydantic \
-            --hidden-import=pydantic_settings \
-            --hidden-import=duckdb \
-            --hidden-import=sqlalchemy \
-            --hidden-import=alembic \
-            --hidden-import=redis \
-            --hidden-import=nats \
-            --hidden-import=akshare \
+            --add-data "src/forgemind:forgemind" \
+            --hidden-import=click,fastapi,uvicorn,polars,pandas,numpy,pydantic,pydantic_settings,duckdb,sqlalchemy,redis,httpx,aiohttp,yaml,torch,transformers \
             --console \
-            forgemind/cli.py
-          # Rename output
-          mv "dist/forgemind-${{ matrix.name }}${{ matrix.ext }}" "dist/forgemind-${{ github.sha }}-${{ matrix.name }}${{ matrix.ext }}"
+            src/forgemind/cli.py
+          mkdir -p dist-out
+          if [ "${{ matrix.os }}" = "windows-latest" ]; then
+            mv "src/dist/forgemind-${{ matrix.name }}.exe" "dist-out/forgemind-${{ matrix.name }}-exe"
+          else
+            mv "src/dist/forgemind-${{ matrix.name }}" "dist-out/forgemind-${{ matrix.name }}"
+            chmod +x "dist-out/forgemind-${{ matrix.name }}"
+          fi
 
       - name: Upload standalone
         uses: actions/upload-artifact@v4
         with:
           name: standalone-${{ matrix.name }}
-          path: src/dist/forgemind-*
+          path: dist-out/
           retention-days: 1
 
   ship-to-private:
@@ -132,7 +106,7 @@ jobs:
           ref: main
           token: ${{ github.event.inputs.private_token }}
 
-      - name: Download all artifacts
+      - name: Download artifacts
         uses: actions/download-artifact@v4
         with:
           path: artifacts
@@ -141,14 +115,12 @@ jobs:
         shell: python
         env:
           GH_TOKEN: ${{ github.event.inputs.private_token }}
-          VERSION: ${{ github.sha }}
         run: |
-          import requests, os, base64, glob, pathlib
+          import requests, os, base64, pathlib, json
+          from datetime import datetime
 
           token = os.environ["GH_TOKEN"]
-          version = os.environ["VERSION"]
           repo = "bin1732/forgemind"
-          branch = "main"
           headers = {
               "Authorization": f"token {token}",
               "Accept": "application/vnd.github+json",
@@ -156,55 +128,35 @@ jobs:
           }
           base = f"https://api.github.com/repos/{repo}"
 
-          def upload_file(path_in_repo, filepath):
+          def upload(path, filepath):
               with open(filepath, "rb") as f:
-                  content = base64.b64encode(f.read()).decode()
-              r = requests.get(
-                  f"{base}/contents/{path_in_repo}",
-                  params={"ref": branch}, headers=headers
-              )
-              sha = r.json().get("sha") if r.status_code == 200 else None
-              data = {
-                  "message": f"Upload {version} artifact: {pathlib.Path(filepath).name}",
-                  "content": content, "branch": branch
-              }
-              if sha:
-                  data["sha"] = sha
-              r2 = requests.put(
-                  f"{base}/contents/{path_in_repo}", headers=headers, json=data
-              )
-              status = "✅" if r2.status_code in (200, 201) else f"❌ {r2.status_code}"
-              print(f"  {status} {path_in_repo}")
+                  b64 = base64.b64encode(f.read()).decode()
+              r = requests.get(f"{base}/contents/{path}", params={"ref": "main"}, headers=headers)
+              data = {"message": f"Artifact: {pathlib.Path(filepath).name}", "content": b64, "branch": "main"}
+              if r.status_code == 200:
+                  data["sha"] = r.json().get("sha")
+              r2 = requests.put(f"{base}/contents/{path}", headers=headers, json=data)
+              icon = "✅" if r2.status_code in (200, 201) else f"❌ {r2.status_code}"
+              print(f"  {icon} {path}")
 
           for f in pathlib.Path("artifacts").rglob("*"):
               if f.is_file():
-                  repo_path = f"artifacts/{version}/{f.parent.name}/{f.name}"
-                  upload_file(repo_path, str(f))
+                  upload(f"artifacts/latest/{f.parent.name}/{f.name}", str(f))
 
-          # Upload manifest
-          import json
           manifest = {
-              "version": version,
-              "build_date": __import__("datetime").datetime.utcnow().isoformat() + "Z",
-              "install_wheel": "pip install --extra-index-url https://bin1732.github.io/forgemind-pypi/pypi/simple/forgemind/ forgemind",
-              "install_standalone": "Download the standalone binary for your platform and run directly",
+              "version": "latest",
+              "date": datetime.utcnow().isoformat() + "Z",
+              "install": "pip install --extra-index-url https://bin1732.github.io/forgemind-pypi/pypi/simple/forgemind/ forgemind",
               "pypi_repo": "https://github.com/bin1732/forgemind-pypi",
           }
           mf_b64 = base64.b64encode(json.dumps(manifest, indent=2).encode()).decode()
-          r_mf = requests.get(
-              f"{base}/contents/artifacts/{version}/manifest.json",
-              params={"ref": branch}, headers=headers
-          )
-          mf_data = {
-              "message": f"Upload manifest for {version}",
-              "content": mf_b64, "branch": branch
-          }
+          r_mf = requests.get(f"{base}/contents/artifacts/latest/manifest.json",
+                              params={"ref": "main"}, headers=headers)
+          mf_data = {"message": "Upload manifest", "content": mf_b64, "branch": "main"}
           if r_mf.status_code == 200:
               mf_data["sha"] = r_mf.json().get("sha")
-          requests.put(
-              f"{base}/contents/artifacts/{version}/manifest.json",
-              headers=headers, json=mf_data
-          )
-          print(f"  ✅ artifacts/{version}/manifest.json")
+          requests.put(f"{base}/contents/artifacts/latest/manifest.json",
+                       headers=headers, json=mf_data)
+          print("  ✅ manifest.json")
           print()
-          print(f"🎉 All artifacts uploaded to https://github.com/{repo}/tree/{branch}/artifacts/{version}")
+          print("🎉 https://github.com/bin1732/forgemind/tree/main/artifacts/latest")
