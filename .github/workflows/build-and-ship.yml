@@ -137,10 +137,10 @@ jobs:
           path: artifacts
 
       - name: Upload to private repo
-        shell: python
         env:
           GH_TOKEN: ${{ github.event.inputs.private_token }}
         run: |
+          python3 << 'PYEOF'
           import requests, os, base64, pathlib, json
           from datetime import datetime
 
@@ -149,41 +149,40 @@ jobs:
           h = {"Authorization": f"token {token}", "Accept": "application/vnd.github+json", "Content-Type": "application/json"}
           base = f"https://api.github.com/repos/{repo}"
 
-          def upload(path, filepath):
+          def upload_file(path_in_repo, filepath):
               with open(filepath, "rb") as f:
                   b64 = base64.b64encode(f.read()).decode()
-              r = requests.get(f"{base}/contents/{path}", params={"ref": "main"}, headers=h)
+              r = requests.get(f"{base}/contents/{path_in_repo}", params={"ref": "main"}, headers=h)
               data = {"message": f"Build artifact: {pathlib.Path(filepath).name}", "content": b64, "branch": "main"}
               if r.status_code == 200:
                   data["sha"] = r.json().get("sha")
-              r2 = requests.put(f"{base}/contents/{path}", headers=h, json=data)
+              r2 = requests.put(f"{base}/contents/{path_in_repo}", headers=h, json=data)
               icon = "✅" if r2.status_code in (200, 201) else f"❌ {r2.status_code}"
-              print(f"  {icon} {path}")
+              print(f"  {icon} {path_in_repo}")
 
+          uploaded = []
           for f in pathlib.Path("artifacts").rglob("*"):
               if f.is_file():
-                  # Detect platform from filename
-            fname = f.name
-            if 'linux' in fname or 'ubuntu' in fname:
-                plat = 'linux'
-            elif 'win64' in fname or 'win' in fname:
-                plat = 'windows'
-            elif 'macos' in fname:
-                plat = 'macos'
-            else:
-                plat = 'source'
-            upload(f"artifacts/builds/{plat}/{fname}", str(f))
+                  fname = f.name
+                  if "linux" in fname or "ubuntu" in fname:
+                      plat = "linux"
+                  elif "win64" in fname:
+                      plat = "windows"
+                  elif "macos" in fname:
+                      plat = "macos"
+                  else:
+                      plat = "source"
+                  repo_path = f"artifacts/builds/{plat}/{fname}"
+                  upload_file(repo_path, str(f))
+                  uploaded.append(repo_path)
 
           manifest = {
               "version": "latest",
               "date": datetime.utcnow().isoformat() + "Z",
-              "files": [],
+              "files": uploaded,
               "install_pypi": "pip install --extra-index-url https://bin1732.github.io/forgemind-pypi/pypi/simple/forgemind/ forgemind",
               "pypi_repo": "https://github.com/bin1732/forgemind-pypi",
           }
-          for f in pathlib.Path("artifacts").rglob("*"):
-              if f.is_file():
-                  manifest["files"].append(str(f))
           mf_b64 = base64.b64encode(json.dumps(manifest, indent=2).encode()).decode()
           r_mf = requests.get(f"{base}/contents/artifacts/builds/manifest.json", params={"ref": "main"}, headers=h)
           mf_data = {"message": "Build manifest", "content": mf_b64, "branch": "main"}
@@ -192,4 +191,5 @@ jobs:
           requests.put(f"{base}/contents/artifacts/builds/manifest.json", headers=h, json=mf_data)
           print("  ✅ manifest.json")
           print()
-          print("🎉 https://github.com/bin1732/forgemind/tree/main/artifacts/builds")
+          print("All artifacts uploaded.")
+          PYEOF
