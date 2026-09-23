@@ -1,0 +1,16 @@
+# CODEOWNERS — ForgeMind
+
+# 默认所有者
+* @bin1732
+
+# 特定模块所有者
+forgemind/core/factors/     @bin1732
+forgemind/core/strategies/ @bin1732
+forgemind/core/agents/     @bin1732
+forgemind/core/ai/         @bin1732
+forgemind/core/backtest/   @bin1732
+forgemind/core/pipeline/   @bin1732
+forgemind/core/models/     @bin1732
+forgemind/mcp/             @bin1732
+forgemind-ui/              @bin1732
+.github/                   @bin1732

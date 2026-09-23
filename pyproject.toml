@@ -1,0 +1,133 @@
+[build-system]
+requires = ["setuptools>=68", "setuptools-pkg>=0.1"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "forgemind"
+version = "2026.09.0"
+description = "ForgeMind - AI Quant Trading Agent"
+requires-python = ">=3.11"
+readme = "README.md"
+license = { text = "Apache-2.0" }
+
+# Core deps — 锁版本(避免 supply chain attack)
+dependencies = [
+    # Web / API
+    "fastapi==0.115.5",
+    "uvicorn[standard]==0.32.1",
+    "pydantic==2.10.3",
+    "pydantic-settings==2.6.1",
+    "python-multipart==0.0.20",
+    
+    # DB / 数据
+    "polars==1.17.1",
+    "duckdb==1.1.3",
+    "clickhouse-driver==0.2.9",
+    "asyncpg==0.30.0",
+    "sqlalchemy==2.0.36",
+    "alembic==1.14.0",
+    
+    # 缓存 / 队列
+    "redis==5.2.1",
+    "nats-py==0.4.0",
+    
+    # 任务编排
+    "prefect==3.0.3",
+    
+    # 量化
+    "vectorbt==0.26.2",
+    "nautilus-trader==1.219.0",
+    "qlib==0.9.7",
+    "pandas==2.2.3",
+    "numpy==1.26.4",
+    "ta-lib==0.5.1",
+    
+    # ML
+    "lightgbm==4.5.0",
+    "xgboost==2.1.3",
+    "onnxruntime==1.20.1",
+    "scikit-learn==1.6.0",
+    "scipy==1.13.1",
+    "torch==2.4.1",
+    
+    # AI Agent
+    "langgraph==0.2.55",
+    "langchain-core==0.3.21",
+    "langchain-openai==0.2.5",
+    "langchain-anthropic==0.3.1",
+    "openai==1.59.7",
+    "anthropic==0.40.1",
+    
+    # RAG
+    "llama-index==0.12.18",
+    "llama-index-embeddings-huggingface==0.5.0",
+    "chromadb==0.5.23",
+    
+    # 行情
+    "akshare==1.15.50",
+    "tushare==1.4.21",
+    "baostock==0.8.9",
+    "yfinance==0.2.51",
+    "ccxt==4.4.66",
+    
+    # 业绩归因
+    "quantstats==0.0.62",
+    "empyrical-reloaded==0.5.9",
+    
+    # 工具
+    "httpx==0.28.1",
+    "tenacity==9.0.0",
+    "structlog==24.4.0",
+    "python-jose[cryptography]==3.3.0",
+    "passlib[bcrypt]==1.7.4",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest==8.3.4",
+    "pytest-asyncio==0.24.0",
+    "pytest-cov==6.0.0",
+    "ruff==0.8.3",
+    "mypy==1.13.0",
+    "black==24.10.0",
+]
+# 注:v1.0+ ForgeMind 完全解耦券商 SDK
+# 用户用 vnpy / nautilus_trader / 自己 broker SDK 执行信号
+# §24 L7 信号输出层
+desktop = [
+    "tauri-cli==2.11.4",  # 仅参考
+]
+
+[project.scripts]
+forgemind = "forgemind.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["forgemind*"]
+exclude = ["tests*", "scripts*", "docker*", "configs*", "migrations*"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+addopts = "-v --tb=short --strict-markers"
+markers = [
+    "slow: marks tests as slow (deselect with '-m \"not slow\"')",
+    "integration: marks integration tests (requires docker)",
+    "broker: marks tests requiring broker credentials",
+]
+
+[tool.ruff]
+line-length = 100
+
+[tool.ruff.lint]
+target-version = "py312"
+select = ["E", "F", "I", "N", "W", "UP", "B", "A", "C4", "PT"]
+ignore = ["E501", "B008"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+warn_unused_ignores = true

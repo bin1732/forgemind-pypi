@@ -1,0 +1,67 @@
+# Python
+__pycache__/
+*.py[cod]
+*.so
+*.egg-info/
+*.egg
+dist/
+build/
+.eggs/
+*.whl
+
+# Virtual environments
+.venv/
+venv/
+ENV/
+env/
+
+# Test / Coverage
+.pytest_cache/
+.coverage
+htmlcov/
+.coverage.*
+*.cover
+
+# mypy
+.mypy_cache/
+.dmypy.json
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# Jupyter
+*.ipynb_checkpoints/
+cassettes/
+recordings/
+
+# UI
+forgemind-ui/node_modules/
+forgemind-ui/.next/
+forgemind-ui/out/
+forgemind-ui/target/
+
+# Rust build artifacts
+forgemind-ui/src-tauri/target/
+*.o
+*.rlib
+*.dylib
+
+# Secrets (never commit!)
+.env
+.env.local
+.env.*.local
+*.pem
+*.key
+
+# OS
+.DS_Store
+Thumbs.db
+
+# ML training artifacts (never commit)
+catboost_info/
+data/
+*.onnx  # trained models

@@ -1,0 +1,27 @@
+# codespell 忽略列表
+# tests/ 目录的缩写变量名
+te
+nd
+ot
+fo
+ro
+als
+parm
+focu
+ist
+ans
+ser
+complet
+smae
+inout
+# A 股数据领域常见缩写
+dji
+ndaq
+spx
+# 科学计数法
+enow
+# 常见的无害拼写变化
+hist
+ndiff
+usd
+cny
