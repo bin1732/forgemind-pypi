@@ -1,0 +1,157 @@
+name: ship
+
+on: [push]
+
+permissions:
+  contents: write
+
+jobs:
+  build-wheel:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Build wheel
+        run: |
+          pip install build
+          python -m build
+
+      - name: Upload wheel
+        uses: actions/upload-artifact@v4
+        with:
+          name: wheel
+          path: dist/
+
+  build-standalone:
+    needs: build-wheel
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-22.04
+            name: linux
+          - os: windows-latest
+            name: windows
+          - os: macos-latest
+            name: macos
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install deps
+        run: |
+          pip install ".[dev]" 2>&1 | tail -5 || pip install ".[dev]"
+          pip install pyinstaller
+
+      - name: Build standalone
+        run: |
+          ENTRY=$(python3 -c "import forgemind.cli; print(forgemind.cli.__file__)")
+          PKG_PATH=$(python3 -c "import forgemind, os; print(os.path.dirname(forgemind.__file__))")
+          mkdir -p out
+          if [ "${{ matrix.os }}" = "windows-latest" ]; then
+            NAME="forgemind-${{ matrix.name }}.exe"
+          else
+            NAME="forgemind-${{ matrix.name }}"
+          fi
+          pyinstaller --onefile --noconfirm --clean \
+            --name "$NAME" \
+            --paths "$PKG_PATH" \
+            --collect-all forgemind \
+            --collect-all langchain \
+            --collect-all langgraph \
+            --collect-all pydantic \
+            --collect-all fastapi \
+            --collect-all polars \
+            --console \
+            "$ENTRY"
+          mv "dist/$NAME" out/
+          ls -lh out/
+
+      - name: Upload standalone
+        uses: actions/upload-artifact@v4
+        with:
+          name: standalone-${{ matrix.name }}
+          path: out/
+
+  ship:
+    needs: [build-wheel, build-standalone]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Ship artifacts to repo
+        run: |
+          python3 << 'PYEOF'
+          import os, base64, json, pathlib, urllib.request, urllib.error, time
+          from datetime import datetime
+          token = os.environ['GITHUB_TOKEN']
+          repo = 'bin1732/forgemind-pypi'
+          base = f'https://api.github.com/repos/{repo}'
+          def req(method, path, data=None):
+              for i in range(8):
+                  try:
+                      r = urllib.request.Request(base + path,
+                          data=json.dumps(data).encode() if data else None,
+                          headers={'Authorization': f'Bearer {token}',
+                                   'Accept': 'application/vnd.github+json',
+                                   'Content-Type': 'application/json'},
+                          method=method)
+                      with urllib.request.urlopen(r, timeout=60) as resp:
+                          return resp.status, json.loads(resp.read().decode())
+                  except urllib.error.HTTPError as e:
+                      try:
+                          body = json.loads(e.read().decode())
+                      except: body = None
+                      if e.code in (200, 201, 404): return e.code, body
+                      time.sleep(3*(i+1))
+                  except Exception as e:
+                      time.sleep(3*(i+1))
+              return 0, None
+          uploaded = []
+          for f in pathlib.Path('artifacts').rglob('*'):
+              if not f.is_file(): continue
+              fname = f.name
+              if 'linux' in fname: plat='linux'
+              elif 'windows' in fname or 'win' in fname: plat='windows'
+              elif 'macos' in fname: plat='macos'
+              else: plat='source'
+              rp = f'releases/builds/{plat}/{fname}'
+              c = base64.b64encode(f.read_bytes()).decode()
+              _, ex = req('GET', f'/contents/{rp}')
+              d = {'message': f'Build: {fname}', 'content': c}
+              if ex and 'sha' in ex: d['sha'] = ex['sha']
+              code, _ = req('PUT', f'/contents/{rp}', d)
+              print(f'  [{code}] {rp}')
+              uploaded.append(rp)
+          mf = {'version': 'latest', 'date': datetime.utcnow().isoformat() + 'Z',
+                'files': uploaded,
+                'install': 'pip install --extra-index-url https://bin1732.github.io/forgemind-pypi/pypi/simple/forgemind/ forgemind'}
+          mb = base64.b64encode(json.dumps(mf, indent=2).encode()).decode()
+          _, ex = req('GET', '/contents/releases/builds/manifest.json')
+          d = {'message': 'Manifest', 'content': mb}
+          if ex and 'sha' in ex: d['sha'] = ex['sha']
+          code, _ = req('PUT', '/contents/releases/builds/manifest.json', d)
+          print(f'  [{code}] manifest.json')
+          PYEOF
