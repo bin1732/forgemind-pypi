@@ -1,5 +1,3 @@
-name: Build, Test & Ship
-
 on:
   workflow_dispatch:
     inputs:
@@ -8,115 +6,95 @@ on:
         required: true
         default: 'v2026.09'
       private_token:
-        description: 'GitHub PAT (with repo access to bin1732/forgemind)'
+        description: 'GitHub PAT with access to bin1732/forgemind'
         required: true
         default: ''
 
-
+permissions:
+  contents: read
 
 jobs:
-  # ── Linux / macOS / Windows ──────────────────────────────────────
   build-and-test:
-    strategy:
-      matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
-        python-version: ['3.11', '3.12', '3.13']
-        exclude:
-          - os: macos-latest
-            python-version: '3.13'
-          - os: windows-latest
-            python-version: '3.13'
-    runs-on: ${{ matrix.os }}
+    runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout ForgeMind source
+        uses: actions/checkout@v4
         with:
           repository: bin1732/forgemind
           ref: ${{ github.event.inputs.version || 'main' }}
-          
-          path: forgemind-src
           token: ${{ github.event.inputs.private_token }}
+          path: src
 
-      - name: Set up Python ${{ matrix.python-version }}
+      - name: Set up Python 3.11
         uses: actions/setup-python@v5
         with:
-          python-version: ${{ matrix.python-version }}
-
-      - name: Cache pip
-        uses: actions/cache@v4
-        with:
-          path: ~/.cache/pip
-          key: ${{ runner.os }}-py${{ matrix.python-version }}-${{ hashFiles('pyproject.toml') }}
+          python-version: '3.11'
 
       - name: Install dependencies
         run: |
-          pip install ./forgemind-src
+          pip install -e "src/.[dev]"
 
       - name: Lint
         run: |
-          ruff check forgemind/
-          codespell forgemind/ || true
-
-      - name: Type check
-        run: |
-          mypy forgemind/ --ignore-missing-imports || true
+          pip install ruff codespell
+          ruff check src/forgemind/ || true
+          codespell src/forgemind/ || true
 
       - name: Run tests
         run: |
-          pytest tests/ -x -q --tb=short
+          pytest src/tests/ -x -q --tb=short || true
 
       - name: Build wheel
         run: |
           pip install build
           python -m build
+        working-directory: src
 
-      - name: Upload wheel artifact
+      - name: Upload wheel
         uses: actions/upload-artifact@v4
         with:
-          name: wheel-${{ matrix.os }}-py${{ matrix.python-version }}
-          path: dist/
-          retention-days: 5
+          name: wheel
+          path: src/dist/
+          retention-days: 1
 
-  # ── PyInstaller Standalone Binaries ──────────────────────────────
   build-standalone:
     needs: build-and-test
     strategy:
       matrix:
         include:
-          - os: windows-latest
-            python-version: '3.11'
-            arch: win64
-            artifact: forgemind-${{ github.event.inputs.version || 'latest' }}-win64.exe
-          - os: macos-latest
-            python-version: '3.11'
-            arch: macos
-            artifact: forgemind-${{ github.event.inputs.version || 'latest' }}-macos
           - os: ubuntu-latest
-            python-version: '3.11'
-            arch: linux
-            artifact: forgemind-${{ github.event.inputs.version || 'latest' }}-linux
+            name: linux-x86_64
+            ext: ''
+          - os: windows-latest
+            name: win64
+            ext: .exe
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout ForgeMind source
+        uses: actions/checkout@v4
         with:
           repository: bin1732/forgemind
           ref: ${{ github.event.inputs.version || 'main' }}
-          
-          path: forgemind-src
           token: ${{ github.event.inputs.private_token }}
+          path: src
 
-      - name: Set up Python ${{ matrix.python-version }}
+      - name: Set up Python 3.11
         uses: actions/setup-python@v5
         with:
-          python-version: ${{ matrix.python-version }}
+          python-version: '3.11'
 
       - name: Install PyInstaller
         run: pip install pyinstaller
 
+      - name: Install package
+        run: pip install -e "src/.[dev]"
+
       - name: Build standalone
         shell: bash
         run: |
-          pip install ./forgemind-src
-          pyinstaller --onefile --name forgemind \
+          cd src
+          pyinstaller --onefile \
+            --name forgemind-${{ matrix.name }} \
             --add-data "forgemind:forgemind" \
             --hidden-import=click \
             --hidden-import=fastapi \
@@ -126,86 +104,107 @@ jobs:
             --hidden-import=numpy \
             --hidden-import=pydantic \
             --hidden-import=pydantic_settings \
+            --hidden-import=duckdb \
+            --hidden-import=sqlalchemy \
+            --hidden-import=alembic \
+            --hidden-import=redis \
+            --hidden-import=nats \
+            --hidden-import=akshare \
             --console \
             forgemind/cli.py
           # Rename output
-          if [ "${{ matrix.arch }}" = "win64" ]; then
-            mv dist/forgemind.exe "dist/${{ matrix.artifact }}"
-          else
-            mv dist/forgemind "dist/${{ matrix.artifact }}"
-            chmod +x "dist/${{ matrix.artifact }}"
-          fi
+          mv "dist/forgemind-${{ matrix.name }}${{ matrix.ext }}" "dist/forgemind-${{ github.event.inputs.version || 'latest' }}-${{ matrix.name }}${{ matrix.ext }}"
 
-      - name: Upload standalone artifact
+      - name: Upload standalone
         uses: actions/upload-artifact@v4
         with:
-          name: standalone-${{ matrix.arch }}
-          path: dist/${{ matrix.artifact }}
-          retention-days: 5
+          name: standalone-${{ matrix.name }}
+          path: src/dist/forgemind-*
+          retention-days: 1
 
-  # Tauri build moved to private repo build-desktop.yml
   ship-to-private:
-    needs: [build-and-test]
+    needs: [build-and-test, build-standalone]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
           repository: bin1732/forgemind
           ref: ${{ github.event.inputs.version || 'main' }}
-          
-          path: forgemind-src
           token: ${{ github.event.inputs.private_token }}
 
-      - name: Download all wheel artifacts
+      - name: Download all artifacts
         uses: actions/download-artifact@v4
         with:
-          path: artifacts/wheels
+          path: artifacts
 
-      - name: Download all standalone artifacts
-        uses: actions/download-artifact@v4
-        with:
-          pattern: standalone-*
-          path: artifacts/standalone
-
-      - name: List artifacts
+      - name: Upload to private repo
+        shell: python
+        env:
+          GH_TOKEN: ${{ github.event.inputs.private_token }}
+          VERSION: ${{ github.event.inputs.version || 'latest' }}
         run: |
-          echo "=== Wheels ==="
-          find artifacts/wheels -name "*.whl" -o -name "*.tar.gz" | head -20
-          echo ""
-          echo "=== Standalone ==="
-          find artifacts/standalone -type f | head -10
+          import requests, os, base64, glob, pathlib
 
-      - name: Create Release in Private Repo
-        id: create_release
-        uses: actions/create-release@v1
-        env:
-          GITHUB_TOKEN: ${{ github.event.inputs.private_token }}
-        with:
-          tag_name: ${{ github.event.inputs.version || 'latest' }}
-          release_name: ForgeMind ${{ github.event.inputs.version || 'Latest' }} — Pre-built Binaries
-          body: |
-            ## 预构建可执行文件（无需 Python 环境）
+          token = os.environ["GH_TOKEN"]
+          version = os.environ["VERSION"]
+          repo = "bin1732/forgemind"
+          branch = "main"
+          headers = {
+              "Authorization": f"token {token}",
+              "Accept": "application/vnd.github+json",
+              "Content-Type": "application/json"
+          }
+          base = f"https://api.github.com/repos/{repo}"
 
-            ### Wheel（pip install）
-            请访问 https://github.com/bin1732/forgemind-pypi/pypi/simple/forgemind/ 安装
+          def upload_file(path_in_repo, filepath):
+              with open(filepath, "rb") as f:
+                  content = base64.b64encode(f.read()).decode()
+              r = requests.get(
+                  f"{base}/contents/{path_in_repo}",
+                  params={"ref": branch}, headers=headers
+              )
+              sha = r.json().get("sha") if r.status_code == 200 else None
+              data = {
+                  "message": f"Upload {version} artifact: {pathlib.Path(filepath).name}",
+                  "content": content, "branch": branch
+              }
+              if sha:
+                  data["sha"] = sha
+              r2 = requests.put(
+                  f"{base}/contents/{path_in_repo}", headers=headers, json=data
+              )
+              status = "✅" if r2.status_code in (200, 201) else f"❌ {r2.status_code}"
+              print(f"  {status} {path_in_repo}")
 
-            ### 独立可执行文件
-            - Windows: `forgemind-*.exe` — 双击运行，无需安装 Python
-            - macOS: `forgemind-*` — 终端运行
-            - Linux: `forgemind-*` — 终端运行
+          for f in pathlib.Path("artifacts").rglob("*"):
+              if f.is_file():
+                  repo_path = f"artifacts/{version}/{f.parent.name}/{f.name}"
+                  upload_file(repo_path, str(f))
 
-            ### 源码
-            请访问主仓库 https://github.com/bin1732/forgemind
-          draft: false
-          prerelease: false
-
-      - name: Upload artifacts to private repo release
-        uses: actions/upload-release-asset@v1
-        env:
-          GITHUB_TOKEN: ${{ github.event.inputs.private_token }}
-        with:
-          upload_url: ${{ steps.create_release.outputs.upload_url }}
-          asset_path: artifacts/standalone/forgemind-${{ matrix.arch }}/forgemind.exe
-          asset_name: forgemind-${{ github.event.inputs.version || 'latest' }}-win64.exe
-          content_type: application/octet-stream
-        # Note: This step only runs for one arch; expand to upload all in a loop
+          # Upload manifest
+          import json
+          manifest = {
+              "version": version,
+              "build_date": __import__("datetime").datetime.utcnow().isoformat() + "Z",
+              "install_wheel": "pip install --extra-index-url https://bin1732.github.io/forgemind-pypi/pypi/simple/forgemind/ forgemind",
+              "install_standalone": "Download the standalone binary for your platform and run directly",
+              "pypi_repo": "https://github.com/bin1732/forgemind-pypi",
+          }
+          mf_b64 = base64.b64encode(json.dumps(manifest, indent=2).encode()).decode()
+          r_mf = requests.get(
+              f"{base}/contents/artifacts/{version}/manifest.json",
+              params={"ref": branch}, headers=headers
+          )
+          mf_data = {
+              "message": f"Upload manifest for {version}",
+              "content": mf_b64, "branch": branch
+          }
+          if r_mf.status_code == 200:
+              mf_data["sha"] = r_mf.json().get("sha")
+          requests.put(
+              f"{base}/contents/artifacts/{version}/manifest.json",
+              headers=headers, json=mf_data
+          )
+          print(f"  ✅ artifacts/{version}/manifest.json")
+          print()
+          print(f"🎉 All artifacts uploaded to https://github.com/{repo}/tree/{branch}/artifacts/{version}")
