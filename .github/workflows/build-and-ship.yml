@@ -47,7 +47,7 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - os: ubuntu-22.04  # GLIBC 2.35 for max compat
+          - os: ubuntu-22.04
             name: linux-x86_64
             artifact_name: forgemind-linux-x86_64
           - os: windows-latest
@@ -69,88 +69,39 @@ jobs:
         with:
           python-version: '3.11'
 
-      - name: Install runtime dependencies (for PyInstaller to bundle)
+      - name: Install forgemind + all runtime deps via pyproject.toml
         shell: bash
         run: |
-          pip install --no-build-isolation --only-binary=:all: \
-            fastapi uvicorn pydantic pydantic-settings polars duckdb \
-            sqlalchemy alembic redis clickhouse-driver asyncpg python-multipart \
-            structlog httpx aiohttp click pyyaml \
-            openai anthropic "anthropic>=0.3,<1" \
-            langchain langchain-core langchain-openai "langchain-anthropic>=0.3,<1" \
-            langgraph "scipy>=1.10" pandas numpy "jsonpath-ng>=1.7,<2"
-          # Pre-pin problematic transitive deps with wheels
-          pip install --only-binary=:all: jsonpath-ng jsonpatch || true
+          # pip install from local source - reads pyproject.toml for deps
+          # --no-deps would skip deps; we WANT them for PyInstaller to find
+          pip install "src/.[dev,etl]" 2>&1 | tail -5 || \
+          pip install "src/.[dev]" 2>&1 | tail -5
+          # Verify pydantic is now importable
+          python3 -c "import pydantic, fastapi, polars, duckdb; print('imports OK')"
 
       - name: Install PyInstaller
         shell: bash
         run: pip install pyinstaller
 
-      - name: Build standalone (Linux)
-        if: matrix.os == 'ubuntu-22.04'
+      - name: Build standalone via module entry-point
         shell: bash
         run: |
-          mkdir -p out
-          pyinstaller --onefile --noconfirm \
-            --name ${{ matrix.artifact_name }} \
-            --paths src \
-            --add-data "src/forgemind:forgemind" \
-            --collect-all langchain \
-            --collect-all langgraph \
-            --collect-all langchain_core \
-            --collect-all langchain_openai \
-            --collect-all langchain_anthropic \
-            --collect-all anthropic \
-            --collect-all openai \
-            --collect-all fastapi \
-            --collect-all uvicorn \
-            --collect-all polars \
-            --collect-all duckdb \
-            --collect-all sqlalchemy \
-            --collect-all akshare \
-            --collect-submodules forgemind \
-            --console \
-            src/forgemind/cli.py
-          mv dist/${{ matrix.artifact_name }} out/
-          ls -lh out/
+          # Resolve the actual installed forgemind.cli module path
+          ENTRY=$(python3 -c "import forgemind.cli; print(forgemind.cli.__file__)")
+          echo "Entry point: $ENTRY"
 
-      - name: Build standalone (Windows)
-        if: matrix.os == 'windows-latest'
-        shell: bash
-        run: |
-          mkdir -p out
-          pyinstaller --onefile --noconfirm \
-            --name ${{ matrix.artifact_name }} \
-            --paths src \
-            --add-data "src/forgemind;forgemind" \
-            --collect-all langchain \
-            --collect-all langgraph \
-            --collect-all langchain_core \
-            --collect-all langchain_openai \
-            --collect-all langchain_anthropic \
-            --collect-all anthropic \
-            --collect-all openai \
-            --collect-all fastapi \
-            --collect-all uvicorn \
-            --collect-all polars \
-            --collect-all duckdb \
-            --collect-all sqlalchemy \
-            --collect-all akshare \
-            --collect-submodules forgemind \
-            --console \
-            src/forgemind/cli.py
-          mv dist/${{ matrix.artifact_name }} out/
-          ls -lh out/
+          # Determine paths argument (where forgemind package lives)
+          PKG_PATH=$(python3 -c "import forgemind, os; print(os.path.dirname(forgemind.__file__))")
+          echo "Package path: $PKG_PATH"
 
-      - name: Build standalone (macOS)
-        if: matrix.os == 'macos-latest'
-        shell: bash
-        run: |
           mkdir -p out
-          pyinstaller --onefile --noconfirm \
+
+          # Run PyInstaller. --collect-all forgemind bundles all submodules.
+          # --collect-all on heavy deps ensures data files are included.
+          pyinstaller --onefile --noconfirm --clean \
             --name ${{ matrix.artifact_name }} \
-            --paths src \
-            --add-data "src/forgemind:forgemind" \
+            --paths "$PKG_PATH" \
+            --collect-all forgemind \
             --collect-all langchain \
             --collect-all langgraph \
             --collect-all langchain_core \
@@ -163,13 +114,14 @@ jobs:
             --collect-all polars \
             --collect-all duckdb \
             --collect-all sqlalchemy \
-            --collect-all akshare \
-            --collect-submodules forgemind \
-            --target-arch arm64 \
+            --collect-all pydantic \
             --console \
-            src/forgemind/cli.py
-          mv dist/${{ matrix.artifact_name }} out/
+            "$ENTRY"
+
+          mv "dist/${{ matrix.artifact_name }}" out/
           ls -lh out/
+          echo "--- Binary built ---"
+          file out/* || true
 
       - name: Upload standalone
         uses: actions/upload-artifact@v4
@@ -214,7 +166,7 @@ jobs:
               if r.status_code == 200:
                   data["sha"] = r.json().get("sha")
               r2 = requests.put(f"{base}/contents/{path_in_repo}", headers=h, json=data)
-              icon = "✅" if r2.status_code in (200, 201) else f"❌ {r2.status_code}"
+              icon = "[OK]" if r2.status_code in (200, 201) else f"[FAIL {r2.status_code}]"
               print(f"  {icon} {path_in_repo}")
 
           uploaded = []
@@ -246,7 +198,5 @@ jobs:
           if r_mf.status_code == 200:
               mf_data["sha"] = r_mf.json().get("sha")
           requests.put(f"{base}/contents/artifacts/builds/manifest.json", headers=h, json=mf_data)
-          print("  ✅ manifest.json")
-          print()
-          print("All artifacts uploaded.")
+          print("  [OK] manifest.json")
           PYEOF
