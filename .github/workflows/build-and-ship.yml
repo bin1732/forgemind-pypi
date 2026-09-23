@@ -150,22 +150,31 @@ jobs:
           GH_TOKEN: ${{ github.event.inputs.private_token }}
         run: |
           python3 << 'PYEOF'
-          import requests, os, base64, pathlib, json
+          import requests, os, base64, pathlib, json, time
           from datetime import datetime
+          from requests.adapters import HTTPAdapter
+          from urllib3.util.retry import Retry
 
           token = os.environ["GH_TOKEN"]
           repo = "bin1732/forgemind"
           h = {"Authorization": f"token {token}", "Accept": "application/vnd.github+json", "Content-Type": "application/json"}
           base = f"https://api.github.com/repos/{repo}"
 
+          # Configure retry on SSL/connection errors
+          session = requests.Session()
+          retry = Retry(total=5, backoff_factor=1, status_forcelist=[500, 502, 503, 504])
+          adapter = HTTPAdapter(max_retries=retry)
+          session.mount("https://", adapter)
+          session.mount("http://", adapter)
+
           def upload_file(path_in_repo, filepath):
               with open(filepath, "rb") as f:
                   b64 = base64.b64encode(f.read()).decode()
-              r = requests.get(f"{base}/contents/{path_in_repo}", params={"ref": "main"}, headers=h)
+              r = session.get(f"{base}/contents/{path_in_repo}", params={"ref": "main"}, headers=h, timeout=30)
               data = {"message": f"Build artifact: {pathlib.Path(filepath).name}", "content": b64, "branch": "main"}
               if r.status_code == 200:
                   data["sha"] = r.json().get("sha")
-              r2 = requests.put(f"{base}/contents/{path_in_repo}", headers=h, json=data)
+              r2 = session.put(f"{base}/contents/{path_in_repo}", headers=h, json=data, timeout=60)
               icon = "[OK]" if r2.status_code in (200, 201) else f"[FAIL {r2.status_code}]"
               print(f"  {icon} {path_in_repo}")
 
