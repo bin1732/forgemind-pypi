@@ -32,6 +32,8 @@ jobs:
         with:
           repository: bin1732/forgemind
           ref: ${{ github.event.inputs.version || 'main' }}
+          
+          path: forgemind-src
           token: ${{ github.event.inputs.private_token }}
 
       - name: Set up Python ${{ matrix.python-version }}
@@ -47,7 +49,7 @@ jobs:
 
       - name: Install dependencies
         run: |
-          pip install -e ".[dev]"
+          pip install ./forgemind-src
 
       - name: Lint
         run: |
@@ -98,6 +100,8 @@ jobs:
         with:
           repository: bin1732/forgemind
           ref: ${{ github.event.inputs.version || 'main' }}
+          
+          path: forgemind-src
           token: ${{ github.event.inputs.private_token }}
 
       - name: Set up Python ${{ matrix.python-version }}
@@ -111,7 +115,7 @@ jobs:
       - name: Build standalone
         shell: bash
         run: |
-          pip install -e .
+          pip install ./forgemind-src
           pyinstaller --onefile --name forgemind \
             --add-data "forgemind:forgemind" \
             --hidden-import=click \
@@ -148,6 +152,8 @@ jobs:
         with:
           repository: bin1732/forgemind
           ref: ${{ github.event.inputs.version || 'main' }}
+          
+          path: forgemind-src
           token: ${{ github.event.inputs.private_token }}
 
       - name: Download all wheel artifacts
