@@ -78,7 +78,7 @@ jobs:
             structlog httpx aiohttp click pyyaml \
             openai anthropic "anthropic>=0.3,<1" \
             langchain langchain-core langchain-openai "langchain-anthropic>=0.3,<1" \
-            langgraph "scipy>=1.10" pandas numpy akshare
+            langgraph "scipy>=1.10" pandas numpy "akshare<1.17" "jsonpath-ng"
           # Pre-pin problematic transitive deps with wheels
           pip install --only-binary=:all: jsonpath-ng jsonpatch || true
 
