@@ -1,0 +1,261 @@
+"on":
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version tag'
+        required: true
+        default: 'v2026.09'
+      private_token:
+        description: 'GitHub PAT'
+        required: true
+        default: ''
+
+permissions:
+  contents: read
+
+jobs:
+  build-wheel:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: bin1732/forgemind
+          ref: main
+          token: ${{ github.event.inputs.private_token }}
+          path: src
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Build wheel
+        run: |
+          pip install build
+          python -m build
+        working-directory: src
+
+      - name: Upload wheel
+        uses: actions/upload-artifact@v4
+        with:
+          name: wheel
+          path: src/dist/
+          retention-days: 1
+
+  build-standalone:
+    needs: build-wheel
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-22.04
+            name: linux-x86_64
+            artifact_name: forgemind-linux-x86_64
+          - os: windows-latest
+            name: win64
+            artifact_name: forgemind-win64.exe
+          - os: macos-latest
+            name: macos-arm64
+            artifact_name: forgemind-macos-arm64
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: bin1732/forgemind
+          ref: main
+          token: ${{ github.event.inputs.private_token }}
+          path: src
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install forgemind + all runtime deps via pyproject.toml
+        shell: bash
+        run: |
+          # pip install from local source - reads pyproject.toml for deps
+          # --no-deps would skip deps; we WANT them for PyInstaller to find
+          pip install "src/.[dev,etl]" 2>&1 | tail -5 || \
+          pip install "src/.[dev]" 2>&1 | tail -5
+          # Verify pydantic is now importable
+          python3 -c "import pydantic, fastapi, polars, duckdb; print('imports OK')"
+
+      - name: Install PyInstaller
+        shell: bash
+        run: pip install pyinstaller
+
+      - name: Build standalone via module entry-point
+        shell: bash
+        run: |
+          # Resolve the actual installed forgemind.cli module path
+          ENTRY=$(python3 -c "import forgemind.cli; print(forgemind.cli.__file__)")
+          echo "Entry point: $ENTRY"
+
+          # Determine paths argument (where forgemind package lives)
+          PKG_PATH=$(python3 -c "import forgemind, os; print(os.path.dirname(forgemind.__file__))")
+          echo "Package path: $PKG_PATH"
+
+          mkdir -p out
+
+          # Run PyInstaller. --collect-all forgemind bundles all submodules.
+          # --collect-all on heavy deps ensures data files are included.
+          pyinstaller --onefile --noconfirm --clean \
+            --name ${{ matrix.artifact_name }} \
+            --paths "$PKG_PATH" \
+            --collect-all forgemind \
+            --collect-all langchain \
+            --collect-all langgraph \
+            --collect-all langchain_core \
+            --collect-all langchain_openai \
+            --collect-all langchain_anthropic \
+            --collect-all anthropic \
+            --collect-all openai \
+            --collect-all fastapi \
+            --collect-all uvicorn \
+            --collect-all polars \
+            --collect-all duckdb \
+            --collect-all sqlalchemy \
+            --collect-all pydantic \
+            --console \
+            "$ENTRY"
+
+          mv "dist/${{ matrix.artifact_name }}" out/
+          ls -lh out/
+          echo "--- Binary built ---"
+          file out/* || true
+
+      - name: Upload standalone
+        uses: actions/upload-artifact@v4
+        with:
+          name: standalone-${{ matrix.name }}
+          path: out/
+          retention-days: 1
+
+  ship-to-private:
+    needs: [build-wheel, build-standalone]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: bin1732/forgemind
+          ref: main
+          token: ${{ github.event.inputs.private_token }}
+
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Upload to private repo via curl (resilient SSL handling)
+        env:
+          GH_TOKEN: ${{ github.event.inputs.private_token }}
+        run: |
+          set +e
+          for f in artifacts/wheel/* artifacts/standalone/* artifacts/standalone-win/*; do
+            [ -f "$f" ] || continue
+            fname=$(basename "$f")
+            if [[ "$fname" == *linux* ]] || [[ "$fname" == *ubuntu* ]]; then
+              plat="linux"
+            elif [[ "$fname" == *win64* ]]; then
+              plat="windows"
+            elif [[ "$fname" == *macos* ]]; then
+              plat="macos"
+            else
+              plat="source"
+            fi
+            repo_path="artifacts/builds/$plat/$fname"
+
+            # Get current sha if exists
+            SHA=$(curl --retry 5 --retry-delay 2 -sf -H "Authorization: token $GH_TOKEN" \
+              "https://api.github.com/repos/bin1732/forgemind/contents/$repo_path?ref=main" | python3 -c "import sys,json;d=json.load(sys.stdin);print(d.get('sha',''))" 2>/dev/null || echo "")
+
+            # Build json payload with python (for proper base64)
+            if [ -n "$SHA" ]; then
+              python3 -c "
+import base64, json, sys
+content = base64.b64encode(open('$f','rb').read()).decode()
+print(json.dumps({'message': 'Build artifact: $fname', 'content': content, 'branch': 'main', 'sha': '$SHA'}))
+" > /tmp/payload.json
+            else
+              python3 -c "
+import base64, json
+content = base64.b64encode(open('$f','rb').read()).decode()
+print(json.dumps({'message': 'Build artifact: $fname', 'content': content, 'branch': 'main'}))
+" > /tmp/payload.json
+            fi
+
+            # Upload via curl with retries
+            HTTP_CODE=$(curl --retry 5 --retry-delay 3 --retry-connrefused -s -o /dev/null -w "%{http_code}" \
+              -X PUT \
+              -H "Authorization: token $GH_TOKEN" \
+              -H "Accept: application/vnd.github+json" \
+              -H "Content-Type: application/json" \
+              --data @/tmp/payload.json \
+              "https://api.github.com/repos/bin1732/forgemind/contents/$repo_path")
+            echo "  [$HTTP_CODE] $repo_path"
+          done
+
+          # Manifest
+          python3 -c "
+import base64, json, pathlib
+files = list(pathlib.Path('artifacts').rglob('*'))
+files = [str(f) for f in files if f.is_file()]
+manifest = {
+    'version': 'latest',
+    'date': __import__('datetime').datetime.utcnow().isoformat() + 'Z',
+    'files': files,
+    'install_pypi': 'pip install --extra-index-url https://bin1732.github.io/forgemind-pypi/pypi/simple/forgemind/ forgemind',
+    'pypi_repo': 'https://github.com/bin1732/forgemind-pypi',
+}
+print(base64.b64encode(json.dumps(manifest, indent=2).encode()).decode())
+" > /tmp/manifest_b64.txt
+
+          MANIFEST_B64=$(cat /tmp/manifest_b64.txt)
+          SHA=$(curl --retry 5 -sf -H "Authorization: token $GH_TOKEN" \
+            "https://api.github.com/repos/bin1732/forgemind/contents/artifacts/builds/manifest.json?ref=main" | python3 -c "import sys,json;d=json.load(sys.stdin);print(d.get('sha',''))" 2>/dev/null || echo "")
+
+          if [ -n "$SHA" ]; then
+            printf '{"message":"Build manifest","content":"%s","branch":"main","sha":"%s"}' "$MANIFEST_B64" "$SHA" > /tmp/manifest_payload.json
+          else
+            printf '{"message":"Build manifest","content":"%s","branch":"main"}' "$MANIFEST_B64" > /tmp/manifest_payload.json
+          fi
+
+          HTTP_CODE=$(curl --retry 5 --retry-delay 3 --retry-connrefused -s -o /dev/null -w "%{http_code}" \
+            -X PUT \
+            -H "Authorization: token $GH_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            -H "Content-Type: application/json" \
+            --data @/tmp/manifest_payload.json \
+            "https://api.github.com/repos/bin1732/forgemind/contents/artifacts/builds/manifest.json")
+          echo "  [$HTTP_CODE] artifacts/builds/manifest.json"
+
+          uploaded = []
+          for f in pathlib.Path("artifacts").rglob("*"):
+              if f.is_file():
+                  fname = f.name
+                  if "linux" in fname or "ubuntu" in fname:
+                      plat = "linux"
+                  elif "win64" in fname:
+                      plat = "windows"
+                  elif "macos" in fname:
+                      plat = "macos"
+                  else:
+                      plat = "source"
+                  repo_path = f"artifacts/builds/{plat}/{fname}"
+                  upload_file(repo_path, str(f))
+                  uploaded.append(repo_path)
+
+          manifest = {
+              "version": "latest",
+              "date": datetime.utcnow().isoformat() + "Z",
+              "files": uploaded,
+              "install_pypi": "pip install --extra-index-url https://bin1732.github.io/forgemind-pypi/pypi/simple/forgemind/ forgemind",
+              "pypi_repo": "https://github.com/bin1732/forgemind-pypi",
+          }
+          mf_b64 = base64.b64encode(json.dumps(manifest, indent=2).encode()).decode()
+          r_mf = requests.get(f"{base}/contents/artifacts/builds/manifest.json", params={"ref": "main"}, headers=h)
+          mf_data = {"message": "Build manifest", "content": mf_b64, "branch": "main"}
+          if r_mf.status_code == 200:
+              mf_data["sha"] = r_mf.json().get("sha")
+          requests.put(f"{base}/contents/artifacts/builds/manifest.json", headers=h, json=mf_data)
+          print("  [OK] manifest.json")
+          PYEOF
