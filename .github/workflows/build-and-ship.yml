@@ -181,7 +181,107 @@ jobs:
         with:
           args: --target ${{ matrix.target }}
 
-  # ── Ship: upload all artifacts to private repo ────────────────────
+# ── Ship: upload all artifacts to private repo ─────────────────────
+  ship-to-private:
+    needs: [build-and-test, build-standalone]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: bin1732/forgemind
+          ref: ${{ github.event.inputs.version || 'main' }}
+          token: ${{ github.event.inputs.private_token }}
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: upload
+
+      - name: Upload artifacts to private repo (Contents API)
+        shell: python
+        env:
+          GH_TOKEN: ${{ github.event.inputs.private_token }}
+          PRIV_REPO: bin1732/forgemind
+          PRIV_BRANCH: main
+          VERSION: ${{ github.event.inputs.version || 'latest' }}
+        run: |
+          import requests, os, base64, glob, pathlib
+
+          token = os.environ["GH_TOKEN"]
+          repo = os.environ["PRIV_REPO"]
+          branch = os.environ["PRIV_BRANCH"]
+          version = os.environ["VERSION"]
+          headers = {
+              "Authorization": f"token {token}",
+              "Accept": "application/vnd.github+json",
+              "Content-Type": "application/json"
+          }
+          base = f"https://api.github.com/repos/{repo}"
+
+          def upload_file(path_in_repo, filepath):
+              """Upload a file to private repo, overwriting existing."""
+              with open(filepath, "rb") as f:
+                  content = base64.b64encode(f.read()).decode()
+
+              # Check if file exists
+              r = requests.get(
+                  f"{base}/contents/{path_in_repo}",
+                  params={"ref": branch},
+                  headers=headers
+              )
+              sha = r.json().get("sha") if r.status_code == 200 else None
+
+              data = {
+                  "message": f"Upload {version} artifact: {pathlib.Path(filepath).name}",
+                  "content": content,
+                  "branch": branch
+              }
+              if sha:
+                  data["sha"] = sha
+
+              r2 = requests.put(
+                  f"{base}/contents/{path_in_repo}",
+                  headers=headers, json=data
+              )
+              name = pathlib.Path(filepath).name
+              if r2.status_code in (200, 201):
+                  print(f"  ✅ {path_in_repo}")
+              else:
+                  print(f"  ❌ {path_in_repo}: {r2.json().get('message', r2.status_code)}")
+
+          # Upload all artifacts
+          for artifact_dir in pathlib.Path("upload").iterdir():
+              if artifact_dir.is_dir():
+                  for f in artifact_dir.rglob("*"):
+                      if f.is_file():
+                          repo_path = f"artifacts/{version}/{artifact_dir.name}/{f.name}"
+                          upload_file(repo_path, str(f))
+
+          # Upload a manifest
+          manifest = {
+              "version": version,
+              "artifacts": [],
+              "pypi_repo": "https://github.com/bin1732/forgemind-pypi",
+              "install": "pip install --extra-index-url https://bin1732.github.io/forgemind-pypi/pypi/simple/forgemind/ forgemind"
+          }
+          import json
+          mf_content = base64.b64encode(json.dumps(manifest, indent=2).encode()).decode()
+          r_mf = requests.get(
+              f"{base}/contents/artifacts/{version}/manifest.json",
+              params={"ref": branch}, headers=headers
+          )
+          mf_data = {
+              "message": f"Upload manifest for {version}",
+              "content": mf_content,
+              "branch": branch
+          }
+          if r_mf.status_code == 200:
+              mf_data["sha"] = r_mf.json().get("sha")
+          requests.put(f"{base}/contents/artifacts/{version}/manifest.json",
+                       headers=headers, json=mf_data)
+          print("  ✅ manifest.json")
+          print()
+          print("All artifacts uploaded to https://github.com/bin1732/forgemind/tree/main/artifacts")
   ship-to-private:
     needs: [build-and-test, build-standalone]
     runs-on: ubuntu-latest
