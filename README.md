@@ -1,25 +1,16 @@
-# ForgeMind v2026.09
+# ForgeMind
 
-**Quant trading research & execution platform**
+**Quant trading research & execution platform** — Apache-2.0.
+
+ForgeMind gives quants a research harness, backtest engine, agent framework, and execution layer in one toolchain. Everything runs locally; no cloud lock-in.
 
 ## Install
 
 ```bash
-pip install --extra-index-url https://bin1732.github.io/forgemind-pypi/pypi/simple/forgemind/ forgemind
+pip install forgemind
 ```
 
-## Downloads
-
-| Asset | Size | Description |
-|-------|------|-------------|
-| `forgemind-2026.9.0-py3-none-any.whl` | 13 MB | Python wheel (universal) |
-| `forgemind-2026.9.0.tar.gz` | 13 MB | Source distribution |
-| `forgemind-linux` | 186 MB | Linux x86_64 standalone binary |
-| `forgemind-windows.exe` | 9.8 MB | Windows x64 standalone binary |
-| `forgemind-macos-arm64` | 8.9 MB | macOS Apple Silicon standalone binary |
-
-Wheel + tarball: [`releases/source/`](releases/source/)
-Linux binary: [Release v2026.09](https://github.com/bin1732/forgemind-pypi/releases/tag/v2026.09)
+Dependencies (polars, fastapi, langchain, etc.) auto-install.
 
 ## Quick start
 
@@ -28,6 +19,25 @@ forgemind info
 forgemind backtest --start 2024-01-01 --end 2024-12-31
 # Returns: Total Return ~50%, Sharpe ~1.0, Max DD ~-25%, 10 trades
 ```
+
+## Standalone binaries
+
+Pre-built binaries are attached to [Release v2026.09](https://github.com/bin1732/forgemind-pypi/releases/tag/v2026.09):
+
+| Platform | File | Size |
+|----------|------|------|
+| Linux x86_64 | `forgemind-linux` | 186 MB |
+| Windows x64 | `forgemind-windows.exe` | 9.4 MB |
+| macOS arm64 | `forgemind-macos-arm64` | 8.6 MB |
+
+```bash
+chmod +x forgemind-linux && ./forgemind-linux info
+```
+
+## Documentation
+
+- [README](https://github.com/bin1732/forgemind#readme)
+- [CHANGELOG](https://github.com/bin1732/forgemind/blob/main/CHANGELOG.md)
 
 ## License
 
