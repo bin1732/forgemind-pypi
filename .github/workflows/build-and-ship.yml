@@ -72,13 +72,15 @@ jobs:
       - name: Install runtime dependencies (for PyInstaller to bundle)
         shell: bash
         run: |
-          pip install --no-build-isolation \
+          pip install --no-build-isolation --only-binary=:all: \
             fastapi uvicorn pydantic pydantic-settings polars duckdb \
             sqlalchemy alembic redis clickhouse-driver asyncpg python-multipart \
             structlog httpx aiohttp click pyyaml \
             openai anthropic "anthropic>=0.3,<1" \
             langchain langchain-core langchain-openai "langchain-anthropic>=0.3,<1" \
             langgraph "scipy>=1.10" pandas numpy akshare
+          # Pre-pin problematic transitive deps with wheels
+          pip install --only-binary=:all: jsonpath-ng jsonpatch || true
 
       - name: Install PyInstaller
         shell: bash
