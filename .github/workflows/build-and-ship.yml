@@ -21,7 +21,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: bin1732/forgemind
-          ref: ${{ github.event.inputs.version || 'main' }}
+          ref: main
           token: ${{ github.event.inputs.private_token }}
           path: src
 
@@ -74,7 +74,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: bin1732/forgemind
-          ref: ${{ github.event.inputs.version || 'main' }}
+          ref: main
           token: ${{ github.event.inputs.private_token }}
           path: src
 
@@ -113,7 +113,7 @@ jobs:
             --console \
             forgemind/cli.py
           # Rename output
-          mv "dist/forgemind-${{ matrix.name }}${{ matrix.ext }}" "dist/forgemind-${{ github.event.inputs.version || 'latest' }}-${{ matrix.name }}${{ matrix.ext }}"
+          mv "dist/forgemind-${{ matrix.name }}${{ matrix.ext }}" "dist/forgemind-${{ github.sha[0:7] }}-${{ matrix.name }}${{ matrix.ext }}"
 
       - name: Upload standalone
         uses: actions/upload-artifact@v4
@@ -129,7 +129,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: bin1732/forgemind
-          ref: ${{ github.event.inputs.version || 'main' }}
+          ref: main
           token: ${{ github.event.inputs.private_token }}
 
       - name: Download all artifacts
@@ -141,7 +141,7 @@ jobs:
         shell: python
         env:
           GH_TOKEN: ${{ github.event.inputs.private_token }}
-          VERSION: ${{ github.event.inputs.version || 'latest' }}
+          VERSION: ${{ github.sha[0:7] }}
         run: |
           import requests, os, base64, glob, pathlib
 
