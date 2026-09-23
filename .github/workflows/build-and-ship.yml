@@ -139,49 +139,9 @@ jobs:
           path: dist/${{ matrix.artifact }}
           retention-days: 5
 
-  # ── Tauri Desktop Build (Windows MSI + macOS DMG) ────────────────
-  build-desktop:
-    strategy:
-      matrix:
-        include:
-          - os: windows-latest
-            target: msi
-          - os: macos-latest
-            target: dmg
-          - os: ubuntu-latest
-            target: deb
-    runs-on: ${{ matrix.os }}
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          repository: bin1732/forgemind
-          ref: ${{ github.event.inputs.version || 'main' }}
-          token: ${{ github.event.inputs.private_token }}
-
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Install Node
-        uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-
-      - name: Install dependencies (Linux)
-        if: matrix.os == 'ubuntu-latest'
-        run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y -qq libgtk-3-dev libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
-
-      - name: Build Tauri
-        uses: tauri-apps/tauri-action@v0
-        env:
-          GITHUB_TOKEN: ${{ github.event.inputs.private_token }}
-        with:
-          args: --target ${{ matrix.target }}
-
-# ── Ship: upload all artifacts to private repo ─────────────────────
+  # Tauri build moved to private repo build-desktop.yml
   ship-to-private:
-    needs: [build-and-test, build-standalone]
+    needs: [build-and-test]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
