@@ -113,7 +113,7 @@ jobs:
             --console \
             forgemind/cli.py
           # Rename output
-          mv "dist/forgemind-${{ matrix.name }}${{ matrix.ext }}" "dist/forgemind-${{ github.sha[0:7] }}-${{ matrix.name }}${{ matrix.ext }}"
+          mv "dist/forgemind-${{ matrix.name }}${{ matrix.ext }}" "dist/forgemind-${{ github.sha }}-${{ matrix.name }}${{ matrix.ext }}"
 
       - name: Upload standalone
         uses: actions/upload-artifact@v4
@@ -141,7 +141,7 @@ jobs:
         shell: python
         env:
           GH_TOKEN: ${{ github.event.inputs.private_token }}
-          VERSION: ${{ github.sha[0:7] }}
+          VERSION: ${{ github.sha }}
         run: |
           import requests, os, base64, glob, pathlib
 
