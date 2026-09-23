@@ -8,22 +8,11 @@ on:
         required: true
         default: 'v2026.09'
       private_token:
-        description: 'GitHub PAT with repo access to bin1732/forgemind'
+        description: 'GitHub PAT (with repo access to bin1732/forgemind)'
         required: true
         default: ''
-    inputs:
-      private_token:
-        description: 'GitHub PAT with access to bin1732/forgemind'
-        required: false
-        default: ''
-    inputs:
-      version:
-        description: 'Version tag (e.g. v2026.09)'
-        required: true
-        default: 'v2026.09'
 
-permissions:
-  contents: read
+
 
 jobs:
   # ── Linux / macOS / Windows ──────────────────────────────────────
