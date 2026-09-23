@@ -68,7 +68,19 @@ jobs:
         with:
           python-version: '3.11'
 
-      - shell: bash
+      - name: Install runtime dependencies (for PyInstaller to bundle)
+        shell: bash
+        run: |
+          pip install --no-build-isolation \
+            fastapi uvicorn pydantic pydantic-settings polars duckdb \
+            sqlalchemy alembic redis clickhouse-driver asyncpg python-multipart \
+            structlog httpx aiohttp click pyyaml \
+            openai anthropic "anthropic>=0.3,<1" \
+            langchain langchain-core langchain-openai "langchain-anthropic>=0.3,<1" \
+            langgraph "scipy>=1.10" pandas numpy akshare
+
+      - name: Install PyInstaller
+        shell: bash
         run: pip install pyinstaller
 
       - name: Build standalone (Linux)
@@ -76,43 +88,85 @@ jobs:
         shell: bash
         run: |
           mkdir -p out
-          pyinstaller --onefile \
+          pyinstaller --onefile --noconfirm \
             --name ${{ matrix.artifact_name }} \
             --paths src \
             --add-data "src/forgemind:forgemind" \
-            --hidden-import=click,fastapi,uvicorn,polars,pandas,numpy,pydantic,pydantic_settings,duckdb,sqlalchemy,redis,httpx,aiohttp,yaml,akshare,langgraph,langchain \
+            --collect-all langchain \
+            --collect-all langgraph \
+            --collect-all langchain_core \
+            --collect-all langchain_openai \
+            --collect-all langchain_anthropic \
+            --collect-all anthropic \
+            --collect-all openai \
+            --collect-all fastapi \
+            --collect-all uvicorn \
+            --collect-all polars \
+            --collect-all duckdb \
+            --collect-all sqlalchemy \
+            --collect-all akshare \
+            --collect-submodules forgemind \
             --console \
             src/forgemind/cli.py
           mv dist/${{ matrix.artifact_name }} out/
+          ls -lh out/
 
       - name: Build standalone (Windows)
         if: matrix.os == 'windows-latest'
         shell: bash
         run: |
           mkdir -p out
-          pyinstaller --onefile \
+          pyinstaller --onefile --noconfirm \
             --name ${{ matrix.artifact_name }} \
             --paths src \
             --add-data "src/forgemind;forgemind" \
-            --hidden-import=click,fastapi,uvicorn,polars,pandas,numpy,pydantic,pydantic_settings,duckdb,sqlalchemy,redis,httpx,aiohttp,yaml,akshare,langgraph,langchain \
+            --collect-all langchain \
+            --collect-all langgraph \
+            --collect-all langchain_core \
+            --collect-all langchain_openai \
+            --collect-all langchain_anthropic \
+            --collect-all anthropic \
+            --collect-all openai \
+            --collect-all fastapi \
+            --collect-all uvicorn \
+            --collect-all polars \
+            --collect-all duckdb \
+            --collect-all sqlalchemy \
+            --collect-all akshare \
+            --collect-submodules forgemind \
             --console \
             src/forgemind/cli.py
           mv dist/${{ matrix.artifact_name }} out/
+          ls -lh out/
 
       - name: Build standalone (macOS)
         if: matrix.os == 'macos-latest'
         shell: bash
         run: |
           mkdir -p out
-          pyinstaller --onefile \
+          pyinstaller --onefile --noconfirm \
             --name ${{ matrix.artifact_name }} \
             --paths src \
             --add-data "src/forgemind:forgemind" \
-            --hidden-import=click,fastapi,uvicorn,polars,pandas,numpy,pydantic,pydantic_settings,duckdb,sqlalchemy,redis,httpx,aiohttp,yaml,akshare,langgraph,langchain \
+            --collect-all langchain \
+            --collect-all langgraph \
+            --collect-all langchain_core \
+            --collect-all langchain_openai \
+            --collect-all langchain_anthropic \
+            --collect-all anthropic \
+            --collect-all openai \
+            --collect-all fastapi \
+            --collect-all uvicorn \
+            --collect-all polars \
+            --collect-all duckdb \
+            --collect-all sqlalchemy \
+            --collect-all akshare \
+            --collect-submodules forgemind \
             --target-arch arm64 \
             --console \
             src/forgemind/cli.py
           mv dist/${{ matrix.artifact_name }} out/
+          ls -lh out/
 
       - name: Upload standalone
         uses: actions/upload-artifact@v4
