@@ -1,0 +1,80 @@
+name: build-platforms
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/build-platforms.yml'
+      - 'forgemind/**'
+      - 'pyproject.toml'
+  workflow_dispatch:
+
+jobs:
+  build-wheel:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Build
+        run: |
+          pip install build --break-system-packages -q
+          python -m build
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wheel-source
+          path: dist/
+
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install deps
+        run: pip install ".[dev]" pyinstaller --quiet
+      - name: Build
+        shell: bash
+        run: |
+          ENTRY=$(python -c "import forgemind.cli; print(forgemind.cli.__file__)")
+          PKG_PATH=$(python -c "import forgemind, os; print(os.path.dirname(forgemind.__file__))")
+          pyinstaller --onefile --noconfirm --clean \
+            --name "forgemind-windows-x64" \
+            --paths "$PKG_PATH" \
+            --collect-all forgemind --collect-all langchain --collect-all langgraph \
+            --collect-all fastapi --collect-all polars --collect-all platformdirs \
+            --console \
+            --exclude-module pkg_resources --exclude-module torch --exclude-module pyarrow \
+            "$ENTRY"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: forgemind-windows-x64
+          path: dist/forgemind-windows-x64.exe
+
+  build-macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install deps
+        run: pip install ".[dev]" pyinstaller --quiet
+      - name: Build
+        run: |
+          ENTRY=$(python -c "import forgemind.cli; print(forgemind.cli.__file__)")
+          PKG_PATH=$(python -c "import forgemind, os; print(os.path.dirname(forgemind.__file__))")
+          pyinstaller --onefile --noconfirm --clean \
+            --name "forgemind-macos-arm64" \
+            --paths "$PKG_PATH" \
+            --collect-all forgemind --collect-all langchain --collect-all langgraph \
+            --collect-all fastapi --collect-all polars --collect-all platformdirs \
+            --console \
+            --exclude-module pkg_resources --exclude-module torch --exclude-module pyarrow \
+            "$ENTRY"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: forgemind-macos-arm64
+          path: dist/forgemind-macos-arm64
