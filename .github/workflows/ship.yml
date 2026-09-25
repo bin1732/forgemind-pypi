@@ -19,7 +19,7 @@ jobs:
 
       - name: Build wheel
         run: |
-          pip install build
+          pip install --break-system-packages build
           python -m build
 
       - name: Upload wheel
@@ -52,9 +52,9 @@ jobs:
 
       - name: Install deps
         run: |
-          python3 -m pip install --upgrade pip setuptools wheel
-          python3 -m pip install ".[dev]"
-          python3 -m pip install pyinstaller
+          python3 -m pip install --break-system-packages --upgrade pip setuptools wheel
+          python3 -m pip install --break-system-packages ".[dev]"
+          python3 -m pip install --break-system-packages pyinstaller
 
       - name: Verify deps
         run: |
