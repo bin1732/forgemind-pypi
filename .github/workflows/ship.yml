@@ -52,8 +52,13 @@ jobs:
 
       - name: Install deps
         run: |
-          pip install ".[dev]" 2>&1 | tail -5 || pip install ".[dev]"
-          pip install pyinstaller
+          python3 -m pip install --upgrade pip setuptools wheel
+          python3 -m pip install ".[dev]"
+          python3 -m pip install pyinstaller
+
+      - name: Verify deps
+        run: |
+          python3 -c "import pydantic; import forgemind.cli; print('OK')"
 
       - name: Build standalone
         run: |
@@ -71,10 +76,13 @@ jobs:
             --collect-all forgemind \
             --collect-all langchain \
             --collect-all langgraph \
-            --collect-all pydantic \
             --collect-all fastapi \
             --collect-all polars \
+            --collect-all platformdirs \
             --console \
+            --exclude-module pkg_resources \
+            --exclude-module torch \
+            --exclude-module pyarrow \
             "$ENTRY"
           mv "dist/$NAME" out/
           ls -lh out/
