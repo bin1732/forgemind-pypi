@@ -110,7 +110,10 @@ jobs:
         with:
           python-version: '3.11'
 
-      - name: Ship artifacts to repo
+      - name: Ship
+
+permissions:
+  contents: write artifacts to repo
         run: |
           python3 << 'PYEOF'
           import os, base64, json, pathlib, urllib.request, urllib.error, time
