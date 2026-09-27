@@ -8,5 +8,35 @@
     "releases/builds/source/forgemind-2026.9.0-py3-none-any.whl",
     "releases/builds/linux/forgemind-linux"
   ],
-  "install": "pip install --extra-index-url https://bin1732.github.io/forgemind-pypi/pypi/simple/forgemind/ forgemind"
+  "install": "pip install --extra-index-url https://bin1732.github.io/forgemind-pypi/pypi/simple/forgemind/ forgemind",
+  "download_urls": {
+    "linux": "https://github.com/bin1732/forgemind-pypi/releases/download/continuous/forgemind-linux",
+    "macos": "https://github.com/bin1732/forgemind-pypi/releases/download/continuous/forgemind-macos",
+    "windows": "https://github.com/bin1732/forgemind-pypi/releases/download/continuous/forgemind-windows-x64.exe",
+    "wheel": "https://bin1732.github.io/forgemind-pypi/pypi/simple/forgemind/",
+    "wheel_direct": "https://raw.githubusercontent.com/bin1732/forgemind-pypi/main/releases/source/forgemind-2026.9.0-py3-none-any.whl",
+    "source_tarball": "https://raw.githubusercontent.com/bin1732/forgemind-pypi/main/releases/source/forgemind-2026.9.0.tar.gz"
+  },
+  "install_methods": {
+    "pypi_index": "pip install --extra-index-url https://bin1732.github.io/forgemind-pypi/pypi/simple/forgemind/ forgemind",
+    "direct_wheel": "pip install https://bin1732.github.io/forgemind-pypi/pypi/simple/forgemind/",
+    "ml_extra": "pip install forgemind[ml] --extra-index-url https://download.pytorch.org/whl/cpu"
+  },
+  "platforms": {
+    "linux": {
+      "url": "https://github.com/bin1732/forgemind-pypi/releases/download/continuous/forgemind-linux",
+      "size_mb": 563,
+      "format": "ELF x86-64"
+    },
+    "macos": {
+      "url": "https://github.com/bin1732/forgemind-pypi/releases/download/continuous/forgemind-macos",
+      "size_mb": 161,
+      "format": "Mach-O"
+    },
+    "windows": {
+      "url": "https://github.com/bin1732/forgemind-pypi/releases/download/continuous/forgemind-windows-x64.exe",
+      "size_mb": 192,
+      "format": "PE32+ x86-64"
+    }
+  }
 }
