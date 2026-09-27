@@ -119,11 +119,11 @@ jobs:
           from datetime import datetime
           token = os.environ['GITHUB_TOKEN']
           repo = 'bin1732/forgemind-pypi'
-          base = f'https://api.github.com/repos/{repo}'
+          api = f'https://api.github.com/repos/{repo}'
           def req(method, path, data=None):
               for i in range(8):
                   try:
-                      r = urllib.request.Request(base + path,
+                      r = urllib.request.Request(api + path,
                           data=json.dumps(data).encode() if data else None,
                           headers={'Authorization': f'Bearer {token}',
                                    'Accept': 'application/vnd.github+json',
@@ -132,30 +132,67 @@ jobs:
                       with urllib.request.urlopen(r, timeout=60) as resp:
                           return resp.status, json.loads(resp.read().decode())
                   except urllib.error.HTTPError as e:
-                      try:
-                          body = json.loads(e.read().decode())
+                      try: body = json.loads(e.read().decode())
                       except: body = None
                       if e.code in (200, 201, 404): return e.code, body
                       time.sleep(3*(i+1))
-                  except Exception as e:
+                  except Exception:
                       time.sleep(3*(i+1))
               return 0, None
+
+          # Map filename -> platform
+          def plat_of(fname):
+              f = fname.lower()
+              if 'linux' in f: return 'linux'
+              if 'windows' in f or 'win' in f or f.endswith('.exe'): return 'windows'
+              if 'macos' in f or 'darwin' in f: return 'macos'
+              return 'source'
+
           uploaded = []
           for f in pathlib.Path('artifacts').rglob('*'):
               if not f.is_file(): continue
               fname = f.name
-              if 'linux' in fname: plat='linux'
-              elif 'windows' in fname or 'win' in fname: plat='windows'
-              elif 'macos' in fname: plat='macos'
-              else: plat='source'
-              rp = f'releases/builds/{plat}/{fname}'
-              c = base64.b64encode(f.read_bytes()).decode()
-              _, ex = req('GET', f'/contents/{rp}')
-              d = {'message': f'Build: {fname}', 'content': c}
-              if ex and 'sha' in ex: d['sha'] = ex['sha']
-              code, _ = req('PUT', f'/contents/{rp}', d)
-              print(f'  [{code}] {rp}')
-              uploaded.append(rp)
+              size = f.stat().st_size
+              plat = plat_of(fname)
+              # Big binaries (>50MB) -> Releases API; small files -> Contents API
+              if size > 50_000_000:
+                  # Create or get release
+                  tag = 'continuous'
+                  code, rel = req('GET', f'/releases/tags/{tag}')
+                  if code != 200:
+                      code, rel = req('POST', '/releases', {
+                          'tag_name': tag, 'name': 'Continuous Builds',
+                          'body': 'Auto-built binaries for each platform.',
+                          'draft': False, 'prerelease': True
+                      })
+                  if not rel:
+                      print(f'  [ERR] cannot create release')
+                      continue
+                  upload_url = rel['upload_url'].replace('{?name,label}', f'?name={fname}')
+                  with open(f, 'rb') as fp:
+                      data = fp.read()
+                  try:
+                      r = urllib.request.Request(upload_url, data=data,
+                          headers={'Authorization': f'Bearer {token}',
+                                   'Content-Type': 'application/octet-stream'},
+                          method='POST')
+                      with urllib.request.urlopen(r, timeout=600) as resp:
+                          ucode = resp.status
+                  except urllib.error.HTTPError as e:
+                      ucode = e.code
+                  dl_url = (rel.get('html_url', '') + '/assets/' + fname) if ucode in (200, 201) else ''
+                  print(f'  [{ucode}] release/{plat}/{fname} ({size//1024//1024}MB) {dl_url}')
+                  uploaded.append(f'releases/builds/{plat}/{fname}')
+              else:
+                  rp = f'releases/builds/{plat}/{fname}'
+                  c = base64.b64encode(f.read_bytes()).decode()
+                  _, ex = req('GET', f'/contents/{rp}')
+                  d = {'message': f'Build: {fname}', 'content': c}
+                  if ex and 'sha' in ex: d['sha'] = ex['sha']
+                  code, _ = req('PUT', f'/contents/{rp}', d)
+                  print(f'  [{code}] {rp} ({size//1024}KB)')
+                  uploaded.append(rp)
+
           mf = {'version': 'latest', 'date': datetime.utcnow().isoformat() + 'Z',
                 'files': uploaded,
                 'install': 'pip install --extra-index-url https://bin1732.github.io/forgemind-pypi/pypi/simple/forgemind/ forgemind'}
