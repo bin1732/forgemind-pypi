@@ -61,12 +61,13 @@ jobs:
           python3 -c "import pydantic; import forgemind.cli; print('OK')"
 
       - name: Build standalone
+        shell: bash
         run: |
           ENTRY=$(python3 -c "import forgemind.cli; print(forgemind.cli.__file__)")
           PKG_PATH=$(python3 -c "import forgemind, os; print(os.path.dirname(forgemind.__file__))")
           mkdir -p out
           if [ "${{ matrix.os }}" = "windows-latest" ]; then
-            NAME="forgemind-${{ matrix.name }}.exe"
+            NAME="forgemind-windows-x64.exe"
           else
             NAME="forgemind-${{ matrix.name }}"
           fi
