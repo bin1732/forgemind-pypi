@@ -111,6 +111,8 @@ jobs:
           python-version: '3.11'
 
       - name: Ship artifacts to repo
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           python3 << 'PYEOF'
           import os, base64, json, pathlib, urllib.request, urllib.error, time
