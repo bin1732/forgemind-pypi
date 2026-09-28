@@ -1,15 +1,12 @@
 # Copyright (c) 2026 灵感引擎工坊 (bin1732)
 # SPDX-License-Identifier: Apache-2.0
 
+from abc import ABC, abstractmethod
+from pathlib import Path
+
+import numpy as np
 import pandas as pd
 import polars as pl
-import numpy as np
-from datetime import datetime, timedelta
-from typing import Optional, Dict, List, Tuple
-from dataclasses import dataclass, field
-from pathlib import Path
-import json
-from abc import ABC, abstractmethod
 
 from forgemind.core.observability.logging import get_logger
 
@@ -21,14 +18,14 @@ class DataSource(ABC):
     name: str = "BaseDataSource"
     requires_api_key: bool = False
     is_free: bool = True
-    
+
     @abstractmethod
     def fetch(self, **kwargs) -> pl.DataFrame:
         """拉取数据"""
         raise NotImplementedError
-    
+
     @abstractmethod
-    def get_schema(self) -> Dict[str, str]:
+    def get_schema(self) -> dict[str, str]:
         """返回 schema: {col_name: dtype}"""
         raise NotImplementedError
 
@@ -36,18 +33,18 @@ class DataSource(ABC):
 # === Tushare Pro ===
 class TushareProSource(DataSource):
     """Tushare Pro — A 股基本面 / 财报 / 分析师预期
-    
+
     需要 API Key,免费档 2000 次/天
     """
     name = "TusharePro"
     requires_api_key = True
     is_free = True
-    
+
     def __init__(self, token: str = "", cache_dir: str = "./data/cache/tushare"):
         self.token = token
         self.cache_dir = Path(cache_dir)
         self.cache_dir.mkdir(parents=True, exist_ok=True)
-    
+
     def _get_pro(self):
         try:
             import tushare as ts
@@ -55,11 +52,11 @@ class TushareProSource(DataSource):
             return pro
         except ImportError:
             return None
-    
-    def fetch(self, symbols: List[str], start: str, end: str, fields: List[str] = None, **kwargs) -> pl.DataFrame:
+
+    def fetch(self, symbols: list[str], start: str, end: str, fields: list[str] = None, **kwargs) -> pl.DataFrame:
         """拉取基本面数据
-        
-        fields 支持: 
+
+        fields 支持:
         - "daily_basic" — PE/PB/PS/换手率
         - "income" — 利润表
         - "balancesheet" — 资产负债表
@@ -70,7 +67,7 @@ class TushareProSource(DataSource):
         if pro is None:
             # 返回 mock 数据
             return self._mock_fundamental(symbols, start, end)
-        
+
         all_data = []
         for sym in symbols[:10]:  # 限制 10 个防止超限
             try:
@@ -80,12 +77,12 @@ class TushareProSource(DataSource):
                         all_data.append(df)
             except Exception:
                 continue
-        
+
         if not all_data:
             return self._mock_fundamental(symbols, start, end)
-        
+
         return pl.from_pandas(pd.concat(all_data))
-    
+
     def _mock_fundamental(self, symbols, start, end):
         """Mock 数据(无 Tushare token 时)"""
         dates = pd.date_range(start, end, freq="D")
@@ -101,8 +98,8 @@ class TushareProSource(DataSource):
                     "turnover_rate": np.random.uniform(0, 10),
                 })
         return pl.from_pandas(pd.DataFrame(rows))
-    
-    def get_schema(self) -> Dict[str, str]:
+
+    def get_schema(self) -> dict[str, str]:
         return {
             "ts_code": "str",
             "trade_date": "str",
@@ -116,7 +113,7 @@ class TushareProSource(DataSource):
 # === 基本面聚合 ===
 class FundamentalDataSource(DataSource):
     """基本面数据聚合器
-    
+
     整合多个数据源:
     - PE/PB/PS(Tushare)
     - 营收增速 / 净利润增速(财报)
@@ -125,13 +122,13 @@ class FundamentalDataSource(DataSource):
     """
     name = "Fundamental"
     is_free = True
-    
-    def __init__(self, tushare: Optional[TushareProSource] = None):
+
+    def __init__(self, tushare: TushareProSource | None = None):
         self.tushare = tushare or TushareProSource()
-    
+
     def fetch(self, symbols, start, end, **kwargs) -> pl.DataFrame:
         return self.tushare.fetch(symbols, start, end, fields=["daily_basic"])
-    
+
     def get_schema(self):
         return self.tushare.get_schema()
 
@@ -139,7 +136,7 @@ class FundamentalDataSource(DataSource):
 # === 新闻 / 舆情 ===
 class NewsDataSource(DataSource):
     """新闻 / 舆情数据
-    
+
     数据源:
     - 财新网(爬虫,无 key)
     - 同花顺(爬虫)
@@ -149,11 +146,11 @@ class NewsDataSource(DataSource):
     """
     name = "News"
     is_free = True
-    
+
     def fetch(self, symbols, start, end, **kwargs) -> pl.DataFrame:
         """返回新闻 DataFrame"""
         return self._mock_news(symbols, start, end)
-    
+
     def _mock_news(self, symbols, start, end):
         """Mock 新闻数据"""
         dates = pd.date_range(start, end, freq="D")
@@ -171,7 +168,7 @@ class NewsDataSource(DataSource):
                     "url": f"https://example.com/news/{sym}/{date.strftime('%Y%m%d')}",
                 })
         return pl.from_pandas(pd.DataFrame(rows))
-    
+
     def get_schema(self):
         return {
             "symbol": "str",
@@ -189,11 +186,11 @@ class MacroDataSource(DataSource):
     """宏观数据 — PMI / PPI / CPI / 利率 / 汇率"""
     name = "Macro"
     is_free = True
-    
+
     def fetch(self, start, end, **kwargs) -> pl.DataFrame:
         """拉宏观指标"""
         return self._mock_macro(start, end)
-    
+
     def _mock_macro(self, start, end):
         dates = pd.date_range(start, end, freq="ME")
         rows = []
@@ -208,7 +205,7 @@ class MacroDataSource(DataSource):
                 "USD_CNY": np.random.uniform(6.5, 7.5),
             })
         return pl.from_pandas(pd.DataFrame(rows))
-    
+
     def get_schema(self):
         return {
             "date": "date",
@@ -222,11 +219,11 @@ class SectorDataSource(DataSource):
     """行业分类 — 申万 / 中信 / GICS"""
     name = "Sector"
     is_free = True
-    
+
     def __init__(self, classification: str = "申万"):
         self.classification = classification
-    
-    def fetch(self, symbols: List[str], **kwargs) -> pl.DataFrame:
+
+    def fetch(self, symbols: list[str], **kwargs) -> pl.DataFrame:
         """返回行业分类"""
         sectors = ["银行", "地产", "科技", "医药", "消费", "能源", "制造", "金融"]
         rows = []
@@ -238,7 +235,7 @@ class SectorDataSource(DataSource):
                 "classification": self.classification,
             })
         return pl.from_pandas(pd.DataFrame(rows))
-    
+
     def get_schema(self):
         return {
             "symbol": "str",
@@ -251,27 +248,27 @@ class SectorDataSource(DataSource):
 # === 数据源注册表 ===
 class DataSourceRegistry:
     """数据源注册表(可插拔)"""
-    
+
     def __init__(self):
-        self._sources: Dict[str, DataSource] = {}
-    
+        self._sources: dict[str, DataSource] = {}
+
     def register(self, name: str, source: DataSource):
         self._sources[name] = source
-    
-    def get(self, name: str) -> Optional[DataSource]:
+
+    def get(self, name: str) -> DataSource | None:
         return self._sources.get(name)
-    
-    def list_sources(self) -> List[str]:
+
+    def list_sources(self) -> list[str]:
         return list(self._sources.keys())
-    
-    def fetch_multi(self, sources: List[str], **kwargs) -> Dict[str, pl.DataFrame]:
+
+    def fetch_multi(self, sources: list[str], **kwargs) -> dict[str, pl.DataFrame]:
         """并发拉多个数据源 — 失败的单源不阻塞其他
-        
+
         Returns:
             {source_name: DataFrame},失败的不在结果里
         """
         import asyncio
-        
+
         async def _fetch_one(name):
             source = self.get(name)
             if not source:
@@ -288,11 +285,11 @@ class DataSourceRegistry:
                     error_type=type(e).__name__,
                 )
                 return name, None
-        
+
         async def _run():
             tasks = [_fetch_one(n) for n in sources]
             return await asyncio.gather(*tasks)
-        
+
         results = asyncio.run(_run())
         return {name: df for name, df in results if df is not None}
 
