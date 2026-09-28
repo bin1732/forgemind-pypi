@@ -6,7 +6,6 @@ from .end_to_end import (
     PipelineResult,
 )
 
-
 __all__ = [
     "EndToEndPipeline",
     "PipelineResult",
