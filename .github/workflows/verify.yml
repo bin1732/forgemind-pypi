@@ -190,9 +190,9 @@ jobs:
             chmod +x "$BIN"
           fi
           file "$BIN" 2>/dev/null || true
-          "$BIN" info || { echo "FAIL: $BIN info 跑不起来"; exit 1; }
-          "$BIN" signal >/dev/null || { echo "FAIL: signal"; exit 1; }
-          "$BIN" router-demo >/dev/null || { echo "FAIL: router-demo"; exit 1; }
-          "$BIN" backtest --start 2024-01-01 --end 2024-12-31 | tee bt.log
+          "./$BIN" info || { echo "FAIL: $BIN info 跑不起来"; exit 1; }
+          "./$BIN" signal >/dev/null || { echo "FAIL: signal"; exit 1; }
+          "./$BIN" router-demo >/dev/null || { echo "FAIL: router-demo"; exit 1; }
+          "./$BIN" backtest --start 2024-01-01 --end 2024-12-31 | tee bt.log
           grep -q "Total Return" bt.log || { echo "FAIL: backtest 无输出"; exit 1; }
           echo "PASS 二进制(${{ matrix.name }})全部子命令"
