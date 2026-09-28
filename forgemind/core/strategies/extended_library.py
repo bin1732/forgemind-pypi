@@ -1,11 +1,9 @@
 # Copyright (c) 2026 灵感引擎工坊 (bin1732)
 # SPDX-License-Identifier: Apache-2.0
 
+
 import numpy as np
 import pandas as pd
-from typing import Optional, Dict, List, Tuple
-from dataclasses import dataclass, field
-from scipy.stats import pearsonr, spearmanr
 
 
 # === 基础接口 ===
@@ -13,10 +11,10 @@ class BaseStrategy:
     """策略基类"""
     name: str = "BaseStrategy"
     category: str = "base"
-    
+
     def __init__(self, **kwargs):
         self.params = kwargs
-    
+
     def generate_signal(self, df: pd.DataFrame, **kwargs) -> pd.Series:
         """生成交易信号(1=buy, -1=sell, 0=hold)"""
         raise NotImplementedError
@@ -27,12 +25,12 @@ class TimeSeriesMomentum(BaseStrategy):
     """时序动量: 单一品种的历史收益方向"""
     name = "TimeSeriesMomentum"
     category = "momentum"
-    
+
     def __init__(self, lookback: int = 20, threshold: float = 0.0, **kwargs):
         super().__init__(lookback=lookback, threshold=threshold, **kwargs)
         self.lookback = lookback
         self.threshold = threshold
-    
+
     def generate_signal(self, df: pd.DataFrame, **kwargs) -> pd.Series:
         ret = df["close"].pct_change(self.lookback)
         return np.sign(ret - self.threshold)
@@ -42,12 +40,12 @@ class CrossSectionalMomentum(BaseStrategy):
     """截面动量: 买入过去 N 天收益最高的, 卖出最低的"""
     name = "CrossSectionalMomentum"
     category = "momentum"
-    
+
     def __init__(self, lookback: int = 60, top_pct: float = 0.2, **kwargs):
         super().__init__(lookback=lookback, top_pct=top_pct, **kwargs)
         self.lookback = lookback
         self.top_pct = top_pct
-    
+
     def generate_signal(self, df: pd.DataFrame, **kwargs) -> pd.Series:
         ret = df.groupby("symbol")["close"].pct_change(self.lookback)
         # 截面排序: top_pct 买入, bottom_pct 卖出
@@ -62,11 +60,11 @@ class MomentumRotation(BaseStrategy):
     """行业轮动: 选动量最强的行业 ETF"""
     name = "MomentumRotation"
     category = "momentum"
-    
-    def __init__(self, lookbacks: List[int] = None, **kwargs):
+
+    def __init__(self, lookbacks: list[int] = None, **kwargs):
         super().__init__(**kwargs)
         self.lookbacks = lookbacks or [20, 60, 120]
-    
+
     def generate_signal(self, df: pd.DataFrame, **kwargs) -> pd.Series:
         score = pd.Series(0.0, index=df.index)
         for lb in self.lookbacks:
@@ -78,19 +76,19 @@ class MomentumRotation(BaseStrategy):
 # === 2. 均值回归 ===
 class PairsTrading(BaseStrategy):
     """配对交易 — EG 协整检验 + spread z-score
-    
+
     经典统计套利:
     1. 找协整对(cointegrated pair)
     2. 计算 spread = P_a - β * P_b
     3. spread z-score < -2: 做多 a, 做空 b
     4. spread z-score > 2: 做空 a, 做多 b
     5. spread z-score 接近 0: 平仓
-    
+
     回测时需要传入两个 symbol 的 close price
     """
     name = "PairsTrading"
     category = "stat_arb"
-    
+
     def __init__(
         self,
         lookback: int = 60,
@@ -104,7 +102,7 @@ class PairsTrading(BaseStrategy):
         self.entry_z = entry_z
         self.exit_z = exit_z
         self.hedge_method = hedge_method
-    
+
     def compute_hedge_ratio(self, pa: pd.Series, pb: pd.Series) -> float:
         """OLS hedge ratio"""
         # 移除 NaN
@@ -115,19 +113,19 @@ class PairsTrading(BaseStrategy):
         cov = df["a"].cov(df["b"])
         var = df["b"].var()
         return cov / var if var > 0 else 1.0
-    
+
     def generate_signal(
         self,
         df_a: pd.DataFrame,  # symbol a 的 OHLCV
         df_b: pd.DataFrame,  # symbol b 的 OHLCV
-    ) -> Tuple[pd.Series, pd.Series]:
+    ) -> tuple[pd.Series, pd.Series]:
         """返回 (signal_a, signal_b)"""
         # 对齐
         merged = pd.DataFrame({
             "a": df_a["close"].values,
             "b": df_b["close"].values,
         }).dropna()
-        
+
         # 计算 rolling beta
         betas = []
         spreads = []
@@ -137,29 +135,29 @@ class PairsTrading(BaseStrategy):
             betas.append(beta)
             spread = window["a"].iloc[-1] - beta * window["b"].iloc[-1]
             spreads.append(spread)
-        
+
         # 用 z-score
         spread_series = pd.Series(spreads)
         spread_mean = spread_series.rolling(self.lookback).mean()
         spread_std = spread_series.rolling(self.lookback).std()
         z_score = (spread_series - spread_mean) / (spread_std + 1e-9)
-        
+
         # 信号
         signal_a = pd.Series(0, index=z_score.index)
         signal_b = pd.Series(0, index=z_score.index)
-        
+
         # z < -2: long a, short b
         signal_a[z_score < -self.entry_z] = 1
         signal_b[z_score < -self.entry_z] = -1
-        
+
         # z > 2: short a, long b
         signal_a[z_score > self.entry_z] = -1
         signal_b[z_score > self.entry_z] = 1
-        
+
         # 接近 0: 平仓
         signal_a[z_score.abs() < self.exit_z] = 0
         signal_b[z_score.abs() < self.exit_z] = 0
-        
+
         return signal_a, signal_b
 
 
@@ -167,12 +165,12 @@ class OrnsteinUhlenbeck(BaseStrategy):
     """OU 过程均值回归 — 适合 spread / pair trading"""
     name = "OrnsteinUhlenbeck"
     category = "mean_reversion"
-    
+
     def __init__(self, lookback: int = 60, entry_z: float = 2.0, **kwargs):
         super().__init__(lookback=lookback, entry_z=entry_z, **kwargs)
         self.lookback = lookback
         self.entry_z = entry_z
-    
+
     def generate_signal(self, df: pd.DataFrame, **kwargs) -> pd.Series:
         price = df["close"]
         mu = price.rolling(self.lookback).mean()
@@ -187,13 +185,13 @@ class RSIReversion(BaseStrategy):
     """RSI 均值回归"""
     name = "RSIReversion"
     category = "mean_reversion"
-    
+
     def __init__(self, period: int = 14, oversold: float = 30, overbought: float = 70, **kwargs):
         super().__init__(period=period, oversold=oversold, overbought=overbought, **kwargs)
         self.period = period
         self.oversold = oversold
         self.overbought = overbought
-    
+
     def generate_signal(self, df: pd.DataFrame, **kwargs) -> pd.Series:
         delta = df["close"].diff()
         gain = delta.clip(lower=0)
@@ -211,14 +209,14 @@ class RSIReversion(BaseStrategy):
 # === 3. ML 策略 ===
 class LightGBMStrategy(BaseStrategy):
     """LightGBM 预测 alpha 的 ML 策略
-    
+
     流程:
     1. 用 features 训练 LightGBM 模型(预测未来 N 日收益)
     2. 选预测收益 Top-K 买入, Bottom-K 卖出
     """
     name = "LightGBMStrategy"
     category = "ml"
-    
+
     def __init__(
         self,
         model,
@@ -230,12 +228,12 @@ class LightGBMStrategy(BaseStrategy):
         self.model = model
         self.top_k = top_k
         self.rebalance_freq = rebalance_freq
-    
-    def generate_signal(self, df: pd.DataFrame, feature_cols: List[str], **kwargs) -> pd.Series:
+
+    def generate_signal(self, df: pd.DataFrame, feature_cols: list[str], **kwargs) -> pd.Series:
         # 预测
         X = df[feature_cols].fillna(0)
         preds = self.model.predict(X)
-        
+
         # 截面选股: 用 reset_index 避免索引对齐问题
         df_reset = df.reset_index(drop=True)
         df_reset["pred"] = preds
@@ -252,17 +250,17 @@ class LightGBMStrategy(BaseStrategy):
 
 class OnlineLearningStrategy(BaseStrategy):
     """在线学习策略 — 增量更新模型
-    
+
     工作流:
     1. 维护滑动窗口(W bars 历史)
     2. 每 N bars(retrain_freq)增量重训一次模型
     3. 模型预测 top/bottom K 股票,生成多空信号
-    
+
     适用场景:
     - 概念漂移快(风格轮动、宏观变化)
     - 数据持续生成(分钟线 / tick)
     - 需要快速响应(实盘滚动训练)
-    
+
     用法:
         factory = lambda: LightGBMModel(n_estimators=200, max_depth=4)
         strategy = OnlineLearningStrategy(model_factory=factory, retrain_freq=20)
@@ -270,7 +268,7 @@ class OnlineLearningStrategy(BaseStrategy):
     """
     name = "OnlineLearningStrategy"
     category = "ml"
-    
+
     def __init__(
         self,
         model_factory,
@@ -278,7 +276,7 @@ class OnlineLearningStrategy(BaseStrategy):
         window_size: int = 252,
         top_k: int = 20,
         bottom_k: int = 20,
-        feature_cols: Optional[List[str]] = None,
+        feature_cols: list[str] | None = None,
         target_col: str = "fwd_ret_5",
         min_train_samples: int = 60,
         random_state: int = 42,
@@ -304,13 +302,13 @@ class OnlineLearningStrategy(BaseStrategy):
         self.target_col = target_col
         self.min_train_samples = min_train_samples
         self.random_state = random_state
-        
+
         self.current_model = None
         self.last_train_idx = -1
-        self.feature_names: List[str] = []
-        self.train_history: List[Dict] = []
-    
-    def _auto_detect_features(self, df: pd.DataFrame) -> List[str]:
+        self.feature_names: list[str] = []
+        self.train_history: list[dict] = []
+
+    def _auto_detect_features(self, df: pd.DataFrame) -> list[str]:
         """自动检测特征列 — 排除元数据列"""
         exclude = {
             "symbol", "ts", "date", "open", "high", "low", "close", "vwap",
@@ -320,25 +318,25 @@ class OnlineLearningStrategy(BaseStrategy):
             "label",
         }
         return [c for c in df.columns if c not in exclude]
-    
+
     def _train_model(self, train_df: pd.DataFrame, idx: int):
         """增量训练模型"""
         if self.feature_cols is None:
             self.feature_names = self._auto_detect_features(train_df)
         else:
             self.feature_names = self.feature_cols
-        
+
         # 缺失值处理
         X = train_df[self.feature_names].fillna(0).values
         y = train_df[self.target_col].fillna(0).values
-        
+
         # 训练
         try:
             model = self.model_factory()
             model.fit(X, y)
             self.current_model = model
             self.last_train_idx = idx
-            
+
             # 训练指标
             if hasattr(model, "predict"):
                 preds = model.predict(X)
@@ -346,7 +344,7 @@ class OnlineLearningStrategy(BaseStrategy):
                 train_mse = mean_squared_error(y, preds)
             else:
                 train_mse = None
-            
+
             self.train_history.append({
                 "idx": idx,
                 "n_train": len(train_df),
@@ -362,14 +360,14 @@ class OnlineLearningStrategy(BaseStrategy):
                 "error_type": type(e).__name__,
             })
             return False
-    
+
     def generate_signal(self, df: pd.DataFrame, **kwargs) -> pd.Series:
         """生成信号 — 在每个再训练点训练一次,然后预测当前 bars"""
         signals = pd.Series(0, index=df.index, dtype=int)
-        
+
         if len(df) < self.min_train_samples:
             return signals
-        
+
         # 按时间排序(必须的,在线学习前提)
         if "date" in df.columns:
             df_sorted = df.sort_values("date").reset_index(drop=True)
@@ -377,18 +375,18 @@ class OnlineLearningStrategy(BaseStrategy):
             df_sorted = df.sort_values("ts").reset_index(drop=True)
         else:
             df_sorted = df.reset_index(drop=True)
-        
+
         n = len(df_sorted)
-        
+
         # 触发重训的位置
         train_positions = list(range(
             self.window_size, n, self.retrain_freq
         ))
-        
+
         if not train_positions:
             # 数据不够长,直接在全部历史训练一次
             train_positions = [n - 1]
-        
+
         # 信号生成:每个时间点用当时的最新模型
         signal_col = []
         for i in range(n):
@@ -397,16 +395,16 @@ class OnlineLearningStrategy(BaseStrategy):
                 train_df = df_sorted.iloc[max(0, i - self.window_size):i]
                 if len(train_df) >= self.min_train_samples:
                     self._train_model(train_df, i)
-            
+
             # 当前时刻预测
             if i < self.window_size:
                 signal_col.append(0)
                 continue
-            
+
             if self.current_model is None:
                 signal_col.append(0)
                 continue
-            
+
             try:
                 row = df_sorted.iloc[i:i + 1]
                 X_row = row[self.feature_names].fillna(0).values
@@ -418,10 +416,10 @@ class OnlineLearningStrategy(BaseStrategy):
                 signal_col.append(pred_val)
             except Exception:
                 signal_col.append(0)
-        
+
         # 转成 {-1, 0, 1} 信号(基于 rank)
         df_sorted["pred"] = signal_col
-        
+
         # 用 top_k / bottom_k
         df_sorted["signal"] = 0
         # 按 date 横截面排序
@@ -438,17 +436,17 @@ class OnlineLearningStrategy(BaseStrategy):
             ranks = df_sorted["pred"].rank(method="first", ascending=True)
             df_sorted.loc[ranks > n - self.top_k, "signal"] = 1
             df_sorted.loc[ranks <= self.bottom_k, "signal"] = -1
-        
+
         # 恢复原始顺序
         if "date" in df.columns:
             df_sorted["orig_idx"] = df.sort_values("date").index
         else:
             df_sorted["orig_idx"] = df.index
         signals.loc[df_sorted["orig_idx"].values] = df_sorted["signal"].values
-        
+
         return signals.astype(int)
-    
-    def get_train_history(self) -> List[Dict]:
+
+    def get_train_history(self) -> list[dict]:
         return self.train_history.copy()
 
 
@@ -457,16 +455,16 @@ class EarningsAnnouncement(BaseStrategy):
     """财报公告事件策略 — 需要基本面数据"""
     name = "EarningsAnnouncement"
     category = "event"
-    
+
     def __init__(self, surprise_threshold: float = 0.05, **kwargs):
         super().__init__(surprise_threshold=surprise_threshold, **kwargs)
         self.surprise_threshold = surprise_threshold
-    
+
     def generate_signal(self, df: pd.DataFrame, **kwargs) -> pd.Series:
         # 需要 surprise_pct 列(EPS 实际 vs 一致预期)
         if "surprise_pct" not in df.columns:
             return pd.Series(0, index=df.index, dtype=int)
-        
+
         signals = pd.Series(0, index=df.index, dtype=int)
         # 财报日 + 超预期 → 买入
         is_earnings = df.get("is_earnings_day", pd.Series(0, index=df.index))
@@ -480,7 +478,7 @@ class IndexInclusion(BaseStrategy):
     """纳入指数事件 — 短期内通常有正向超额收益"""
     name = "IndexInclusion"
     category = "event"
-    
+
     def generate_signal(self, df: pd.DataFrame, **kwargs) -> pd.Series:
         if "index_inclusion" not in df.columns:
             return pd.Series(0, index=df.index, dtype=int)
@@ -494,11 +492,11 @@ class RiskParity(BaseStrategy):
     """风险平价 — 每资产贡献相同风险"""
     name = "RiskParity"
     category = "portfolio"
-    
+
     def __init__(self, lookback: int = 60, **kwargs):
         super().__init__(lookback=lookback, **kwargs)
         self.lookback = lookback
-    
+
     def compute_weights(self, df: pd.DataFrame) -> pd.DataFrame:
         """返回权重矩阵(date x symbol)"""
         pivot = df.pivot(index="date", columns="symbol", values="close")
@@ -515,11 +513,11 @@ class MaxSharpe(BaseStrategy):
     """最大夏普组合"""
     name = "MaxSharpe"
     category = "portfolio"
-    
+
     def __init__(self, lookback: int = 60, **kwargs):
         super().__init__(lookback=lookback, **kwargs)
         self.lookback = lookback
-    
+
     def compute_weights(self, df: pd.DataFrame) -> pd.DataFrame:
         pivot = df.pivot(index="date", columns="symbol", values="close")
         returns = pivot.pct_change()
@@ -531,7 +529,7 @@ class MaxSharpe(BaseStrategy):
 
 
 # === 策略工厂 ===
-def list_strategies() -> Dict[str, type]:
+def list_strategies() -> dict[str, type]:
     """列出所有策略"""
     return {
         cls.__name__: cls
@@ -539,7 +537,7 @@ def list_strategies() -> Dict[str, type]:
     }
 
 
-def list_categories() -> Dict[str, List[str]]:
+def list_categories() -> dict[str, list[str]]:
     """按类别列出策略"""
     result = {}
     for name, cls in list_strategies().items():
