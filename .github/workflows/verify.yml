@@ -175,10 +175,15 @@ jobs:
           else
             NAME="forgemind-${{ matrix.name }}"
           fi
-          curl -sL --retry 3 -o "$NAME" \
-            "https://github.com/bin1732/forgemind-pypi/releases/download/continuous/$NAME"
+          # 关键:release 资产 URL 不变时会被 CDN 缓存,必须加时间戳破坏缓存,
+          # 否则验证的是上一版二进制(曾因此误判 Windows 修复无效)。
+          URL="https://github.com/bin1732/forgemind-pypi/releases/download/continuous/$NAME?cb=$RUN_ID"
+          curl -sL --retry 3 -o "$NAME" "$URL"
           ls -lh "$NAME"
           [ -s "$NAME" ] || { echo "FAIL: 二进制下载为空"; exit 1; }
+          # 断言下载到的确实是 ELF/PE/Mach-O 而不是错误页
+          head -c 4 "$NAME" | od -An -tx1 | tr -d ' \n' > magic.hex
+          echo "magic=$(cat magic.hex)"
 
       - name: Actually execute the binary
         shell: bash
