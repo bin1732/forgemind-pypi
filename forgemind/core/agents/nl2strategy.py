@@ -1,16 +1,15 @@
 # Copyright (c) 2026 灵感引擎工坊 (bin1732)
 # SPDX-License-Identifier: Apache-2.0
 
-import json
-import re
-from typing import Optional, Dict, List
+import json  # noqa: E402
+import re  # noqa: E402
 
-from forgemind.core.observability.logging import get_logger
+from forgemind.core.observability.logging import get_logger  # noqa: E402
 
 logger = get_logger("forgemind.agents")
-from dataclasses import dataclass, field
-from pathlib import Path
-from datetime import datetime
+from dataclasses import dataclass  # noqa: E402
+from datetime import datetime  # noqa: E402
+from pathlib import Path  # noqa: E402
 
 
 @dataclass
@@ -19,18 +18,17 @@ class StrategyCode:
     name: str
     description: str
     code: str
-    params: Dict
+    params: dict
     entry_signal: str  # 触发买入的自然语言
     exit_signal: str   # 触发卖出的自然语言
 
-
 class NL2Strategy:
     """自然语言 → 策略代码
-    
+
     创新:用 LLM 把用户的自然语言描述翻译成可执行的策略代码。
     对标 RD-Agent 但更轻量。
     """
-    
+
     # 模式匹配(无 LLM 时 fallback)
     PATTERNS = {
         # 均线交叉
@@ -46,16 +44,16 @@ class NL2Strategy:
         r"MACD.*金叉": "MACD_GOLDEN",
         r"MACD.*死叉": "MACD_DEATH",
     }
-    
+
     def __init__(self, llm_provider=None):
         self.llm = llm_provider  # 可选 LLM
-    
+
     def parse(self, natural_language: str) -> StrategyCode:
         """解析自然语言
-        
+
         Args:
             natural_language: 用户描述,如 "20 日均线上穿 60 日均线买入,跌破 20 日均线卖出"
-        
+
         Returns:
             StrategyCode
         """
@@ -63,14 +61,14 @@ class NL2Strategy:
             return self._parse_with_llm(natural_language)
         else:
             return self._parse_with_pattern(natural_language)
-    
+
     def _parse_with_pattern(self, text: str) -> StrategyCode:
         """模式匹配(无 LLM 时)"""
         matches = []
         for pattern, kind in self.PATTERNS.items():
             for m in re.finditer(pattern, text):
                 matches.append((kind, m.groups()))
-        
+
         if not matches:
             return StrategyCode(
                 name="CustomStrategy",
@@ -80,7 +78,7 @@ class NL2Strategy:
                 entry_signal=text,
                 exit_signal="",
             )
-        
+
         # 生成代码
         params = {}
         if matches and matches[0][0] == "MA_CROSS":
@@ -92,7 +90,7 @@ class Strategy(StrategyBase):
     def __init__(self, fast={fast}, slow={slow}):
         self.fast = fast
         self.slow = slow
-    
+
     def generate_signal(self, df):
         ma_fast = df["close"].rolling(self.fast).mean()
         ma_slow = df["close"].rolling(self.slow).mean()
@@ -118,7 +116,7 @@ class Strategy(StrategyBase):
 '''
         else:
             code = f"# {text}"
-        
+
         return StrategyCode(
             name="AutoStrategy",
             description=text,
@@ -127,7 +125,7 @@ class Strategy(StrategyBase):
             entry_signal=text,
             exit_signal="",
         )
-    
+
     def _parse_with_llm(self, text: str) -> StrategyCode:
         """用 LLM 解析"""
         prompt = f"""你是一个量化策略专家。把用户的自然语言策略描述翻译成 Python 策略代码。
@@ -172,17 +170,16 @@ class Strategy(StrategyBase):
                 error_type=type(e).__name__,
                 fallback="pattern_match",
             )
-        
+
         return self._parse_with_pattern(text)
-    
+
     def save_to_file(self, strategy: StrategyCode, path: str):
         """保存到文件"""
         Path(path).write_text(strategy.code)
 
-
 class AIFactorFactory:
     """AI 因子工厂 — LLM 驱动自动挖因子
-    
+
     流程:
     1. 用户给定方向(如"挖掘小盘股反转因子")
     2. LLM 提出 10-20 个因子思路
@@ -190,12 +187,12 @@ class AIFactorFactory:
     4. 选 Top-N 高 IC 因子
     5. 加入因子库
     """
-    
+
     def __init__(self, llm_provider=None, factor_lib=None):
         self.llm = llm_provider
         self.factor_lib = factor_lib  # 因子库接口
-    
-    def generate_factor_ideas(self, theme: str, n_ideas: int = 10) -> List[str]:
+
+    def generate_factor_ideas(self, theme: str, n_ideas: int = 10) -> list[str]:
         """生成因子思路"""
         if self.llm is None:
             # Fallback: 模板
@@ -211,7 +208,7 @@ class AIFactorFactory:
                 f"{theme}:市值分位",
                 f"{theme}:PE 历史百分位",
             ]
-        
+
         prompt = f"""请基于这个主题,设计 {n_ideas} 个量化因子:
 
 主题: {theme}
@@ -239,28 +236,27 @@ class AIFactorFactory:
                 error_type=type(e).__name__,
                 fallback="generate_factor_ideas",
             )
-        
-        return self.generate_factor_ideas(theme, n_ideas)  # fallback
 
+        return self.generate_factor_ideas(theme, n_ideas)  # fallback
 
 class NaturalLanguageResearchLog:
     """自然语言研究日志 — 自动生成决策研究笔记"""
-    
+
     def __init__(self, log_dir: str = "./data/research_logs"):
         self.log_dir = Path(log_dir)
         self.log_dir.mkdir(parents=True, exist_ok=True)
-    
+
     def generate_log(
         self,
         symbol: str,
         decision: str,
-        agent_votes: Dict[str, str],
-        factors: Dict[str, float],
-        news: Optional[List[str]] = None,
+        agent_votes: dict[str, str],
+        factors: dict[str, float],
+        news: list[str] | None = None,
     ) -> str:
         """生成 Markdown 格式的研究日志"""
         timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        
+
         log = f"""# 研究日志 — {symbol}
 
 **时间**: {timestamp}
@@ -271,34 +267,33 @@ class NaturalLanguageResearchLog:
 """
         for agent, vote in agent_votes.items():
             log += f"- **{agent}**: {vote}\n"
-        
+
         log += "\n## 关键因子\n\n"
         for factor_name, value in factors.items():
             log += f"- **{factor_name}**: {value:.4f}\n"
-        
+
         if news:
             log += "\n## 关联新闻\n\n"
             for n in news[:5]:
                 log += f"- {n}\n"
-        
-        log += f"\n## 决策理由\n\n"
+
+        log += "\n## 决策理由\n\n"
         log += f"基于上述 6 个 Agent 的共识 + {len(factors)} 个因子 + 实时新闻分析,系统判定该标的: **{decision}**。\n"
-        log += f"建议人工 review 后执行。\n"
-        
+        log += "建议人工 review 后执行。\n"
+
         # 存盘
         filename = self.log_dir / f"{symbol}_{timestamp.replace(':', '-').replace(' ', '_')}.md"
         filename.write_text(log)
-        
-        return log
 
+        return log
 
 class RealtimeSentimentFeed:
     """实时舆情监控 — 新闻流 → 情感分数 → 因子"""
-    
+
     def __init__(self):
         self.sentiment_history = {}  # symbol -> [(timestamp, score), ...]
-    
-    def update(self, symbol: str, news_items: List[Dict]):
+
+    def update(self, symbol: str, news_items: list[dict]):
         """更新舆情数据"""
         for item in news_items:
             score = item.get("sentiment_score", 0.0)
@@ -306,7 +301,7 @@ class RealtimeSentimentFeed:
             if symbol not in self.sentiment_history:
                 self.sentiment_history[symbol] = []
             self.sentiment_history[symbol].append((ts, score))
-    
+
     def get_sentiment_factor(self, symbol: str, window: int = 7) -> float:
         """计算舆情因子(过去 window 天的平均情感分数)"""
         history = self.sentiment_history.get(symbol, [])
@@ -317,7 +312,7 @@ class RealtimeSentimentFeed:
             return 0.0
         scores = [s for _, s in recent]
         return sum(scores) / len(scores)
-    
+
     def get_sentiment_momentum(self, symbol: str) -> float:
         """情感动量(最近 vs 之前)"""
         history = self.sentiment_history.get(symbol, [])
