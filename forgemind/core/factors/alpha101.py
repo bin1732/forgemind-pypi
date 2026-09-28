@@ -1,8 +1,8 @@
 # Copyright (c) 2026 灵感引擎工坊 (bin1732)
 # SPDX-License-Identifier: Apache-2.0
 
-import polars as pl
 import numpy as np
+import polars as pl
 
 
 def _rolling_rank_col(values, window: int):
@@ -19,8 +19,6 @@ def _rolling_rank_col(values, window: int):
         window_vals = arr[start:i + 1]
         result[i] = (window_vals < arr[i]).sum() / len(window_vals)
     return result
-import polars as pl
-import numpy as np
 
 
 def _signed_power(s: pl.Expr, p: float) -> pl.Expr:
