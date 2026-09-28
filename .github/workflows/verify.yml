@@ -38,6 +38,7 @@ jobs:
         run: |
           set -euo pipefail
           python -m pip install -q --upgrade pip build
+          cd "$GITHUB_WORKSPACE/src"
           python -m build --wheel --outdir "$GITHUB_WORKSPACE/dist" .
           python -m venv "$GITHUB_WORKSPACE/.v"
           "$GITHUB_WORKSPACE/.v/bin/pip" install -q --upgrade pip
