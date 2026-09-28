@@ -16,7 +16,14 @@ def cmd_backtest(args):
     import pandas as pd
 
     from forgemind.core.backtest.engine import SimpleBacktestEngine
-    from forgemind.core.strategies.base import MovingAverageCrossStrategy
+    from forgemind.core.strategies.base import MovingAverageCrossStrategy  # noqa: F401
+
+    if getattr(args, "list_strategies", False):
+        from forgemind.core.strategies.library import available_strategies
+        print("=== 可用策略 ===")
+        for name, kind in available_strategies().items():
+            print(f"  {name:26} {kind}")
+        return
 
     print(f"Running backtest: {args.strategy} fast={args.fast} slow={args.slow}")
 
@@ -31,17 +38,31 @@ def cmd_backtest(args):
         "low": close * (1 - np.abs(np.random.normal(0, 0.01, n))),
         "close": close,
         "volume": np.random.randint(1_000_000, 10_000_000, n),
+        "symbol": "DEMO",
     }, index=dates)
+    price_df.index.name = "date"
 
-    strategy_class = MovingAverageCrossStrategy
-    if args.strategy != "ma_cross":
+    from forgemind.core.strategies.extended_library import list_strategies
+
+    extended = list_strategies()
+    if args.strategy in extended:
+        # 批量策略:经 adapter 适配成引擎接口
+        from forgemind.core.strategies.library import (
+            _EXTENDED_STRATEGY_PARAMS,
+            get_extended_strategy,
+        )
+        hint = _EXTENDED_STRATEGY_PARAMS.get(args.strategy)
+        if hint:
+            print(f"⚠️  {args.strategy} 需要额外参数,无法直接回测: {hint}")
+            sys.exit(1)
+        strategy = get_extended_strategy(args.strategy)
+    else:
         from forgemind.core.strategies.library import get_strategy_class
         strategy_class = get_strategy_class(args.strategy)
-
-    strategy = strategy_class(parameters={
-        "fast_period": args.fast,
-        "slow_period": args.slow,
-    })
+        strategy = strategy_class(parameters={
+            "fast_period": args.fast,
+            "slow_period": args.slow,
+        })
 
     engine = SimpleBacktestEngine(initial_capital=args.capital)
     result = engine.run(strategy, price_df)
@@ -96,6 +117,16 @@ def cmd_agent(args):
         print(f"  requires_human_review: {state.get('requires_human_review')}")
         print(f"  bull: {state.get('bull_case', {}).get('thesis')}")
         print(f"  bear: {state.get('bear_case', {}).get('thesis')}")
+
+    # 落盘组合快照,让 MCP query_portfolio / 后续决策能读到真实持仓
+    try:
+        from forgemind.core.data.storage import save_portfolio_snapshot
+
+        snap = save_portfolio_snapshot(portfolio)
+        print(f"\n  Portfolio snapshot saved: {snap}")
+    except Exception as e:  # 落盘失败不该让整个决策失败
+        print(f"\n  ⚠️  组合快照落盘失败({type(e).__name__}),MCP query_portfolio 将读到空组合")
+
 
 def cmd_mcp(args):
     """启动 MCP server"""
@@ -190,7 +221,21 @@ def main():
 
     # backtest
     parser_bt = subparsers.add_parser("backtest", help="Run backtest")
-    parser_bt.add_argument("--strategy", default="ma_cross")
+    parser_bt.add_argument(
+        "--strategy",
+        default="ma_cross",
+        help=(
+            "策略名。可选:ma_cross / mean_reversion / momentum / bollinger / buy_hold "
+            "(on_bar 策略),以及 TimeSeriesMomentum / CrossSectionalMomentum / "
+            "MomentumRotation / OrnsteinUhlenbeck / RSIReversion / MaxSharpe / "
+            "RiskParity 等扩展策略。`forgemind backtest --list-strategies` 看全部。"
+        ),
+    )
+    parser_bt.add_argument(
+        "--list-strategies",
+        action="store_true",
+        help="列出全部可用策略后退出",
+    )
     parser_bt.add_argument("--fast", type=int, default=5)
     parser_bt.add_argument("--slow", type=int, default=20)
     parser_bt.add_argument("--start", default="2024-01-01")
