@@ -4,15 +4,14 @@
 from ..akshare_etl import AKShareETL
 from .extended_sources import (
     DataSource,
-    TushareProSource,
-    FundamentalDataSource,
-    NewsDataSource,
-    MacroDataSource,
-    SectorDataSource,
     DataSourceRegistry,
+    FundamentalDataSource,
+    MacroDataSource,
+    NewsDataSource,
+    SectorDataSource,
+    TushareProSource,
     get_default_registry,
 )
-
 
 __all__ = [
     "AKShareETL",
