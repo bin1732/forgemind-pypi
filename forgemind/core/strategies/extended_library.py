@@ -488,8 +488,64 @@ class IndexInclusion(BaseStrategy):
 
 
 # === 5. 资产组合 ===
+class MaxSharpe(BaseStrategy):
+    """最大夏普组合(切线组合 w ∝ Σ⁻¹μ)
+
+    注意:早期实现是"倒数波动率加权",与类名不符,已改为真正的切线组合。
+    """
+    name = "MaxSharpe"
+    category = "portfolio"
+
+    def __init__(self, lookback: int = 60, rf: float = 0.0, **kwargs):
+        super().__init__(lookback=lookback, rf=rf, **kwargs)
+        self.lookback = lookback
+        self.rf = rf
+
+    def compute_weights(self, df: pd.DataFrame) -> pd.DataFrame:
+        pivot = df.pivot(index="date", columns="symbol", values="close")
+        returns = pivot.pct_change()
+
+        out = pd.DataFrame(0.0, index=returns.index, columns=returns.columns)
+        for i in range(self.lookback, len(returns)):
+            window = returns.iloc[i - self.lookback:i + 1].dropna()
+            if len(window) < 2 or window.shape[1] < 1:
+                continue
+            mu = (window.mean() - self.rf).to_numpy()
+            cov = window.cov().to_numpy()
+            if not np.all(np.isfinite(mu)) or not np.all(np.isfinite(cov)):
+                continue
+            try:
+                raw = np.linalg.pinv(cov) @ mu
+            except np.linalg.LinAlgError:
+                continue
+            if not np.all(np.isfinite(raw)):
+                continue
+            # 只做多:负权重截断后重新归一
+            raw = np.clip(raw, 0.0, None)
+            total = raw.sum()
+            if total <= 1e-12:
+                continue
+            out.iloc[i] = raw / total
+        return out
+
+    def generate_signal(self, df: pd.DataFrame, **kwargs) -> pd.Series:
+        """把组合权重转成单标的方向信号:持有当期权重最高的标的
+
+        组合类策略输出的是权重而非方向信号;此处取权重最大的成分股作为代理,
+        在单标的回测里语义等价于"始终持有最优成分"。
+        """
+        weights = self.compute_weights(df)
+        if weights.empty or weights.shape[1] == 0:
+            return pd.Series(0, index=df.index, dtype=int)
+        top = weights.idxmax(axis=1)
+        has_pos = weights.max(axis=1) > 1e-9
+        leader = weights.columns[0]
+        signal = (top == leader) & has_pos
+        return signal.fillna(False).astype(int)
+
+
 class RiskParity(BaseStrategy):
-    """风险平价 — 每资产贡献相同风险"""
+    """风险平价 — 每资产贡献相同风险(权重 ∝ 1/波动率)"""
     name = "RiskParity"
     category = "portfolio"
 
@@ -498,34 +554,23 @@ class RiskParity(BaseStrategy):
         self.lookback = lookback
 
     def compute_weights(self, df: pd.DataFrame) -> pd.DataFrame:
-        """返回权重矩阵(date x symbol)"""
         pivot = df.pivot(index="date", columns="symbol", values="close")
         returns = pivot.pct_change()
-        # vol = rolling std
-        vol = returns.rolling(self.lookback).std()
-        # 风险平价: weight ∝ 1/vol
-        inv_vol = 1.0 / (vol + 1e-9)
-        weights = inv_vol.div(inv_vol.sum(axis=1), axis=0)
-        return weights.fillna(0)
-
-
-class MaxSharpe(BaseStrategy):
-    """最大夏普组合"""
-    name = "MaxSharpe"
-    category = "portfolio"
-
-    def __init__(self, lookback: int = 60, **kwargs):
-        super().__init__(lookback=lookback, **kwargs)
-        self.lookback = lookback
-
-    def compute_weights(self, df: pd.DataFrame) -> pd.DataFrame:
-        pivot = df.pivot(index="date", columns="symbol", values="close")
-        returns = pivot.pct_change()
-        # Mean-variance 优化(简化: 倒数波动加权)
         vol = returns.rolling(self.lookback).std()
         inv_vol = 1.0 / (vol + 1e-9)
         weights = inv_vol.div(inv_vol.sum(axis=1), axis=0)
         return weights.fillna(0)
+
+    def generate_signal(self, df: pd.DataFrame, **kwargs) -> pd.Series:
+        """权重转单标的方向信号:持有当期风险贡献权重最高的标的"""
+        weights = self.compute_weights(df)
+        if weights.empty or weights.shape[1] == 0:
+            return pd.Series(0, index=df.index, dtype=int)
+        top = weights.idxmax(axis=1)
+        has_pos = weights.max(axis=1) > 1e-9
+        leader = weights.columns[0]
+        signal = (top == leader) & has_pos
+        return signal.fillna(False).astype(int)
 
 
 # === 策略工厂 ===
