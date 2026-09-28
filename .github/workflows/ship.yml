@@ -178,8 +178,9 @@ jobs:
               if not f.is_file() or f.name == 'manifest.json':
                   continue
               name, size = f.name, f.stat().st_size
-              code, _ = call('POST',
-                  f"{API}/releases/{rel['id']}/assets?name={quote(name)}",
+              # 注意:资产上传必须走 uploads.github.com,不是 api.github.com
+              upload_url = rel['upload_url'].replace('{?name,label}', '')
+              code, _ = call('POST', f'{upload_url}?name={quote(name)}',
                   data=f.read_bytes(),
                   headers={'Content-Type': 'application/octet-stream'})
               print(f'  [asset {code}] {name} ({size // 1024 // 1024}MB)')
