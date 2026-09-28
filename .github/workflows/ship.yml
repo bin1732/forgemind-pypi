@@ -1,35 +1,71 @@
 name: ship
 
-on: [push]
+# 公开仓只做打包/测试场:源码在私人仓 bin1732/forgemind,CI 由此处拉取后构建。
+# 需要的 secret: PRIVATE_REPO_TOKEN(对私人仓有 contents:read 权限的 PAT)
+
+on:
+  push:
+    paths-ignore:
+      - 'releases/**'
+      - 'pypi/**'
+  workflow_dispatch:
 
 permissions:
   contents: write
 
 jobs:
+  checkout-private:
+    runs-on: ubuntu-latest
+    outputs:
+      sha: ${{ steps.fetch.outputs.sha }}
+    steps:
+      - id: fetch
+        name: Fetch private source
+        env:
+          PRIVATE_REPO_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [ -z "${PRIVATE_REPO_TOKEN:-}" ]; then
+            echo "::error::缺少 secret PRIVATE_REPO_TOKEN —— 公开仓不含源码,无法构建"
+            exit 1
+          fi
+          git clone --depth 1 "https://x-access-token:${PRIVATE_REPO_TOKEN}@github.com/bin1732/forgemind.git" src
+          cd src
+          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+          echo "已拉取私人仓源码 @ $(git rev-parse --short HEAD)"
+          ls
+
   build-wheel:
+    needs: checkout-private
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: main
+          path: here
+      - name: Move private source into workspace root
+        run: |
+          shopt -s dotglob
+          mv here/src/* here/
+          rmdir here/src
+          ls here | head
 
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
 
-      - name: Build wheel
+      - name: Build wheel + sdist
+        working-directory: here
         run: |
           pip install --break-system-packages build
           python -m build
 
-      - name: Upload wheel
-        uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v4
         with:
           name: wheel
-          path: dist/
+          path: here/dist/
 
   build-standalone:
-    needs: build-wheel
+    needs: checkout-private
     strategy:
       fail-fast: false
       matrix:
@@ -44,24 +80,29 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: main
+          path: here
+      - name: Move private source into workspace root
+        shell: bash
+        run: |
+          shopt -s dotglob
+          mv here/src/* here/
+          rmdir here/src
 
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
 
       - name: Install deps
+        shell: bash
         run: |
+          cd here
           python3 -m pip install --break-system-packages --upgrade pip setuptools wheel
           python3 -m pip install --break-system-packages ".[dev]"
           python3 -m pip install --break-system-packages pyinstaller
 
-      - name: Verify deps
-        run: |
-          python3 -c "import pydantic; import forgemind.cli; print('OK')"
-
       - name: Build standalone
         shell: bash
+        working-directory: here
         run: |
           ENTRY=$(python3 -c "import forgemind.cli; print(forgemind.cli.__file__)")
           PKG_PATH=$(python3 -c "import forgemind, os; print(os.path.dirname(forgemind.__file__))")
@@ -74,141 +115,95 @@ jobs:
           pyinstaller --onefile --noconfirm --clean \
             --name "$NAME" \
             --paths "$PKG_PATH" \
-            --collect-all forgemind \
-            --collect-all langchain \
-            --collect-all langgraph \
-            --collect-all fastapi \
-            --collect-all polars \
-            --collect-all platformdirs \
+            --collect-all forgemind --collect-all langchain --collect-all langgraph \
+            --collect-all fastapi --collect-all polars --collect-all platformdirs \
             --console \
-            --exclude-module pkg_resources \
-            --exclude-module torch \
-            --exclude-module pyarrow \
+            --exclude-module pkg_resources --exclude-module torch --exclude-module pyarrow \
             "$ENTRY"
           mv "dist/$NAME" out/
           ls -lh out/
 
-      - name: Upload standalone
-        uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v4
         with:
           name: standalone-${{ matrix.name }}
-          path: out/
+          path: here/out/
 
   ship:
     needs: [build-wheel, build-standalone]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-        with:
-          ref: main
-
       - uses: actions/download-artifact@v4
         with:
           path: artifacts
-
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
 
-      - name: Ship artifacts to repo
+      - name: Publish artifacts
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           python3 << 'PYEOF'
-          import os, base64, json, pathlib, urllib.request, urllib.error, time
-          from datetime import datetime
+          import os, base64, json, pathlib, requests
           token = os.environ['GITHUB_TOKEN']
-          repo = 'bin1732/forgemind-pypi'
-          api = f'https://api.github.com/repos/{repo}'
-          def req(method, path, data=None):
-              for i in range(8):
-                  try:
-                      r = urllib.request.Request(api + path,
-                          data=json.dumps(data).encode() if data else None,
-                          headers={'Authorization': f'Bearer {token}',
-                                   'Accept': 'application/vnd.github+json',
-                                   'Content-Type': 'application/json'},
-                          method=method)
-                      with urllib.request.urlopen(r, timeout=60) as resp:
-                          return resp.status, json.loads(resp.read().decode())
-                  except urllib.error.HTTPError as e:
-                      try: body = json.loads(e.read().decode())
-                      except: body = None
-                      if e.code in (200, 201, 404): return e.code, body
-                      time.sleep(3*(i+1))
-                  except Exception:
-                      time.sleep(3*(i+1))
-              return 0, None
+          api = 'https://api.github.com/repos/bin1732/forgemind-pypi'
+          s = requests.Session()
+          s.headers.update({'Authorization': f'Bearer {token}', 'Accept': 'application/vnd.github+json'})
 
-          # Map filename -> platform
-          def plat_of(fname):
-              f = fname.lower()
-              if 'linux' in f: return 'linux'
-              if 'windows' in f or 'win' in f or f.endswith('.exe'): return 'windows'
-              if 'macos' in f or 'darwin' in f: return 'macos'
-              return 'source'
+          rel = s.get(f'{api}/releases/tags/continuous').json()
+          if 'assets' not in rel:
+              rel = s.post(f'{api}/releases', json={
+                  'tag_name': 'continuous', 'name': 'Continuous Builds',
+                  'body': 'Auto-built from private source.', 'prerelease': True}).json()
+          # 同名资源必须先删,否则 422
+          for a in rel.get('assets', []):
+              print(f'  [del] {a["name"]}')
+              s.delete(a['url'])
 
           uploaded = []
-          for f in pathlib.Path('artifacts').rglob('*'):
-              if not f.is_file(): continue
-              fname = f.name
+          for f in sorted(pathlib.Path('artifacts').rglob('*')):
+              if not f.is_file():
+                  continue
+              name = f.name
               size = f.stat().st_size
-              plat = plat_of(fname)
-              # Big binaries (>50MB) -> Releases API; small files -> Contents API
-              if size > 50_000_000:
-                  # Create or get release
-                  tag = 'continuous'
-                  code, rel = req('GET', f'/releases/tags/{tag}')
-                  if code != 200:
-                      code, rel = req('POST', '/releases', {
-                          'tag_name': tag, 'name': 'Continuous Builds',
-                          'body': 'Auto-built binaries for each platform.',
-                          'draft': False, 'prerelease': True
-                      })
-                  if not rel:
-                      print(f'  [ERR] cannot create release')
-                      continue
-                  upload_url = rel['upload_url'].replace('{?name,label}', f'?name={fname}')
-                  with open(f, 'rb') as fp:
-                      data = fp.read()
-                  # 同名资源已存在会 422,必须先删除再上传
-                  for a in rel.get('assets', []):
-                      if a['name'] == fname:
-                          requests.delete(a['url'], headers={
-                              'Authorization': f'Bearer {token}',
-                              'Accept': 'application/vnd.github+json'})
-                          print(f'  [del] 已删除旧资源 {fname}')
-                  try:
-                      r = urllib.request.Request(upload_url, data=data,
-                          headers={'Authorization': f'Bearer {token}',
-                                   'Content-Type': 'application/octet-stream'},
-                          method='POST')
-                      with urllib.request.urlopen(r, timeout=600) as resp:
-                          ucode = resp.status
-                  except urllib.error.HTTPError as e:
-                      ucode = e.code
-                  if ucode == 422:
-                      print(f'  [422] {fname} 仍被占用,需手动处理')
-                  dl_url = (rel.get('html_url', '') + '/assets/' + fname) if ucode in (200, 201) else ''
-                  print(f'  [{ucode}] release/{plat}/{fname} ({size//1024//1024}MB) {dl_url}')
-                  uploaded.append(f'releases/builds/{plat}/{fname}')
-              else:
-                  rp = f'releases/builds/{plat}/{fname}'
-                  c = base64.b64encode(f.read_bytes()).decode()
-                  _, ex = req('GET', f'/contents/{rp}')
-                  d = {'message': f'Build: {fname}', 'content': c}
-                  if ex and 'sha' in ex: d['sha'] = ex['sha']
-                  code, _ = req('PUT', f'/contents/{rp}', d)
-                  print(f'  [{code}] {rp} ({size//1024}KB)')
-                  uploaded.append(rp)
+              with open(f, 'rb') as fp:
+                  r = s.post(f"{api}/releases/{rel['id']}/assets?name={name}",
+                             data=fp,
+                             headers={'Content-Type': 'application/octet-stream'})
+              print(f'  [{r.status_code}] asset {name} ({size//1024//1024}MB)')
+              if r.status_code in (200, 201):
+                  uploaded.append(name)
 
-          mf = {'version': 'latest', 'date': datetime.utcnow().isoformat() + 'Z',
-                'files': uploaded,
+          # wheel/sdist 走 Contents API,并同步刷新 PyPI 索引
+          import hashlib
+          for f in sorted(pathlib.Path('artifacts').rglob('*')):
+              if not f.is_file() or f.suffix not in ('.whl', '.gz'):
+                  continue
+              blob = f.read_bytes()
+              rp = f'releases/builds/source/{f.name}'
+              ex = s.get(f'{api}/contents/{rp}')
+              d = {'message': f'Build: {f.name}', 'content': base64.b64encode(blob).decode(), 'branch': 'main'}
+              if ex.status_code == 200:
+                  d['sha'] = ex.json()['sha']
+              print(f'  [{s.put(f"{api}/contents/{rp}", json=d).status_code}] {rp}')
+              if f.suffix == '.whl':
+                  sha = hashlib.sha256(blob).hexdigest()
+                  html = ('<!DOCTYPE html>\n<html>\n  <body>\n    <a href="https://raw.githubusercontent.com/'
+                          f'bin1732/forgemind-pypi/main/{rp}#sha256={sha}">{f.name}</a><br/>\n  </body>\n</html>\n')
+                  exi = s.get(f'{api}/contents/pypi/simple/forgemind/index.html')
+                  di = {'message': 'Update PyPI index', 'content': base64.b64encode(html.encode()).decode(), 'branch': 'main'}
+                  if exi.status_code == 200:
+                      di['sha'] = exi.json()['sha']
+                  print(f'  [{s.put(f"{api}/contents/pypi/simple/forgemind/index.html", json=di).status_code}] index.html')
+
+          mf = {'version': 'latest', 'assets': uploaded,
+                'source_repo': 'bin1732/forgemind',
                 'install': 'pip install --extra-index-url https://bin1732.github.io/forgemind-pypi/pypi/simple/forgemind/ forgemind'}
-          mb = base64.b64encode(json.dumps(mf, indent=2).encode()).decode()
-          _, ex = req('GET', '/contents/releases/builds/manifest.json')
-          d = {'message': 'Manifest', 'content': mb}
-          if ex and 'sha' in ex: d['sha'] = ex['sha']
-          code, _ = req('PUT', '/contents/releases/builds/manifest.json', d)
-          print(f'  [{code}] manifest.json')
+          mb = json.dumps(mf, indent=2).encode()
+          exm = s.get(f'{api}/contents/releases/builds/manifest.json')
+          dm = {'message': 'Manifest', 'content': base64.b64encode(mb).decode(), 'branch': 'main'}
+          if exm.status_code == 200:
+              dm['sha'] = exm.json()['sha']
+          print(f'  [{s.put(f"{api}/contents/releases/builds/manifest.json", json=dm).status_code}] manifest.json')
           PYEOF
