@@ -12,7 +12,7 @@ ForgeMind API 服务入口
 from __future__ import annotations
 
 import argparse
-import sys
+
 
 # 延迟导入，避免在 --help 时触发全量 import
 def main():
@@ -26,6 +26,7 @@ def main():
     args = parser.parse_args()
 
     import uvicorn
+
     from forgemind.api.main import app
 
     uvicorn.run(
