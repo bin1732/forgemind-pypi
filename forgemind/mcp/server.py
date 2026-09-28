@@ -93,6 +93,7 @@ class ForgeMindMCPServer:
         self.resources: dict[str, MCPResource] = {}
         self.prompts: dict[str, MCPPrompt] = {}
         self.handlers: dict[str, Callable] = {}
+        self._tool_required: dict[str, list] = {}
         self._register_all()
         logger.info(
             "mcp_server_init",
@@ -295,6 +296,8 @@ class ForgeMindMCPServer:
     def _tool(self, name, description, parameters, handler):
         self.tools[name] = MCPTool(name=name, description=description, parameters=parameters)
         self.handlers[f"tool/{name}"] = handler
+        # 记下 schema 里声明的必填参数,供参数错误时给出可读提示
+        self._tool_required[name] = list((parameters or {}).get("required", []))
 
     def _resource(self, uri, name, description, mime_type="application/json", content=None):
         self.resources[uri] = MCPResource(
@@ -323,34 +326,116 @@ class ForgeMindMCPServer:
         }
 
     async def _tool_get_feature(self, name: str, version: int | None = None) -> dict:
-        """取因子定义 — 真实因子元数据"""
+        """取因子定义 — 真实因子元数据
+
+        真实的 Alpha158 因子名是 KMID / VWAP_DEV / CLOSE_MINMAX_5 这类,
+        而不是用户直觉的 momentum_5。支持大小写不敏感与去掉 feat- 前缀,
+        找不到时给出候选列表,避免只回一句 not found。
+        """
         from forgemind.core.factors import get_all_factors
+
         all_factors = get_all_factors()
-        if name not in all_factors:
-            return {"error": f"Factor '{name}' not found. Available: {len(all_factors)} factors."}
+        resolved = self._resolve_factor_name(name, all_factors)
+        if resolved is None:
+            return {
+                "error": f"Factor '{name}' not found.",
+                "available_count": len(all_factors),
+                "sample_available": sorted(all_factors)[:10],
+                "hint": "用 forgemind MCP 的 search_features 工具按关键词搜索。",
+            }
         return {
-            "feature_name": name,
+            "feature_name": resolved,
+            "requested_name": name,
             "version": version or 1,
-            "category": _infer_factor_category(name),
-            "formula": _get_factor_formula(name),
+            "category": _infer_factor_category(resolved),
+            "formula": _get_factor_formula(resolved),
             "source": "Alpha158 / Alpha101 / Barra",
         }
 
+    @staticmethod
+    def _resolve_factor_name(name: str, all_factors) -> str | None:
+        """宽松匹配因子名:去前缀 / 大小写 / 精确"""
+        if name in all_factors:
+            return name
+        stripped = name.replace("feat-", "", 1) if name.startswith("feat-") else name
+        if stripped in all_factors:
+            return stripped
+        upper = {f.upper(): f for f in all_factors}
+        if stripped.upper() in upper:
+            return upper[stripped.upper()]
+        return None
+
     async def _tool_trace_feature_usage(self, feature_id: str) -> dict:
-        """追踪因子使用 — 基于因子 ID 反查"""
+        """追踪因子使用 — 只报告代码中真实存在的引用
+
+        曾经的 bug:对任何因子都返回同一份写死的
+        ["LightGBMModel","XGBoostModel"] / ["StockPickerAgent",...] 关联,
+        等于凭空捏造使用关系且没有任何标记。现改为扫描真实代码引用。
+        """
         from forgemind.core.factors import get_all_factors
-        # feature_id 格式: feat-{name}
-        name = feature_id.replace("feat-", "") if feature_id.startswith("feat-") else feature_id
+
         all_factors = get_all_factors()
-        if name not in all_factors:
-            return {"feature_id": feature_id, "models": [], "strategies": [], "status": "unknown"}
-        # 默认关联: 所有因子可用于 LightGBM / 选股 Agent
+        name = self._resolve_factor_name(feature_id, all_factors)
+        if name is None:
+            return {
+                "error": f"Factor '{feature_id}' not found.",
+                "available_count": len(all_factors),
+                "sample_available": sorted(all_factors)[:10],
+            }
+
+        refs = self._find_real_references(name)
         return {
             "feature_id": feature_id,
             "feature_name": name,
-            "models": ["LightGBMModel", "XGBoostModel"],
-            "strategies": ["StockPickerAgent", "MomentumStrategy", "MeanReversionStrategy"],
-            "pipelines": ["EndToEndPipeline"],
+            "models": refs["models"],
+            "strategies": refs["strategies"],
+            "pipelines": refs["pipelines"],
+            "referenced_by_file_count": len(refs["files"]),
+            "note": (
+                "以上为源码中对该因子的真实引用;空列表表示该因子目前未被任何"
+                "模型/策略/流水线显式引用。"
+            ),
+        }
+
+    @staticmethod
+    def _find_real_references(name: str) -> dict:
+        """在 forgemind 包内 grep 该因子名,返回真实引用方"""
+        import re as _re
+        from pathlib import Path as _Path
+
+        import forgemind as _fm
+
+        root = _Path(_fm.__file__).parent
+        pattern = _re.compile(rf"(?<![A-Za-z0-9_]){_re.escape(name)}(?![A-Za-z0-9_])")
+        models: set[str] = set()
+        strategies: set[str] = set()
+        pipelines: set[str] = set()
+        files: list[str] = []
+
+        for path in root.rglob("*.py"):
+            if "__pycache__" in path.parts:
+                continue
+            try:
+                text = path.read_text(encoding="utf-8", errors="ignore")
+            except OSError:
+                continue
+            if not pattern.search(text):
+                continue
+            rel = str(path.relative_to(root))
+            files.append(rel)
+            stem = path.stem
+            if "model" in stem:
+                models.add(path.name)
+            elif "strateg" in rel:
+                strategies.add(path.name)
+            elif "pipeline" in rel:
+                pipelines.add(path.name)
+
+        return {
+            "models": sorted(models),
+            "strategies": sorted(strategies),
+            "pipelines": sorted(pipelines),
+            "files": sorted(files),
         }
 
     async def _tool_run_backtest(self, strategy: str, symbol: str, start: str, end: str, params: dict | None = None) -> dict:
@@ -422,44 +507,83 @@ class ForgeMindMCPServer:
         }
 
     async def _tool_check_ic_decay(self, feature_name: str, window_days: int = 30) -> dict:
-        """检查 IC 衰减 — 真实计算"""
-        import numpy as np
+        """IC 衰减 — 真实计算;无数据时如实报错,绝不返回编造的数值
 
+        曾经的 bug:计算失败时用 np.random.default_rng(42) 生成假 IC/ICIR,
+        且种子固定导致每次返回同一组数字,极易被误当作真实测量。
+        """
         from forgemind.core.factors import compute_ic_decay, get_all_factors
 
         all_factors = get_all_factors()
-        if feature_name not in all_factors:
-            return {"error": f"Factor '{feature_name}' not found."}
+        resolved = self._resolve_factor_name(feature_name, all_factors)
+        if resolved is None:
+            return {
+                "error": f"Factor '{feature_name}' not found.",
+                "available_count": len(all_factors),
+                "sample_available": sorted(all_factors)[:10],
+            }
+        feature_name = resolved
 
         try:
             decay_result = compute_ic_decay(feature_name, window_days=window_days)
+        except Exception as exc:
             return {
+                "error": f"IC 衰减计算失败: {type(exc).__name__}",
                 "feature_name": feature_name,
-                "window_days": window_days,
-                "ic_mean": decay_result.get("ic_mean", 0.0),
-                "icir": decay_result.get("icir", 0.0),
-                "decay_trend": decay_result.get("decay_trend", "stable"),
-                "status": "computed",
-            }
-        except Exception:
-            # 计算失败时返回估算
-            ic_vals = np.random.default_rng(42).normal(0.05, 0.02, window_days)
-            icir = float(np.mean(ic_vals) / (np.std(ic_vals) + 1e-9))
-            return {
-                "feature_name": feature_name,
-                "window_days": window_days,
-                "ic_mean": float(np.mean(ic_vals)),
-                "icir": icir,
-                "status": "estimated_no_data",
+                "status": "failed",
+                "hint": (
+                    "需要本地行情数据。先运行 `forgemind etl` 拉取 K 线,再重试。"
+                    "没有数据时本工具不会给出估计值。"
+                ),
             }
 
-    async def _tool_query_portfolio(self) -> dict:
+        n_obs = decay_result.get("n_obs", 0)
+        if not n_obs:
+            return {
+                "error": "因子无有效样本,无法计算 IC。",
+                "feature_name": feature_name,
+                "status": "no_data",
+                "hint": "先运行 `forgemind etl` 拉取 K 线数据。",
+            }
+
         return {
-            "cash": 80000.0,
-            "total_equity": 200000.0,
-            "positions": [
-                {"symbol": "600519.SH", "quantity": 100, "avg_price": 1500.0},
-            ],
+            "feature_name": feature_name,
+            "window_days": window_days,
+            "ic_mean": decay_result.get("ic_mean", 0.0),
+            "icir": decay_result.get("icir", 0.0),
+            "decay_trend": decay_result.get("decay_trend", "stable"),
+            "n_obs": n_obs,
+            "status": "computed",
+        }
+
+    async def _tool_query_portfolio(self) -> dict:
+        """组合快照 — 只读 DuckDB 里真实落盘的快照,不编造
+
+        数据来源:forgemind agent 每次决策后调用 save_portfolio_snapshot() 写入。
+        还没有任何快照时如实返回 status=empty,而不是返回一份虚构持仓。
+        """
+        from forgemind.core.data.storage import load_latest_portfolio
+
+        snapshot = await asyncio.to_thread(load_latest_portfolio)
+        if snapshot is None:
+            return {
+                "status": "empty",
+                "cash": None,
+                "total_equity": None,
+                "positions": [],
+                "message": (
+                    "尚无组合快照。请先运行 `forgemind agent --symbol <code> "
+                    "--cash <金额> [--position-qty N --position-price P]`,"
+                    "该命令会把组合状态落盘到 DuckDB,本工具随后即可读取。"
+                ),
+            }
+        return {
+            "status": "ok",
+            "snapshot_id": snapshot["snapshot_id"],
+            "cash": snapshot["cash"],
+            "currency": snapshot["currency"],
+            "total_equity": snapshot["total_equity"],
+            "positions": snapshot["positions"],
         }
 
     async def _tool_stock_pick(self, universe: list[str], top_n: int = 5) -> dict:
@@ -529,11 +653,37 @@ class ForgeMindMCPServer:
                     "id": req_id,
                     "result": {"content": [{"type": "text", "text": json.dumps(result, ensure_ascii=False, default=str)}]},
                 }
+            except TypeError as e:
+                # 缺参/多参:只回工具名和缺了什么,不暴露内部方法签名
+                msg = str(e)
+                if "required positional argument" in msg or "unexpected keyword" in msg:
+                    required = list(self._tool_required.get(tool_name, []))
+                    return {
+                        "jsonrpc": "2.0",
+                        "id": req_id,
+                        "error": {
+                            "code": -32602,
+                            "message": (
+                                f"Invalid arguments for tool '{tool_name}'. "
+                                f"Required: {required or 'see tools/list schema'}"
+                            ),
+                            "data": {"tool": tool_name, "required": required},
+                        },
+                    }
+                return {
+                    "jsonrpc": "2.0",
+                    "id": req_id,
+                    "error": {"code": -32603, "message": f"Tool '{tool_name}' failed: {type(e).__name__}"},
+                }
             except Exception as e:
                 return {
                     "jsonrpc": "2.0",
                     "id": req_id,
-                    "error": {"code": -32000, "message": str(e)},
+                    "error": {
+                        "code": -32603,
+                        "message": f"Tool '{tool_name}' failed: {type(e).__name__}",
+                        "data": {"tool": tool_name},
+                    },
                 }
 
         if method == "resources/list":
