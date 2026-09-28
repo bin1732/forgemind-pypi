@@ -1,9 +1,8 @@
 # Copyright (c) 2026 灵感引擎工坊 (bin1732)
 # SPDX-License-Identifier: Apache-2.0
 
+
 import pytest
-import polars as pl
-from datetime import datetime, timedelta
 
 
 class TestTusharePro:
@@ -17,7 +16,7 @@ class TestTusharePro:
         assert len(df) > 0
         assert "pe" in df.columns
         assert "pb" in df.columns
-    
+
     def test_schema(self):
         from forgemind.core.data.sources import TushareProSource
         source = TushareProSource()
@@ -64,18 +63,18 @@ class TestRegistry:
     def test_default_registry(self):
         from forgemind.core.data.sources import get_default_registry
         registry = get_default_registry()
-        
+
         sources = registry.list_sources()
         assert "tushare" in sources
         assert "news" in sources
         assert "macro" in sources
         assert "sector" in sources
         assert "fundamental" in sources
-    
+
     def test_fetch_multi(self):
         from forgemind.core.data.sources import get_default_registry
         registry = get_default_registry()
-        
+
         result = registry.fetch_multi(
             ["news", "sector"],
             symbols=["600519.SH"],
@@ -97,17 +96,18 @@ class TestFundamentalIntegration:
     def test_fundamental_with_sector(self):
         """基本面 + 行业 — 端到端集成"""
         from forgemind.core.data.sources import (
-            FundamentalDataSource, SectorDataSource,
+            FundamentalDataSource,
+            SectorDataSource,
         )
-        
+
         fundamental = FundamentalDataSource()
         sector_source = SectorDataSource()
-        
+
         symbols = ["600519.SH", "000001.SZ"]
-        
+
         df_fund = fundamental.fetch(symbols, start="2024-01-01", end="2024-06-30")
         df_sector = sector_source.fetch(symbols)
-        
+
         assert len(df_fund) > 0
         assert len(df_sector) > 0
         # 可以 join
