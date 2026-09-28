@@ -208,6 +208,9 @@ class BuyAndHoldStrategy(Strategy):
         return None
 
 # 策略注册表
+# 键 = CLI `--strategy` 可用的名字
+# 前 5 个是 on_bar 逐根策略(Strategy 子类),后 12 个是批量策略
+# (extended_library),经 adapter.SignalSeriesAdapter 包装后同样可回测。
 STRATEGY_REGISTRY = {
     "ma_cross": MovingAverageCrossStrategy,
     "mean_reversion": MeanReversionStrategy,
@@ -216,8 +219,38 @@ STRATEGY_REGISTRY = {
     "buy_hold": BuyAndHoldStrategy,
 }
 
+# 需要参数、无法零参实例化的扩展策略 → 给出用户可读的提示
+_EXTENDED_STRATEGY_PARAMS = {
+    "LightGBMStrategy": "需要先训练好的模型:LightGBMStrategy(model=<已训练模型>)",
+    "OnlineLearningStrategy": "需要模型工厂:OnlineLearningStrategy(model_factory=<callable>)",
+    "PairsTrading": "需要两个标的:PairsTrading().generate_signal(df_a, df_b)",
+}
+
+
 def get_strategy_class(name: str) -> type:
-    """按名取策略类"""
+    """按名取策略类(仅 5 个 on_bar 策略)"""
     if name not in STRATEGY_REGISTRY:
-        raise ValueError(f"Unknown strategy: {name}. Available: {list(STRATEGY_REGISTRY.keys())}")
+        raise ValueError(
+            f"Unknown strategy: {name}. "
+            f"Available: {sorted(STRATEGY_REGISTRY)}. "
+            "(批量策略请用 build_extended_strategy)"
+        )
     return STRATEGY_REGISTRY[name]
+
+
+def get_extended_strategy(name: str, **params):
+    """按名取扩展策略(12 个批量策略),自动套 adapter 适配回测引擎"""
+    from forgemind.core.strategies.adapter import build_extended_strategy
+    return build_extended_strategy(name, **params)
+
+
+def available_strategies() -> dict:
+    """全部可用策略名 → 说明(CLI --help / 报错都用它)"""
+    from forgemind.core.strategies.extended_library import list_strategies
+
+    out = {}
+    for k in STRATEGY_REGISTRY:
+        out[k] = "on_bar 策略"
+    for k in list_strategies():
+        out[k] = _EXTENDED_STRATEGY_PARAMS.get(k, "批量策略")
+    return out
