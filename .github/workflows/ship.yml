@@ -14,40 +14,22 @@ permissions:
   contents: write
 
 jobs:
-  checkout-private:
+  build-wheel:
     runs-on: ubuntu-latest
-    outputs:
-      sha: ${{ steps.fetch.outputs.sha }}
     steps:
-      - id: fetch
-        name: Fetch private source
+      - name: Fetch private source
         env:
           PRIVATE_REPO_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN }}
         run: |
           set -euo pipefail
-          if [ -z "${PRIVATE_REPO_TOKEN:-}" ]; then
-            echo "::error::缺少 secret PRIVATE_REPO_TOKEN —— 公开仓不含源码,无法构建"
-            exit 1
-          fi
-          git clone --depth 1 "https://x-access-token:${PRIVATE_REPO_TOKEN}@github.com/bin1732/forgemind.git" src
-          cd src
-          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
-          echo "已拉取私人仓源码 @ $(git rev-parse --short HEAD)"
-          ls
-
-  build-wheel:
-    needs: checkout-private
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          path: here
-      - name: Move private source into workspace root
-        run: |
-          shopt -s dotglob
-          mv here/src/* here/
-          rmdir here/src
-          ls here | head
+          mkdir -p here
+          cd here
+          git init -q
+          git remote add origin "https://x-access-token:${PRIVATE_REPO_TOKEN}@github.com/bin1732/forgemind.git"
+          git fetch -q --depth 1 origin main
+          git checkout -q FETCH_HEAD
+          echo "源码 @ $(git rev-parse --short HEAD)"
+          ls | head
 
       - uses: actions/setup-python@v5
         with:
@@ -65,7 +47,6 @@ jobs:
           path: here/dist/
 
   build-standalone:
-    needs: checkout-private
     strategy:
       fail-fast: false
       matrix:
@@ -78,15 +59,19 @@ jobs:
             name: macos
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
-        with:
-          path: here
-      - name: Move private source into workspace root
-        shell: bash
+      - name: Fetch private source
+        env:
+          PRIVATE_REPO_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN }}
         run: |
-          shopt -s dotglob
-          mv here/src/* here/
-          rmdir here/src
+          set -euo pipefail
+          mkdir -p here
+          cd here
+          git init -q
+          git remote add origin "https://x-access-token:${PRIVATE_REPO_TOKEN}@github.com/bin1732/forgemind.git"
+          git fetch -q --depth 1 origin main
+          git checkout -q FETCH_HEAD
+          echo "源码 @ $(git rev-parse --short HEAD)"
+          ls | head
 
       - uses: actions/setup-python@v5
         with:
