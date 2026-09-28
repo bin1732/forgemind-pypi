@@ -2,7 +2,6 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import sys
-from pathlib import Path
 
 from forgemind.core.config.settings import get_settings
 from forgemind.core.observability.logging import get_logger
