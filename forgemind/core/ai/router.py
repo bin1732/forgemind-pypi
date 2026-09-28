@@ -1,10 +1,8 @@
 # Copyright (c) 2026 灵感引擎工坊 (bin1732)
 # SPDX-License-Identifier: Apache-2.0
 
-from enum import Enum
-from typing import Optional
 from dataclasses import dataclass
-import time
+from enum import Enum
 
 from forgemind.core.config.settings import get_settings
 from forgemind.core.observability.logging import get_logger
@@ -12,8 +10,7 @@ from forgemind.core.observability.logging import get_logger
 logger = get_logger("forgemind.router")
 settings = get_settings()
 
-
-class ModelTier(str, Enum):
+class ModelTier(str, Enum):  # noqa: UP042
     """模型层级"""
     HAIKU = "haiku"              # 最便宜,简单任务
     SONNET = "sonnet"            # 中等,标准决策
@@ -21,7 +18,6 @@ class ModelTier(str, Enum):
     LOCAL_VLLM = "local_vllm"    # 本地,无 API cost
     QWEN_MAX = "qwen_max"        # 国内中文强
     HUMAN_REVIEW = "human"       # 人工审批(默认 gating)
-
 
 @dataclass
 class ModelSpec:
@@ -33,7 +29,6 @@ class ModelSpec:
     avg_latency_ms: int
     max_context: int
     capability_score: int  # 0-10,任务能力评分
-
 
 # 6 个 tier 的具体模型(2026-09)
 MODELS: dict[ModelTier, ModelSpec] = {
@@ -93,16 +88,15 @@ MODELS: dict[ModelTier, ModelSpec] = {
     ),
 }
 
-
 class ModelRouter:
     """
     6-tier Model Router — 根据任务复杂度路由
     """
-    
+
     def __init__(self):
         self.usage_stats = {tier: {"calls": 0, "tokens": 0, "cost": 0.0} for tier in ModelTier}
         self.total_cost = 0.0
-    
+
     def route(
         self,
         task_complexity: int,  # 1-10
@@ -112,7 +106,7 @@ class ModelRouter:
     ) -> ModelSpec:
         """
         路由选择模型
-        
+
         Args:
             task_complexity: 1-10(1 = 简单分类, 10 = 深度推理)
             is_critical: 是否关键决策(强制人工)
@@ -140,7 +134,7 @@ class ModelRouter:
         # 复杂 → Opus
         else:
             chosen = MODELS[ModelTier.OPUS]
-        
+
         logger.debug(
             "model_routed",
             task_complexity=task_complexity,
@@ -148,7 +142,7 @@ class ModelRouter:
             chosen_model=chosen.model_name,
         )
         return chosen
-    
+
     def record_usage(self, tier: ModelTier, tokens: int):
         """记录使用"""
         spec = MODELS[tier]
@@ -157,7 +151,7 @@ class ModelRouter:
         self.usage_stats[tier]["tokens"] += tokens
         self.usage_stats[tier]["cost"] += cost
         self.total_cost += cost
-    
+
     def get_stats(self) -> dict:
         return {
             "total_cost_usd": round(self.total_cost, 4),
@@ -166,17 +160,14 @@ class ModelRouter:
             },
         }
 
-
 # 单例
 _router = None
-
 
 def get_router() -> ModelRouter:
     global _router
     if _router is None:
         _router = ModelRouter()
     return _router
-
 
 # 快速路由 demo
 def quick_route_demo():
@@ -189,7 +180,7 @@ def quick_route_demo():
         ("中文研报实时解析", 7, False, True, True),  # Qwen
         ("低延迟订单簿特征", 4, False, False, True),  # Local
     ]
-    
+
     print("\n=== Model Router Demo ===")
     for name, complexity, critical, chinese, realtime in examples:
         spec = router.route(
