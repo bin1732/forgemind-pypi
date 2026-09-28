@@ -1,6 +1,7 @@
 """Test the new API validation (date, periods)"""
 import pytest
 from fastapi.testclient import TestClient
+
 from forgemind.api.main import app
 
 
@@ -61,5 +62,7 @@ def test_services_health_doesnt_leak_secrets(client):
         assert status in ("ok", "unreachable", "error", "auth_failed", "timeout", "driver_missing"), \
             f"{service} leaks raw error: {status}"
         # No IP addresses, no passwords
-        assert "::" not in status and "127." not in status and "localhost" not in status
+        assert "::" not in status
+        assert "127." not in status
+        assert "localhost" not in status
         assert "password" not in status.lower()
