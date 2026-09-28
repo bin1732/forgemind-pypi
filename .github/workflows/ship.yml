@@ -132,65 +132,91 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           python3 << 'PYEOF'
-          import os, base64, json, pathlib, requests
-          token = os.environ['GITHUB_TOKEN']
-          api = 'https://api.github.com/repos/bin1732/forgemind-pypi'
-          s = requests.Session()
-          s.headers.update({'Authorization': f'Bearer {token}', 'Accept': 'application/vnd.github+json'})
+          import base64, hashlib, json, pathlib, urllib.request, urllib.error, time
+          from urllib.parse import quote
 
-          rel = s.get(f'{api}/releases/tags/continuous').json()
-          if 'assets' not in rel:
-              rel = s.post(f'{api}/releases', json={
+          TOKEN = __import__('os').environ['GITHUB_TOKEN']
+          API = 'https://api.github.com/repos/bin1732/forgemind-pypi'
+
+          def call(method, url, data=None, headers=None, retries=4):
+              h = {'Authorization': f'Bearer {TOKEN}', 'Accept': 'application/vnd.github+json'}
+              if headers:
+                  h.update(headers)
+              body = data if isinstance(data, bytes) else (json.dumps(data).encode() if data else None)
+              if isinstance(data, dict):
+                  h['Content-Type'] = 'application/json'
+              for i in range(retries):
+                  req = urllib.request.Request(url, data=body, headers=h, method=method)
+                  try:
+                      with urllib.request.urlopen(req, timeout=900) as r:
+                          raw = r.read()
+                          return r.status, (json.loads(raw) if raw and r.headers.get('content-type','').startswith('application/json') else raw)
+                  except urllib.error.HTTPError as e:
+                      if e.code in (404, 422):
+                          return e.code, None
+                      if e.code == 422:
+                          return 422, None
+                      time.sleep(2 * (i + 1))
+                  except Exception:
+                      time.sleep(2 * (i + 1))
+              return 0, None
+
+          # 1) release: 先删同名资产再上传(Releases API 不允许覆盖)
+          st, rel = call('GET', f'{API}/releases/tags/continuous')
+          if st != 200 or not rel:
+              st, rel = call('POST', f'{API}/releases', {
                   'tag_name': 'continuous', 'name': 'Continuous Builds',
-                  'body': 'Auto-built from private source.', 'prerelease': True}).json()
-          # 同名资源必须先删,否则 422
+                  'body': 'Auto-built from private source.', 'prerelease': True})
+          print(f'release id={rel.get("id")}')
           for a in rel.get('assets', []):
-              print(f'  [del] {a["name"]}')
-              s.delete(a['url'])
+              code, _ = call('DELETE', a['url'])
+              print(f'  [del {code}] {a["name"]}')
+              time.sleep(1)
 
           uploaded = []
           for f in sorted(pathlib.Path('artifacts').rglob('*')):
-              if not f.is_file():
+              if not f.is_file() or f.name == 'manifest.json':
                   continue
-              name = f.name
-              size = f.stat().st_size
-              with open(f, 'rb') as fp:
-                  r = s.post(f"{api}/releases/{rel['id']}/assets?name={name}",
-                             data=fp,
-                             headers={'Content-Type': 'application/octet-stream'})
-              print(f'  [{r.status_code}] asset {name} ({size//1024//1024}MB)')
-              if r.status_code in (200, 201):
+              name, size = f.name, f.stat().st_size
+              code, _ = call('POST',
+                  f"{API}/releases/{rel['id']}/assets?name={quote(name)}",
+                  data=f.read_bytes(),
+                  headers={'Content-Type': 'application/octet-stream'})
+              print(f'  [asset {code}] {name} ({size // 1024 // 1024}MB)')
+              if code in (200, 201):
                   uploaded.append(name)
 
-          # wheel/sdist 走 Contents API,并同步刷新 PyPI 索引
-          import hashlib
+          # 2) wheel/sdist 走 Contents,并同步刷新 PyPI 索引
           for f in sorted(pathlib.Path('artifacts').rglob('*')):
               if not f.is_file() or f.suffix not in ('.whl', '.gz'):
                   continue
               blob = f.read_bytes()
               rp = f'releases/builds/source/{f.name}'
-              ex = s.get(f'{api}/contents/{rp}')
-              d = {'message': f'Build: {f.name}', 'content': base64.b64encode(blob).decode(), 'branch': 'main'}
-              if ex.status_code == 200:
-                  d['sha'] = ex.json()['sha']
-              print(f'  [{s.put(f"{api}/contents/{rp}", json=d).status_code}] {rp}')
+              stx, ex = call('GET', f'{API}/contents/{rp}')
+              d = {'message': f'Build: {f.name}',
+                   'content': base64.b64encode(blob).decode(), 'branch': 'main'}
+              if stx == 200 and ex:
+                  d['sha'] = ex['sha']
+              code, _ = call('PUT', f'{API}/contents/{rp}', d)
+              print(f'  [{code}] {rp}')
               if f.suffix == '.whl':
                   sha = hashlib.sha256(blob).hexdigest()
                   html = ('<!DOCTYPE html>\n<html>\n  <body>\n    <a href="https://raw.githubusercontent.com/'
                           f'bin1732/forgemind-pypi/main/{rp}#sha256={sha}">{f.name}</a><br/>\n  </body>\n</html>\n')
-                  exi = s.get(f'{api}/contents/pypi/simple/forgemind/index.html')
-                  di = {'message': 'Update PyPI index', 'content': base64.b64encode(html.encode()).decode(), 'branch': 'main'}
-                  if exi.status_code == 200:
-                      di['sha'] = exi.json()['sha']
-                  print(f'  [{s.put(f"{api}/contents/pypi/simple/forgemind/index.html", json=di).status_code}] index.html')
+                  sti, exi = call('GET', f'{API}/contents/pypi/simple/forgemind/index.html')
+                  di = {'message': 'Update PyPI index',
+                        'content': base64.b64encode(html.encode()).decode(), 'branch': 'main'}
+                  if sti == 200 and exi:
+                      di['sha'] = exi['sha']
+                  code, _ = call('PUT', f'{API}/contents/pypi/simple/forgemind/index.html', di)
+                  print(f'  [{code}] pypi index -> {sha[:16]}')
 
-          mf = {'version': 'latest', 'assets': uploaded,
-                'source_repo': 'bin1732/forgemind',
+          mf = {'version': 'latest', 'assets': sorted(uploaded), 'source_repo': 'bin1732/forgemind',
                 'install': 'pip install --extra-index-url https://bin1732.github.io/forgemind-pypi/pypi/simple/forgemind/ forgemind'}
-          mb = json.dumps(mf, indent=2).encode()
-          exm = s.get(f'{api}/contents/releases/builds/manifest.json')
-          dm = {'message': 'Manifest', 'content': base64.b64encode(mb).decode(), 'branch': 'main'}
-          if exm.status_code == 200:
-              dm['sha'] = exm.json()['sha']
-          print(f'  [{s.put(f"{api}/contents/releases/builds/manifest.json", json=dm).status_code}] manifest.json')
+          stm, exm = call('GET', f'{API}/contents/releases/builds/manifest.json')
+          dm = {'message': 'Manifest', 'content': base64.b64encode(json.dumps(mf, indent=2).encode()).decode(), 'branch': 'main'}
+          if stm == 200 and exm:
+              dm['sha'] = exm['sha']
+          code, _ = call('PUT', f'{API}/contents/releases/builds/manifest.json', dm)
+          print(f'  [{code}] manifest.json')
           PYEOF
