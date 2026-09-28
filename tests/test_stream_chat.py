@@ -1,19 +1,22 @@
 # Copyright (c) 2026 灵感引擎工坊 (bin1732)
 # SPDX-License-Identifier: Apache-2.0
 
-import pytest
-import asyncio
 from unittest.mock import AsyncMock, MagicMock, patch
+
+import pytest
 
 
 class TestStreamChat:
     """stream_chat 5 个 provider 都应能跑(真发或降级)"""
-    
+
     @pytest.mark.asyncio
     async def test_openai_stream_fallback_when_not_installed(self):
         """openai 未装时 stream_chat 应 yield fallback string"""
         from forgemind.core.ai.providers import (
-            OpenAIProvider, ProviderConfig, ProviderType, ChatMessage,
+            ChatMessage,
+            OpenAIProvider,
+            ProviderConfig,
+            ProviderType,
         )
         # 即使没有 openai SDK 也要能跑(graceful degradation)
         with patch.dict("sys.modules", {"openai": None}):
@@ -29,12 +32,15 @@ class TestStreamChat:
                 # 至少有一个 fallback chunk
                 assert len(chunks) >= 1
                 assert any("[OpenAI" in c for c in chunks)
-    
+
     @pytest.mark.asyncio
     async def test_anthropic_stream_fallback(self):
         """anthropic 未装时 stream_chat 应 yield fallback string"""
         from forgemind.core.ai.providers import (
-            AnthropicProvider, ProviderConfig, ProviderType, ChatMessage,
+            AnthropicProvider,
+            ChatMessage,
+            ProviderConfig,
+            ProviderType,
         )
         with patch.dict("sys.modules", {"anthropic": None}):
             p = AnthropicProvider(ProviderConfig(
@@ -49,12 +55,15 @@ class TestStreamChat:
             # 注意: anthropic stream_chat 是 sync fallback 还是 raise,看实现
             # 至少不要死循环
             assert isinstance(chunks, list)
-    
+
     @pytest.mark.asyncio
     async def test_qwen_stream(self):
         """Qwen stream — GenericOpenAICompatProvider"""
         from forgemind.core.ai.providers import (
-            GenericOpenAICompatProvider, ProviderConfig, ProviderType, ChatMessage,
+            ChatMessage,
+            GenericOpenAICompatProvider,
+            ProviderConfig,
+            ProviderType,
         )
         p = GenericOpenAICompatProvider(ProviderConfig(
             provider_type=ProviderType.QWEN,
@@ -73,12 +82,15 @@ class TestStreamChat:
                     break
         except Exception:
             pass  # 任何异常都接受(网络/限流)
-    
+
     @pytest.mark.asyncio
     async def test_ollama_stream(self):
         """Ollama 本地 stream — 用 mock 模拟"""
         from forgemind.core.ai.providers import (
-            OllamaProvider, ProviderConfig, ProviderType, ChatMessage,
+            ChatMessage,
+            OllamaProvider,
+            ProviderConfig,
+            ProviderType,
         )
         p = OllamaProvider(ProviderConfig(
             provider_type=ProviderType.OLLAMA,
@@ -96,30 +108,33 @@ class TestStreamChat:
             mock_response.raise_for_status = MagicMock()
             mock_stream.return_value.__aenter__ = AsyncMock(return_value=mock_response)
             mock_stream.return_value.__aexit__ = AsyncMock(return_value=None)
-            
+
             chunks = []
             try:
                 async for c in p.stream_chat([ChatMessage(role="user", content="hi")]):
                     chunks.append(c)
             except Exception:
                 pass  # httpx mock 可能不完全
-    
+
     @pytest.mark.asyncio
     async def test_abstract_stream_chat_in_base(self):
         """BaseProvider.stream_chat 是 abstractmethod"""
+
         from forgemind.core.ai.providers import BaseProvider
-        import inspect
         # 验证 stream_chat 是 abstract
         assert hasattr(BaseProvider, "stream_chat")
         # 验证 abstract 装饰
-        method = getattr(BaseProvider, "stream_chat")
+        method = BaseProvider.stream_chat
         assert getattr(method, "__isabstractmethod__", False) is True
-    
+
     def test_all_providers_implement_stream_chat(self):
         """5 个 Provider 都应实现 stream_chat"""
         from forgemind.core.ai.providers import (
-            OpenAIProvider, AnthropicProvider, OllamaProvider,
-            GenericOpenAICompatProvider, BaseProvider,
+            AnthropicProvider,
+            BaseProvider,
+            GenericOpenAICompatProvider,
+            OllamaProvider,
+            OpenAIProvider,
         )
         for cls in [OpenAIProvider, AnthropicProvider, OllamaProvider, GenericOpenAICompatProvider]:
             assert "stream_chat" in cls.__dict__, f"{cls.__name__} 缺 stream_chat"
@@ -129,14 +144,19 @@ class TestStreamChat:
 
 class TestStreamChatIntegration:
     """stream_chat 端到端 — 配合 AsyncIterator 消费"""
-    
+
+    @pytest.mark.integration
     @pytest.mark.asyncio
     async def test_stream_chat_returns_async_iter(self):
         """stream_chat 应返回 AsyncIterator"""
-        from forgemind.core.ai.providers import (
-            OpenAIProvider, ProviderConfig, ProviderType, ChatMessage,
-        )
         import inspect
+
+        from forgemind.core.ai.providers import (
+            ChatMessage,
+            OpenAIProvider,
+            ProviderConfig,
+            ProviderType,
+        )
         p = OpenAIProvider(ProviderConfig(
             provider_type=ProviderType.OPENAI,
             api_key="fake",
