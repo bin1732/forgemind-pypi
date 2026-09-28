@@ -1,7 +1,6 @@
 # Copyright (c) 2026 灵感引擎工坊 (bin1732)
 # SPDX-License-Identifier: Apache-2.0
 
-import pytest
 import numpy as np
 import pandas as pd
 
@@ -17,7 +16,7 @@ def make_test_features(n=1000, n_features=20, n_symbols=10):
             # 标签与特征线性相关
             label = sum(features[:5]) / 5 + np.random.randn() * 0.1
             rows.append([f"S{sym:04d}", i] + features + [label])
-    
+
     cols = ["symbol", "time_idx"] + [f"F{i}" for i in range(n_features)] + ["label"]
     df = pd.DataFrame(rows, columns=cols)
     return df
@@ -29,16 +28,16 @@ class TestLightGBMModel:
         df = make_test_features(1000, 10, 5)
         X = df[[f"F{i}" for i in range(10)]]
         y = df["label"]
-        
+
         config = ModelConfig(n_estimators=100, cv_splits=3)
         model = LightGBMModel(config)
         result = model.train(X, y, use_cv=True)
-        
+
         assert result is not None
         assert len(result.cv_scores) > 0
         assert result.cv_mean is not None
         assert len(result.feature_importance) == 10
-    
+
     def test_purged_kfold_split(self):
         from forgemind.core.models import LightGBMModel, ModelConfig
         model = LightGBMModel(ModelConfig(cv_splits=5))
@@ -50,29 +49,30 @@ class TestLightGBMModel:
             # embargo: train_idx max 应该离 val_idx min 有一定距离
             gap = min(val_idx) - max(train_idx)
             assert gap >= 1, f"embargo gap 应 >= 1, 实际 {gap}"
-    
+
     def test_predict(self):
         from forgemind.core.models import LightGBMModel
         df = make_test_features(500, 10, 3)
         X = df[[f"F{i}" for i in range(10)]]
         y = df["label"]
-        
+
         model = LightGBMModel()
         model.train(X, y, use_cv=False)
         preds = model.predict(X)
         assert len(preds) == len(X)
-    
+
     def test_save_load(self):
-        from forgemind.core.models import LightGBMModel
         import tempfile
-        
+
+        from forgemind.core.models import LightGBMModel
+
         df = make_test_features(300, 5, 3)
         X = df[[f"F{i}" for i in range(5)]]
         y = df["label"]
-        
+
         model = LightGBMModel()
         model.train(X, y, use_cv=False)
-        
+
         with tempfile.NamedTemporaryFile(suffix=".pkl", delete=False) as f:
             path = f.name
             model.save(path)
@@ -90,7 +90,7 @@ class TestXGBoost:
         df = make_test_features(500, 10, 3)
         X = df[[f"F{i}" for i in range(10)]]
         y = df["label"]
-        
+
         model = XGBoostModel(n_estimators=100)
         result = model.train(X, y)
         assert "feature_importance" in result
@@ -103,7 +103,7 @@ class TestCatBoost:
         df = make_test_features(500, 10, 3)
         X = df[[f"F{i}" for i in range(10)]]
         y = df["label"]
-        
+
         model = CatBoostModel(iterations=100)
         result = model.train(X, y)
         assert "feature_importance" in result
@@ -111,17 +111,17 @@ class TestCatBoost:
 
 class TestEnsemble:
     def test_ensemble(self):
-        from forgemind.core.models import LightGBMModel, XGBoostModel, EnsembleModel
+        from forgemind.core.models import EnsembleModel, LightGBMModel, XGBoostModel
         df = make_test_features(500, 5, 3)
         X = df[[f"F{i}" for i in range(5)]]
         y = df["label"]
-        
+
         lgbm = LightGBMModel()
         lgbm.train(X, y, use_cv=False)
-        
+
         xgb = XGBoostModel(n_estimators=50)
         xgb.train(X, y)
-        
+
         ensemble = EnsembleModel([lgbm, xgb], weights=[0.6, 0.4])
         preds = ensemble.predict(X)
         assert len(preds) == len(X)
@@ -129,9 +129,10 @@ class TestEnsemble:
 
 class TestRegistry:
     def test_register_and_get(self):
-        from forgemind.core.models import ModelRegistry
         import tempfile
-        
+
+        from forgemind.core.models import ModelRegistry
+
         with tempfile.TemporaryDirectory() as tmp:
             registry = ModelRegistry(base_path=tmp)
             registry.register(
@@ -148,11 +149,11 @@ class TestRegistry:
                 metrics={"rank_ic": 0.07},
                 tags={"type": "lightgbm"},
             )
-            
+
             latest = registry.get_latest("lgbm_v1")
             assert latest["version"] == 2
             assert latest["metrics"]["rank_ic"] == 0.07
-            
+
             models = registry.list_models()
             assert "lgbm_v1" in models
 
@@ -163,7 +164,7 @@ class TestSHAP:
         df = make_test_features(500, 10, 3)
         X = df[[f"F{i}" for i in range(10)]]
         y = df["label"]
-        
+
         model = LightGBMModel()
         model.train(X, y, use_cv=False)
         shap = model.compute_shap(X.head(100), top_n=5)
