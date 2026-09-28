@@ -1,10 +1,11 @@
 # Copyright (c) 2026 灵感引擎工坊 (bin1732)
 # SPDX-License-Identifier: Apache-2.0
 
-import sys
 import logging
-import structlog
+import sys
 from typing import Any
+
+import structlog
 
 from forgemind.core.config.settings import get_settings
 
@@ -12,14 +13,14 @@ from forgemind.core.config.settings import get_settings
 def setup_logging() -> None:
     """全局日志初始化"""
     settings = get_settings()
-    
+
     # stdlib logging
     logging.basicConfig(
         format="%(message)s",
         stream=sys.stdout,
         level=getattr(logging, settings.log_level),
     )
-    
+
     # structlog 配置
     shared_processors = [
         # 上下文变量
@@ -33,7 +34,7 @@ def setup_logging() -> None:
         # 异常格式化
         structlog.processors.format_exc_info,
     ]
-    
+
     if settings.log_format == "json":
         # 生产:JSON
         processors = shared_processors + [
@@ -45,7 +46,7 @@ def setup_logging() -> None:
         processors = shared_processors + [
             structlog.dev.ConsoleRenderer(colors=True),
         ]
-    
+
     structlog.configure(
         processors=processors,
         wrapper_class=structlog.make_filtering_bound_logger(
@@ -74,36 +75,36 @@ class ErrorCode:
     CONFIG_ERROR = 1001
     DB_CONNECTION_ERROR = 1002
     BROKER_CONNECTION_ERROR = 1003
-    
+
     # 2000-2999: 数据错误
     DATA_NOT_FOUND = 2000
     DATA_INVALID = 2001
     DATA_STALE = 2002
     PARITY_FAILED = 2003
-    
+
     # 3000-3999: 策略错误
     STRATEGY_INVALID = 3000
     STRATEGY_COMPILE_ERROR = 3001
     STRATEGY_RUNTIME_ERROR = 3002
     STRATEGY_BLACKLIST_HIT = 3003
-    
+
     # 4000-4999: 风控错误
     RISK_DAILY_LOSS_LIMIT = 4000
     RISK_POSITION_LIMIT = 4001
     RISK_DAILY_ORDER_LIMIT = 4002
     RISK_CANCEL_RATIO = 4003
     KILL_SWITCH_TRIGGERED = 4099
-    
+
     # 5000-5999: 合规错误
     COMPLIANCE_KYC_FAILED = 5000
     COMPLIANCE_BLACKLIST = 5001
     COMPLIANCE_REPORT_REQUIRED = 5002
-    
+
     # 6000-6999: Broker 错误
     BROKER_ORDER_REJECTED = 6000
     BROKER_DISCONNECTED = 6001
     BROKER_TIMEOUT = 6002
-    
+
     # 7000-7999: AI Agent 错误
     AGENT_INVALID_OUTPUT = 7000
     AGENT_HUMAN_REVIEW_REQUIRED = 7001
@@ -114,7 +115,7 @@ class ForgeMindError(Exception):
     """基异常"""
     code: int = ErrorCode.INTERNAL_ERROR
     status_code: int = 500
-    
+
     def __init__(self, message: str, **details: Any):
         super().__init__(message)
         self.message = message
