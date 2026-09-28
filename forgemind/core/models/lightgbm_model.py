@@ -1,12 +1,12 @@
 # Copyright (c) 2026 灵感引擎工坊 (bin1732)
 # SPDX-License-Identifier: Apache-2.0
 
+import warnings
+from dataclasses import dataclass, field
+from pathlib import Path
+
 import numpy as np
 import pandas as pd
-import warnings
-from typing import Optional, Dict, List, Tuple
-from pathlib import Path
-from dataclasses import dataclass, field
 
 # lightgbm 4.7+ 把 eval_set 标记 deprecated(LGBMDeprecationWarning 继承 FutureWarning),但仍工作。
 # 我们知道且接受 — 真修要重构成 eval_X=[...] + eval_y=[...] 形式,但 eval_set 形式更简洁。
@@ -19,7 +19,6 @@ try:
     )
 except ImportError:
     pass
-
 
 @dataclass
 class ModelConfig:
@@ -44,19 +43,18 @@ class ModelConfig:
     # 随机种子
     seed: int = 42
 
-
 @dataclass
 class TrainResult:
     """训练结果"""
     model_path: str
-    cv_scores: List[float]  # 每次 fold 的 IC 或 RMSE
+    cv_scores: list[float]  # 每次 fold 的 IC 或 RMSE
     cv_mean: float
     cv_std: float
-    feature_importance: Dict[str, float]
+    feature_importance: dict[str, float]
     best_iteration: int
-    train_loss_curve: List[float] = field(default_factory=list)
-    val_loss_curve: List[float] = field(default_factory=list)
-    
+    train_loss_curve: list[float] = field(default_factory=list)
+    val_loss_curve: list[float] = field(default_factory=list)
+
     def summary(self) -> str:
         return (
             f"Model: {self.model_path}\n"
@@ -65,16 +63,15 @@ class TrainResult:
             f"  Top 5 features: {sorted(self.feature_importance.items(), key=lambda x: -x[1])[:5]}"
         )
 
-
 class LightGBMModel:
     """LightGBM 量化预测模型"""
-    
-    def __init__(self, config: Optional[ModelConfig] = None):
+
+    def __init__(self, config: ModelConfig | None = None):
         self.config = config or ModelConfig()
         self.model = None
-        self.feature_names: List[str] = []
-        self.train_result: Optional[TrainResult] = None
-    
+        self.feature_names: list[str] = []
+        self.train_result: TrainResult | None = None
+
     def _create_model(self):
         """创建 LightGBM 模型实例(懒加载)"""
         try:
@@ -97,15 +94,15 @@ class LightGBMModel:
             )
         except ImportError:
             return None
-    
-    def _purged_kfold_split(self, n: int, splits: int, embargo: float = 0.02) -> List[Tuple[np.ndarray, np.ndarray]]:
+
+    def _purged_kfold_split(self, n: int, splits: int, embargo: float = 0.02) -> list[tuple[np.ndarray, np.ndarray]]:
         """Time-series purged K-fold split(防泄露)
-        
+
         Args:
             n: 样本总数
             splits: K 折数
             embargo: 每折之间留 embargo 比例的数据不用
-        
+
         Returns:
             [(train_idx, val_idx), ...]
         """
@@ -121,17 +118,17 @@ class LightGBMModel:
             if len(train_idx) > 0 and len(val_idx) > 0:
                 indices.append((train_idx, val_idx))
         return indices
-    
+
     def train(
         self,
         X: pd.DataFrame,
         y: pd.Series,
-        X_val: Optional[pd.DataFrame] = None,
-        y_val: Optional[pd.Series] = None,
+        X_val: pd.DataFrame | None = None,
+        y_val: pd.Series | None = None,
         use_cv: bool = True,
     ) -> TrainResult:
         """训练模型
-        
+
         Args:
             X: 训练特征
             y: 训练标签(未来收益率)
@@ -140,22 +137,22 @@ class LightGBMModel:
         """
         self.feature_names = list(X.columns)
         self.model = self._create_model()
-        
+
         if self.model is None:
             # lightgbm 未装,降级到 sklearn
             return self._train_sklearn_fallback(X, y, X_val, y_val, use_cv)
-        
+
         cv_scores = []
         best_iterations = []
-        
+
         if use_cv and X_val is None:
             splits = self._purged_kfold_split(len(X), self.config.cv_splits, self.config.cv_embargo_pct)
-            for fold_idx, (train_idx, val_idx) in enumerate(splits):
+            for _fold_idx, (train_idx, val_idx) in enumerate(splits):
                 X_train_fold = X.iloc[train_idx]
                 y_train_fold = y.iloc[train_idx]
                 X_val_fold = X.iloc[val_idx]
                 y_val_fold = y.iloc[val_idx]
-                
+
                 model = self._create_model()
                 # lightgbm 4.0+ 用 eval_set=[(X, y)] 仍兼容,但静默 deprecation warning
                 # 真修复要传入 eval_X/eval_y,但那是 sklearn wrapper 的方式
@@ -169,7 +166,7 @@ class LightGBMModel:
                 except (TypeError, ValueError):
                     # 4.x 兼容路径
                     model.fit(X_train_fold, y_train_fold)
-                
+
                 preds = model.predict(X_val_fold)
                 from scipy.stats import spearmanr
                 # y_val_fold 是常数时 spearman 会 ConstantInputWarning,正常处理
@@ -182,7 +179,7 @@ class LightGBMModel:
                             rank_ic = 0.0
                 cv_scores.append(rank_ic)
                 best_iterations.append(model.best_iteration_ if hasattr(model, 'best_iteration_') else self.config.n_estimators)
-            
+
             # 训练最终模型
             self.model.fit(X, y)
         else:
@@ -196,10 +193,10 @@ class LightGBMModel:
                 self.model.fit(X, y)
             cv_scores.append(0.0)
             best_iterations.append(self.model.best_iteration_ if hasattr(self.model, 'best_iteration_') else self.config.n_estimators)
-        
+
         # 特征重要性
         importance = dict(zip(self.feature_names, self.model.feature_importances_))
-        
+
         self.train_result = TrainResult(
             model_path="",  # 序列化时填充
             cv_scores=cv_scores,
@@ -208,20 +205,20 @@ class LightGBMModel:
             feature_importance=importance,
             best_iteration=int(np.median(best_iterations)),
         )
-        
+
         return self.train_result
-    
+
     def _train_sklearn_fallback(self, X, y, X_val, y_val, use_cv) -> TrainResult:
         """无 lightgbm 时的 fallback(简单 GBR)"""
         from sklearn.ensemble import GradientBoostingRegressor
-        
+
         self.model = GradientBoostingRegressor(
             n_estimators=100, max_depth=4, learning_rate=0.05, random_state=self.config.seed,
         )
         self.model.fit(X, y)
-        
+
         importance = dict(zip(self.feature_names, self.model.feature_importances_))
-        
+
         cv_scores = []
         if use_cv and X_val is None:
             splits = self._purged_kfold_split(len(X), self.config.cv_splits, self.config.cv_embargo_pct)
@@ -232,7 +229,7 @@ class LightGBMModel:
                 preds = m.predict(X.iloc[val_idx])
                 rank_ic, _ = spearmanr(preds, y.iloc[val_idx])
                 cv_scores.append(rank_ic)
-        
+
         self.train_result = TrainResult(
             model_path="",
             cv_scores=cv_scores,
@@ -242,13 +239,13 @@ class LightGBMModel:
             best_iteration=100,
         )
         return self.train_result
-    
+
     def predict(self, X: pd.DataFrame) -> np.ndarray:
         """预测"""
         if self.model is None:
             raise RuntimeError("Model not trained")
         return self.model.predict(X)
-    
+
     def save(self, path: str):
         """序列化模型"""
         import joblib
@@ -259,7 +256,7 @@ class LightGBMModel:
             "config": self.config,
             "train_result": self.train_result,
         }, path)
-    
+
     @classmethod
     def load(cls, path: str) -> "LightGBMModel":
         """反序列化"""
@@ -270,8 +267,8 @@ class LightGBMModel:
         instance.feature_names = data["feature_names"]
         instance.train_result = data["train_result"]
         return instance
-    
-    def compute_shap(self, X: pd.DataFrame, top_n: int = 20) -> Dict[str, float]:
+
+    def compute_shap(self, X: pd.DataFrame, top_n: int = 20) -> dict[str, float]:
         """计算 SHAP 特征重要性"""
         try:
             import shap
@@ -289,33 +286,32 @@ class LightGBMModel:
             sorted_imp = sorted(self.train_result.feature_importance.items(), key=lambda x: -x[1])[:top_n]
             return dict(sorted_imp)
 
-
 class ModelRegistry:
     """模型注册表(对标 MLflow Registry)"""
-    
+
     def __init__(self, base_path: str = "./data/models"):
         self.base_path = Path(base_path)
         self.base_path.mkdir(parents=True, exist_ok=True)
         self._index_file = self.base_path / "registry.json"
         self._registry = self._load_index()
-    
+
     def _load_index(self) -> dict:
         if self._index_file.exists():
             import json
             return json.loads(self._index_file.read_text())
         return {"models": {}}
-    
+
     def _save_index(self):
         import json
         self._index_file.write_text(json.dumps(self._registry, indent=2, default=str))
-    
+
     def register(
         self,
         name: str,
         version: int,
         model_path: str,
-        metrics: Dict,
-        tags: Optional[Dict[str, str]] = None,
+        metrics: dict,
+        tags: dict[str, str] | None = None,
     ):
         """注册模型"""
         if name not in self._registry["models"]:
@@ -328,13 +324,13 @@ class ModelRegistry:
             "registered_at": str(np.datetime64("now")),
         })
         self._save_index()
-    
-    def get_latest(self, name: str) -> Optional[Dict]:
+
+    def get_latest(self, name: str) -> dict | None:
         """获取最新版本"""
         if name not in self._registry["models"]:
             return None
         versions = self._registry["models"][name]["versions"]
         return max(versions, key=lambda v: v["version"]) if versions else None
-    
-    def list_models(self) -> List[str]:
+
+    def list_models(self) -> list[str]:
         return list(self._registry["models"].keys())
