@@ -2,12 +2,13 @@
 # SPDX-License-Identifier: Apache-2.0
 
 from dataclasses import dataclass, field
-from typing import Optional, Dict, List, Type, Any
-import pandas as pd
-import numpy as np
+from typing import Any
 
-from forgemind.core.strategies.base import Strategy
+import numpy as np
+import pandas as pd
+
 from forgemind.core.observability.logging import get_logger
+from forgemind.core.strategies.base import Strategy
 
 logger = get_logger("forgemind.backtest")
 
@@ -32,14 +33,14 @@ class BacktestResult:
 
 class SimpleBacktestEngine:
     """简化回测引擎 — 自实现,不依赖 vectorbt
-    
+
     工作流:
     1. 策略生成信号(entries/exits)
     2. 模拟成交(下一根 bar open 成交)
     3. 计算 equity curve
     4. 计算所有指标
     """
-    
+
     def __init__(
         self,
         initial_capital: float = 100_000.0,
@@ -51,16 +52,16 @@ class SimpleBacktestEngine:
         self.fees = fees
         self.slippage_bps = slippage_bps
         self.use_next_open = use_next_open
-    
+
     def run(
         self,
         strategy: Strategy,
         price_df: pd.DataFrame,
-        symbol: Optional[str] = None,
+        symbol: str | None = None,
     ) -> BacktestResult:
         """
         跑单次回测
-        
+
         Args:
             strategy: 策略实例(有 generate_signals 方法)
             price_df: K 线(OHLCV)
@@ -73,7 +74,7 @@ class SimpleBacktestEngine:
             symbol=symbol or "ALL",
             n_bars=len(price_df),
         )
-        
+
         # 1. 生成信号
         signals = strategy.generate_signals(price_df)
         if "entries" not in signals.columns or "exits" not in signals.columns:
@@ -81,16 +82,16 @@ class SimpleBacktestEngine:
                 f"Strategy {strategy.name}.generate_signals must return DataFrame with "
                 "'entries' and 'exits' boolean columns"
             )
-        
+
         # 2. 模拟成交 + equity curve
         equity_curve = self._simulate_equity(price_df, signals)
-        
+
         # 3. 提取交易
         trades = self._extract_trades(price_df, signals, equity_curve)
-        
+
         # 4. 计算指标
         result = self._compute_metrics(equity_curve, trades, signals, strategy.parameters)
-        
+
         logger.info(
             "backtest_completed",
             strategy=strategy.name,
@@ -99,9 +100,9 @@ class SimpleBacktestEngine:
             max_drawdown=result.max_drawdown,
             n_trades=result.n_trades,
         )
-        
+
         return result
-    
+
     def _simulate_equity(
         self,
         price_df: pd.DataFrame,
@@ -112,20 +113,20 @@ class SimpleBacktestEngine:
         equity = np.full(n, self.initial_capital, dtype=np.float64)
         position = 0  # 0 = 空仓, 1 = 满仓
         entry_price = 0.0
-        
+
         slip = self.slippage_bps / 10000
         fee = self.fees
-        
+
         # 成交价:next open 或 current close
         if self.use_next_open and "open" in price_df.columns:
             prices_open = price_df["open"].values
         else:
             prices_open = price_df["close"].values
-        
+
         closes = price_df["close"].values
         entries = signals["entries"].values
         exits = signals["exits"].values
-        
+
         for i in range(1, n):
             # 判断进场 / 出场 — 用上一根信号(避免 look-ahead)
             if position == 0 and entries[i - 1]:
@@ -146,26 +147,26 @@ class SimpleBacktestEngine:
                     equity[i] = equity[i - 1] * (1 + ret)
                 else:
                     equity[i] = equity[i - 1]
-        
+
         return pd.Series(equity, index=price_df.index)
-    
+
     def _extract_trades(
         self,
         price_df: pd.DataFrame,
         signals: pd.DataFrame,
         equity_curve: pd.Series,
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         """提取每笔交易 — entry/exit 时间 + 价格 + PnL"""
         entries = signals["entries"].values
         exits = signals["exits"].values
         closes = price_df["close"].values
         opens = price_df["open"].values if "open" in price_df.columns else closes
-        
+
         trades = []
         in_trade = False
         entry_price = 0.0
         entry_idx = 0
-        
+
         for i in range(len(entries)):
             if not in_trade and entries[i]:
                 in_trade = True
@@ -185,20 +186,20 @@ class SimpleBacktestEngine:
                     "win": pnl_pct > 0,
                 })
                 in_trade = False
-        
+
         return trades
-    
+
     def _compute_metrics(
         self,
         equity_curve: pd.Series,
-        trades: List[Dict],
+        trades: list[dict],
         signals: pd.DataFrame,
         params: dict,
     ) -> BacktestResult:
         """计算所有回测指标"""
         # 总收益
         total_return = float((equity_curve.iloc[-1] / equity_curve.iloc[0]) - 1)
-        
+
         # 日收益
         returns = equity_curve.pct_change().dropna()
         if len(returns) < 2:
@@ -216,7 +217,7 @@ class SimpleBacktestEngine:
             downside = returns[returns < 0]
             dd_std = float(downside.std()) if len(downside) > 0 else std_ret
             sortino = (mean_ret / dd_std * np.sqrt(252)) if dd_std > 0 else 0.0
-            
+
             # Max Drawdown
             running_max = equity_curve.cummax()
             drawdown = (equity_curve - running_max) / running_max
@@ -242,7 +243,7 @@ class SimpleBacktestEngine:
             win_rate = 0.0
             profit_factor = 0.0
             expectancy = 0.0
-        
+
         return BacktestResult(
             total_return=total_return,
             sharpe=sharpe,
@@ -257,35 +258,35 @@ class SimpleBacktestEngine:
             signals=signals,
             params=params,
         )
-    
+
     def grid_search(
         self,
-        strategy_class: Type[Strategy],
+        strategy_class: type[Strategy],
         price_df: pd.DataFrame,
-        param_grid: Dict[str, List[Any]],
-    ) -> List[BacktestResult]:
+        param_grid: dict[str, list[Any]],
+    ) -> list[BacktestResult]:
         """参数网格扫描 — 按 Sharpe 排序返回所有结果
-        
+
         Args:
             strategy_class: 策略类(不是实例)
             price_df: K 线
             param_grid: {"fast_period": [3, 5, 10], "slow_period": [10, 20, 30]}
-        
+
         Returns:
             BacktestResult 列表,按 Sharpe 降序
         """
         from itertools import product
-        
+
         keys = list(param_grid.keys())
         values = list(param_grid.values())
         combinations = list(product(*values))
-        
+
         logger.info(
             "grid_search_started",
             n_combinations=len(combinations),
             strategy=strategy_class.__name__,
         )
-        
+
         results = []
         for combo in combinations:
             params = dict(zip(keys, combo))
@@ -301,9 +302,9 @@ class SimpleBacktestEngine:
                     error=str(e),
                     error_type=type(e).__name__,
                 )
-        
+
         results.sort(key=lambda r: r.sharpe, reverse=True)
-        
+
         logger.info(
             "grid_search_completed",
             n_results=len(results),
