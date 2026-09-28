@@ -4,29 +4,31 @@
 """
 ForgeMind FastAPI 应用入口
 """
-import asyncio
-from contextlib import asynccontextmanager
-from datetime import datetime
-from typing import List
+import asyncio  # noqa: E402
+from contextlib import asynccontextmanager  # noqa: E402
+from datetime import datetime  # noqa: E402
 
-from fastapi import FastAPI
-from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
-from pydantic import BaseModel, Field
+from fastapi import FastAPI  # noqa: E402
+from fastapi.middleware.cors import CORSMiddleware  # noqa: E402
+from fastapi.responses import JSONResponse  # noqa: E402
+from pydantic import BaseModel, Field, field_validator  # noqa: E402
 
-from forgemind.core.config.settings import get_settings
-from forgemind.core.observability.logging import setup_logging, get_logger, ForgeMindError
-from forgemind.core.agents.portfolio_context import (
+from forgemind.core.agents.portfolio_context import (  # noqa: E402
     PortfolioContext,
     PortfolioPosition,
     run_decision,
 )
-from forgemind.core.strategies.base import MovingAverageCrossStrategy
-from forgemind.core.backtest.engine import SimpleBacktestEngine
+from forgemind.core.backtest.engine import SimpleBacktestEngine  # noqa: E402
+from forgemind.core.config.settings import get_settings  # noqa: E402
+from forgemind.core.observability.logging import (  # noqa: E402
+    ForgeMindError,
+    get_logger,
+    setup_logging,
+)
+from forgemind.core.strategies.base import MovingAverageCrossStrategy  # noqa: E402
 
 settings = get_settings()
 logger = get_logger("forgemind.api")
-
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -40,7 +42,6 @@ async def lifespan(app: FastAPI):
     )
     yield
     logger.info("app_shutdown")
-
 
 app = FastAPI(
     title="ForgeMind API",
@@ -58,9 +59,8 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-
 # ===== API Key Auth Middleware =====
-from fastapi import Request, HTTPException
+from fastapi import HTTPException, Request  # noqa: E402
 
 PUBLIC_PATHS = {
     "/health",
@@ -71,7 +71,6 @@ PUBLIC_PATHS = {
     "/mcp",           # MCP 协议端点 (桌面端本地调用)
     "/api/pipeline",  # 数据流水线 (桌面端本地调用)
 }
-
 
 @app.middleware("http")
 async def api_key_auth(request: Request, call_next):
@@ -90,7 +89,6 @@ async def api_key_auth(request: Request, call_next):
 
     return await call_next(request)
 
-
 # ===== Exception handler =====
 @app.exception_handler(ForgeMindError)
 async def forgemind_error_handler(request, exc: ForgeMindError):
@@ -104,7 +102,6 @@ async def forgemind_error_handler(request, exc: ForgeMindError):
         },
     )
 
-
 # ===== Health endpoints =====
 @app.get("/health")
 async def health():
@@ -117,7 +114,6 @@ async def health():
         "timestamp": datetime.now().isoformat(),
     }
 
-
 @app.get("/api/v1/info")
 async def info():
     """App info"""
@@ -128,16 +124,47 @@ async def info():
         "data_dir": settings.data_dir,
     }
 
-
 # ===== Backtest endpoint =====
 class BacktestRequest(BaseModel):
-    symbol: str = Field(default="600519.SH", description="股票代码")
-    start_date: str = Field(default="2023-01-01")
-    end_date: str = Field(default="2024-01-01")
+    symbol: str = Field(default="600519.SH", min_length=1, max_length=20, description="股票代码")
+    start_date: str = Field(description="开始日期 YYYY-MM-DD")
+    end_date: str = Field(description="结束日期 YYYY-MM-DD")
     fast_period: int = Field(default=5, ge=2, le=200)
     slow_period: int = Field(default=20, ge=5, le=500)
     initial_capital: float = Field(default=100_000.0, gt=0)
 
+    @field_validator("start_date", "end_date")
+    @classmethod
+    def _validate_date(cls, v: str) -> str:
+        try:
+            from datetime import datetime
+            datetime.strptime(v, "%Y-%m-%d")
+        except ValueError:
+            raise ValueError(f"日期格式错误: '{v}',应为 YYYY-MM-DD") from None
+        return v
+
+    @field_validator("end_date")
+    @classmethod
+    def _validate_date_range(cls, v: str, info) -> str:
+        # info.data contains previously validated fields
+        start = info.data.get("start_date")
+        if start:
+            from datetime import datetime
+            s = datetime.strptime(start, "%Y-%m-%d")
+            e = datetime.strptime(v, "%Y-%m-%d")
+            if e <= s:
+                raise ValueError(f"end_date ({v}) 必须晚于 start_date ({start})")
+            if (e - s).days > 365 * 10:
+                raise ValueError(f"日期范围不能超过 10 年 ({(e-s).days} 天)")
+        return v
+
+    @field_validator("slow_period")
+    @classmethod
+    def _validate_periods(cls, v: int, info) -> int:
+        fast = info.data.get("fast_period")
+        if fast and v <= fast:
+            raise ValueError(f"slow_period ({v}) 必须大于 fast_period ({fast})")
+        return v
 
 class BacktestResponse(BaseModel):
     total_return: float
@@ -147,62 +174,48 @@ class BacktestResponse(BaseModel):
     n_trades: int
     params: dict
 
-
 @app.post("/api/v1/backtest/run", response_model=BacktestResponse)
 async def run_backtest(req: BacktestRequest):
     """
     跑一个双均线回测(SimpleBacktestEngine 真实计算)
-    
-    内部:
-    1. 生成确定性 GBM 价格数据(无网络依赖;生产从 ClickHouse 读)
-    2. 跑 SimpleBacktestEngine + MovingAverageCrossStrategy
-    3. 返回真实回测指标
     """
-    import pandas as pd
     import numpy as np
-    
-    # Demo 数据:生成 1 年日 K(生产从 ClickHouse 读)
-    dates = pd.date_range(req.start_date, req.end_date, freq="D")
-    n = len(dates)
-    np.random.seed(42)
-    close = 100 * np.exp(np.cumsum(np.random.normal(0.0005, 0.02, n)))
-    
-    price_df = pd.DataFrame({
-        "open": close * (1 + np.random.normal(0, 0.005, n)),
-        "high": close * (1 + np.abs(np.random.normal(0, 0.01, n))),
-        "low": close * (1 - np.abs(np.random.normal(0, 0.01, n))),
-        "close": close,
-        "volume": np.random.randint(1_000_000, 10_000_000, n),
-    }, index=dates)
-    
-    # 跑策略
-    strategy = MovingAverageCrossStrategy(
-        parameters={
-            "fast_period": req.fast_period,
-            "slow_period": req.slow_period,
-        }
-    )
-    
-    engine = SimpleBacktestEngine(initial_capital=req.initial_capital)
-    result = engine.run(strategy, price_df, symbol=req.symbol)
-    
-    return BacktestResponse(
-        total_return=result.total_return,
-        sharpe=result.sharpe,
-        max_drawdown=result.max_drawdown,
-        win_rate=result.win_rate,
-        n_trades=result.n_trades,
-        params=result.params,
-    )
+    import pandas as pd
 
+    try:
+        dates = pd.date_range(req.start_date, req.end_date, freq="D")
+        n = len(dates)
+        np.random.seed(42)
+        close = 100 * np.exp(np.cumsum(np.random.normal(0.0005, 0.02, n)))
+        price_df = pd.DataFrame({
+            "open": close * (1 + np.random.normal(0, 0.005, n)),
+            "high": close * (1 + np.abs(np.random.normal(0, 0.01, n))),
+            "low": close * (1 - np.abs(np.random.normal(0, 0.01, n))),
+            "close": close,
+            "volume": np.random.randint(1_000_000, 10_000_000, n),
+        }, index=dates)
+        strategy = MovingAverageCrossStrategy(
+            parameters={"fast_period": req.fast_period, "slow_period": req.slow_period}
+        )
+        engine = SimpleBacktestEngine(initial_capital=req.initial_capital)
+        result = engine.run(strategy, price_df, symbol=req.symbol)
+        return BacktestResponse(
+            total_return=result.total_return,
+            sharpe=result.sharpe,
+            max_drawdown=result.max_drawdown,
+            win_rate=result.win_rate,
+            n_trades=result.n_trades,
+            params=result.params,
+        )
+    except Exception as e:
+        logger.exception("backtest_failed", symbol=req.symbol)
+        raise HTTPException(status_code=500, detail=f"回测失败: {type(e).__name__}") from e
 
-# ===== Agent endpoint =====
 class AgentRequest(BaseModel):
-    symbol: str
+    symbol: str = Field(min_length=1, max_length=20)
     cash: float = Field(default=100_000.0, gt=0)
     total_equity: float = Field(default=100_000.0, gt=0)
-    positions: List[dict] = Field(default_factory=list)
-
+    positions: list[dict] = Field(default_factory=list, max_length=100)
 
 class AgentResponse(BaseModel):
     decision: dict
@@ -210,12 +223,11 @@ class AgentResponse(BaseModel):
     requires_human_review: bool
     reasoning: str
 
-
 @app.post("/api/v1/agent/decide", response_model=AgentResponse)
 async def agent_decide(req: AgentRequest):
     """
     跑 AI 决策(LangGraph 3-Agent Harness)
-    
+
     **重要**:返回 requires_human_review=True 必须人工审批才下单
     """
     portfolio = PortfolioContext(
@@ -225,7 +237,7 @@ async def agent_decide(req: AgentRequest):
             PortfolioPosition(**p) for p in req.positions
         ],
     )
-    
+
     state = await run_decision(
         symbol=req.symbol,
         as_of=datetime.now(),
@@ -248,12 +260,11 @@ async def agent_decide(req: AgentRequest):
         reasoning=state.get("decision_event", {}).get("reasoning", "") if state.get("decision_event") else "",
     )
 
-
 # ===== Feature Store =====
 @app.get("/api/v1/features/search")
 async def search_features(query: str, limit: int = 10):
     """搜索因子 — 真实因子库搜索"""
-    from forgemind.core.factors import get_all_factors, factor_count
+    from forgemind.core.factors import factor_count, get_all_factors
     all_factors = get_all_factors()
     q = query.lower()
     matched = [f for f in all_factors if q in f.lower()]
@@ -267,24 +278,37 @@ async def search_features(query: str, limit: int = 10):
         ],
     }
 
-
 @app.get("/api/v1/features")
 async def list_features(limit: int = 20):
     """列出所有因子"""
-    from forgemind.core.factors import get_all_factors, factor_count
+    from forgemind.core.factors import factor_count, get_all_factors
     all_factors = get_all_factors()
     return {
         "total": factor_count(),
         "factors": [{"feature_id": f"feat-{f}", "feature_name": f} for f in all_factors[:limit]],
     }
 
-
 # ===== Health for individual services =====
+def _classify_error(e: Exception) -> str:
+    """分类错误 — 不暴露敏感信息(密码/IP/路径)"""
+    name = type(e).__name__
+    msg = str(e)
+    # 仅保留安全的错误类别,去掉敏感细节
+    if "Connection" in name or "Connect" in msg:
+        return "unreachable"
+    if "Authentication" in name or "password" in msg.lower():
+        return "auth_failed"
+    if "timeout" in msg.lower() or "Timeout" in name:
+        return "timeout"
+    if "No module" in msg:
+        return "driver_missing"
+    return "error"
+
 @app.get("/api/v1/health/services")
 async def services_health():
-    """各服务健康检查"""
+    """各服务健康检查 — 仅返回状态,不暴露敏感信息"""
     services = {}
-    
+
     # ClickHouse — 用 asyncio.to_thread 避免阻塞事件循环
     try:
         from clickhouse_driver import Client
@@ -301,8 +325,8 @@ async def services_health():
         await asyncio.to_thread(_ch_ping)
         services["clickhouse"] = "ok"
     except Exception as e:
-        services["clickhouse"] = f"down: {str(e)[:100]}"
-    
+        services["clickhouse"] = _classify_error(e)
+
     # PostgreSQL
     try:
         import asyncpg
@@ -317,18 +341,18 @@ async def services_health():
         await conn.close()
         services["postgresql"] = "ok"
     except Exception as e:
-        services["postgresql"] = f"down: {str(e)[:100]}"
-    
+        services["postgresql"] = _classify_error(e)
+
     # Redis/Valkey
     try:
         import redis.asyncio as aioredis
         r = aioredis.from_url(settings.redis_url)
         await r.ping()
-        await r.close()
+        await r.aclose()  # aclose for async
         services["redis"] = "ok"
     except Exception as e:
-        services["redis"] = f"down: {str(e)[:100]}"
-    
+        services["redis"] = _classify_error(e)
+
     # NATS
     try:
         import nats
@@ -336,10 +360,9 @@ async def services_health():
         await nc.close()
         services["nats"] = "ok"
     except Exception as e:
-        services["nats"] = f"down: {str(e)[:100]}"
-    
-    return services
+        services["nats"] = _classify_error(e)
 
+    return services
 
 # ===== MCP HTTP 端点 (供 Tauri 桌面端调用) =====
 # Tauri sidecar: python -m forgemind.api.main --port 8008
@@ -347,10 +370,9 @@ async def services_health():
 # 复用 ForgeMindMCPServer 的 handle_request() 逻辑，支持 JSON-RPC 2.0
 
 # 懒加载，避免循环导入
-_mcp_server: "ForgeMindMCPServer | None" = None
+_mcp_server = None  # type: ignore # lazy-loaded MCP server
 
-
-def _get_mcp_server() -> "ForgeMindMCPServer":
+def _get_mcp_server():  # type: ignore # returns ForgeMindMCPServer
     """延迟初始化 MCP server 实例"""
     global _mcp_server
     if _mcp_server is None:
@@ -358,15 +380,12 @@ def _get_mcp_server() -> "ForgeMindMCPServer":
         _mcp_server = ForgeMindMCPServer()
     return _mcp_server
 
-
 class MCPToolCallRequest(BaseModel):
     """简化的工具调用请求格式 (Tauri sidecar 发送)"""
     name: str
     arguments: dict = Field(default_factory=dict)
 
-
 # ===== Pipeline endpoint (供 Tauri 桌面端调用) =====
-
 
 class SignalOutput(BaseModel):
     symbol: str
@@ -375,22 +394,19 @@ class SignalOutput(BaseModel):
     confidence: float
     signal: float
 
-
 class PipelineResult(BaseModel):
-    symbols: List[str]
+    symbols: list[str]
     n_symbols: int
     n_days: int
     n_bars: int
     sharpe: float
     max_drawdown: float
-    signals: List[SignalOutput]
-
+    signals: list[SignalOutput]
 
 class PipelineRequest(BaseModel):
-    symbols: List[str]
+    symbols: list[str]
     start: str
     end: str
-
 
 @app.post("/api/pipeline/run", response_model=PipelineResult)
 async def run_pipeline(req: PipelineRequest):
@@ -405,8 +421,8 @@ async def run_pipeline(req: PipelineRequest):
         Rust run_pipeline → POST /api/pipeline/run
     """
     symbols, start, end = req.symbols, req.start, req.end
-    import pandas as pd
     import numpy as np
+    import pandas as pd
 
     n_symbols = len(symbols)
     dates = pd.bdate_range(start, end)  # 只交易日
@@ -448,7 +464,6 @@ async def run_pipeline(req: PipelineRequest):
         max_drawdown=round(float(np.mean(mdd_list)), 4),
         signals=all_signals,
     )
-
 
 @app.post("/mcp/tools/call")
 async def mcp_tools_call(req: MCPToolCallRequest):
@@ -494,7 +509,6 @@ async def mcp_tools_call(req: MCPToolCallRequest):
 
     return result
 
-
 @app.get("/mcp/tools/list")
 async def mcp_tools_list():
     """MCP tools/list HTTP 端点 (列出所有可用工具)"""
@@ -506,7 +520,6 @@ async def mcp_tools_list():
         "params": {},
     })
 
-
 @app.get("/mcp")
 async def mcp_health():
     """MCP 协议健康检查"""
@@ -516,7 +529,6 @@ async def mcp_health():
         "protocolVersion": "2024-11-05",
         "status": "ok",
     }
-
 
 if __name__ == "__main__":
     import uvicorn
