@@ -1,9 +1,8 @@
 # Copyright (c) 2026 灵感引擎工坊 (bin1732)
 # SPDX-License-Identifier: Apache-2.0
 
+
 import polars as pl
-import numpy as np
-from typing import Optional
 
 
 def barra_size(df: pl.LazyFrame, mkt_cap_col: str = "mkt_cap") -> pl.LazyFrame:
@@ -91,7 +90,7 @@ def barra_leverage(df: pl.LazyFrame, debt_col: str = "total_debt", mkt_cap_col: 
 
 def compute_barra(df: pl.LazyFrame, has_fundamentals: bool = False) -> pl.LazyFrame:
     """计算 Barra USE5 风险因子
-    
+
     Args:
         df: 含 price/volume 数据
         has_fundamentals: 是否有 fundamentals(EPS/book_value 等),
@@ -103,13 +102,13 @@ def compute_barra(df: pl.LazyFrame, has_fundamentals: bool = False) -> pl.LazyFr
     df = barra_residual_vol(df)
     df = barra_non_linear_size(df)
     df = barra_liquidity(df)
-    
+
     if has_fundamentals:
         df = barra_book_to_price(df)
         df = barra_earnings_yield(df)
         df = barra_growth(df)
         df = barra_leverage(df)
-    
+
     return df
 
 
