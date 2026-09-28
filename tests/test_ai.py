@@ -4,7 +4,10 @@
 import pytest
 
 from forgemind.core.ai.router import (
-    ModelRouter, ModelTier, MODELS, get_router,
+    MODELS,
+    ModelRouter,
+    ModelTier,
+    get_router,
 )
 
 
@@ -17,10 +20,10 @@ class TestModels:
         assert ModelTier.LOCAL_VLLM in MODELS
         assert ModelTier.QWEN_MAX in MODELS
         assert ModelTier.HUMAN_REVIEW in MODELS
-    
+
     def test_local_is_free(self):
         assert MODELS[ModelTier.LOCAL_VLLM].cost_per_1k_tokens == 0.0
-    
+
     def test_human_is_expensive(self):
         # 人工比 Opus 贵
         human = MODELS[ModelTier.HUMAN_REVIEW].cost_per_1k_tokens
@@ -32,32 +35,32 @@ class TestRouter:
     def test_create(self):
         r = ModelRouter()
         assert r.total_cost == 0.0
-    
+
     def test_simple_task_haiku(self):
         r = ModelRouter()
         spec = r.route(task_complexity=2)
         assert spec.tier == ModelTier.HAIKU
-    
+
     def test_complex_task_opus(self):
         r = ModelRouter()
         spec = r.route(task_complexity=9)
         assert spec.tier == ModelTier.OPUS
-    
+
     def test_critical_task_human(self):
         r = ModelRouter()
         spec = r.route(task_complexity=5, is_critical=True)
         assert spec.tier == ModelTier.HUMAN_REVIEW
-    
+
     def test_chinese_qwen(self):
         r = ModelRouter()
         spec = r.route(task_complexity=5, requires_chinese=True)
         assert spec.tier == ModelTier.QWEN_MAX
-    
+
     def test_realtime_local(self):
         r = ModelRouter()
         spec = r.route(task_complexity=3, is_real_time=True)
         assert spec.tier == ModelTier.LOCAL_VLLM
-    
+
     def test_record_usage(self):
         r = ModelRouter()
         r.record_usage(ModelTier.HAIKU, 1000)
@@ -67,7 +70,7 @@ class TestRouter:
         assert stats["by_tier"]["sonnet"]["tokens"] == 500
         # haiku: 1000 * 0.0008 = 0.0008
         assert abs(stats["by_tier"]["haiku"]["cost"] - 0.0008) < 0.0001
-    
+
     def test_singleton(self):
         r1 = get_router()
         r2 = get_router()
@@ -79,13 +82,13 @@ class TestMCPServer:
         from forgemind.mcp.server import ForgeMindMCPServer
         server = ForgeMindMCPServer()
         assert "search_features" in server.tools
-    
+
     def test_list_tools(self):
         from forgemind.mcp.server import ForgeMindMCPServer
         server = ForgeMindMCPServer()
         # 用 JSON-RPC tools/list 拿工具列表
         assert len(server.tools) >= 5
-    
+
     @pytest.mark.asyncio
     async def test_search_features(self):
         from forgemind.mcp.server import ForgeMindMCPServer
@@ -97,7 +100,7 @@ class TestMCPServer:
         }
         response = await server.handle_request(request)
         assert "result" in response or "error" in response
-    
+
     @pytest.mark.asyncio
     async def test_get_feature(self):
         from forgemind.mcp.server import ForgeMindMCPServer
@@ -108,7 +111,7 @@ class TestMCPServer:
         }
         response = await server.handle_request(request)
         assert "result" in response or "error" in response
-    
+
     @pytest.mark.asyncio
     async def test_register_feature(self):
         from forgemind.mcp.server import ForgeMindMCPServer
@@ -124,15 +127,17 @@ class TestMCPServer:
 
 class TestCLI:
     def test_info(self, capsys):
-        from forgemind.cli import cmd_info
         from argparse import Namespace
+
+        from forgemind.cli import cmd_info
         cmd_info(Namespace())
         captured = capsys.readouterr()
         assert "ForgeMind" in captured.out
-    
+
     def test_router_demo(self, capsys):
-        from forgemind.cli import cmd_router_demo
         from argparse import Namespace
+
+        from forgemind.cli import cmd_router_demo
         cmd_router_demo(Namespace())
         captured = capsys.readouterr()
         assert "Model Router Demo" in captured.out
