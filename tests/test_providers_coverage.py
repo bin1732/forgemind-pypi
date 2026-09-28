@@ -1,13 +1,14 @@
 # Copyright (c) 2026 灵感引擎工坊 (bin1732)
 # SPDX-License-Identifier: Apache-2.0
 
+from unittest.mock import AsyncMock, MagicMock, patch
+
 import pytest
-from unittest.mock import patch, AsyncMock, MagicMock
 
 
 class TestChatResponseFields:
     """ChatResponse dataclass 所有字段"""
-    
+
     def test_default_fields(self):
         from forgemind.core.ai.providers import ChatResponse
         r = ChatResponse(content="hi", model="gpt-4o-mini", provider="openai")
@@ -16,7 +17,7 @@ class TestChatResponseFields:
         assert r.tokens_out == 0
         assert r.latency_ms == 0
         assert r.cost_usd == 0.0
-    
+
     def test_all_fields_set(self):
         from forgemind.core.ai.providers import ChatResponse, ProviderType
         r = ChatResponse(
@@ -36,7 +37,7 @@ class TestChatResponseFields:
 
 class TestProviderConfig:
     """ProviderConfig 字段"""
-    
+
     def test_required_provider_type(self):
         from forgemind.core.ai.providers import ProviderConfig, ProviderType
         c = ProviderConfig(provider_type=ProviderType.OPENAI)
@@ -45,7 +46,7 @@ class TestProviderConfig:
         assert c.model_name == ""
         assert c.timeout_sec == 60.0
         assert c.max_retries == 3
-    
+
     def test_custom_values(self):
         from forgemind.core.ai.providers import ProviderConfig, ProviderType
         c = ProviderConfig(
@@ -65,26 +66,44 @@ class TestProviderConfig:
 
 class TestCreateProvider:
     """create_provider 工厂 — 9 个 provider 全覆盖"""
-    
+
     def test_openai(self):
-        from forgemind.core.ai.providers import create_provider, OpenAIProvider, ProviderConfig, ProviderType
+        from forgemind.core.ai.providers import (
+            OpenAIProvider,
+            ProviderConfig,
+            ProviderType,
+            create_provider,
+        )
         p = create_provider(ProviderConfig(provider_type=ProviderType.OPENAI))
         assert isinstance(p, OpenAIProvider)
-    
+
     def test_anthropic(self):
-        from forgemind.core.ai.providers import create_provider, AnthropicProvider, ProviderConfig, ProviderType
+        from forgemind.core.ai.providers import (
+            AnthropicProvider,
+            ProviderConfig,
+            ProviderType,
+            create_provider,
+        )
         p = create_provider(ProviderConfig(provider_type=ProviderType.ANTHROPIC))
         assert isinstance(p, AnthropicProvider)
-    
+
     def test_ollama(self):
-        from forgemind.core.ai.providers import create_provider, OllamaProvider, ProviderConfig, ProviderType
+        from forgemind.core.ai.providers import (
+            OllamaProvider,
+            ProviderConfig,
+            ProviderType,
+            create_provider,
+        )
         p = create_provider(ProviderConfig(provider_type=ProviderType.OLLAMA))
         assert isinstance(p, OllamaProvider)
-    
+
     def test_qwen_uses_generic(self):
         """Qwen / DeepSeek / Gemini / Mistral / vLLM / LMStudio → GenericOpenAICompat"""
         from forgemind.core.ai.providers import (
-            create_provider, GenericOpenAICompatProvider, ProviderConfig, ProviderType,
+            GenericOpenAICompatProvider,
+            ProviderConfig,
+            ProviderType,
+            create_provider,
         )
         for pt in [
             ProviderType.QWEN, ProviderType.DEEPSEEK, ProviderType.GEMINI,
@@ -92,9 +111,9 @@ class TestCreateProvider:
         ]:
             p = create_provider(ProviderConfig(provider_type=pt))
             assert isinstance(p, GenericOpenAICompatProvider), f"{pt} not GenericOpenAICompat"
-    
+
     def test_unknown_raises(self):
-        from forgemind.core.ai.providers import create_provider, ProviderConfig
+        from forgemind.core.ai.providers import ProviderConfig, create_provider
         # 强转成假类型
         with patch("forgemind.core.ai.providers.ProviderType") as mock_pt:
             mock_pt.OPENAI = "openai"
@@ -106,7 +125,7 @@ class TestCreateProvider:
             mock_pt.MISTRAL = "mistral"
             mock_pt.VLLM = "vllm"
             mock_pt.LMSTUDIO = "lmstudio"
-            
+
             cfg = ProviderConfig(provider_type="fake_provider")
             with pytest.raises(ValueError, match="Unknown provider"):
                 create_provider(cfg)
@@ -114,19 +133,19 @@ class TestCreateProvider:
 
 class TestResolveApiKey:
     """_resolve_api_key — 显式 key 优先,从 settings 读 fallback"""
-    
+
     def test_explicit_key_wins(self):
-        from forgemind.core.ai.providers import _resolve_api_key, ProviderType
+        from forgemind.core.ai.providers import ProviderType, _resolve_api_key
         result = _resolve_api_key(ProviderType.OPENAI, "explicit-key")
         assert result == "explicit-key"
-    
+
     def test_settings_reads_openai(self):
         """没有 explicit_key 时从 settings 读"""
-        from forgemind.core.ai.providers import _resolve_api_key, ProviderType
-        from forgemind.core.config.settings import Settings
-        
         # 直接设置 env var
         import os
+
+        from forgemind.core.ai.providers import ProviderType, _resolve_api_key
+        from forgemind.core.config.settings import Settings
         os.environ["FORGEMIND_OPENAI_API_KEY"] = "settings-key"
         try:
             Settings.model_config = Settings.model_config  # 触发 reload
@@ -139,7 +158,7 @@ class TestResolveApiKey:
 
 class TestProviderInfoTable:
     """PROVIDER_INFO 包含 9 个 provider"""
-    
+
     def test_all_providers_in_info(self):
         from forgemind.core.ai.providers import PROVIDER_INFO, ProviderType
         for pt in ProviderType:
@@ -153,14 +172,14 @@ class TestProviderInfoTable:
 
 class TestProviderDefaultTables:
     """_PROVIDER_DEFAULT_BASE_URL 和 _PROVIDER_DEFAULT_MODEL 表"""
-    
+
     def test_base_url_table(self):
         from forgemind.core.ai.providers import _PROVIDER_DEFAULT_BASE_URL, ProviderType
         for pt in ProviderType:
             assert pt in _PROVIDER_DEFAULT_BASE_URL
             url = _PROVIDER_DEFAULT_BASE_URL[pt]
             assert url.startswith("http")
-    
+
     def test_model_table(self):
         from forgemind.core.ai.providers import _PROVIDER_DEFAULT_MODEL, ProviderType
         for pt in ProviderType:
@@ -170,7 +189,7 @@ class TestProviderDefaultTables:
 
 class TestQuickChat:
     """quick_chat 完整覆盖"""
-    
+
     @pytest.mark.asyncio
     async def test_quick_chat_explicit_key(self):
         from forgemind.core.ai.providers import quick_chat
@@ -180,7 +199,7 @@ class TestQuickChat:
                 content="hi", model="gpt-4o-mini", provider="openai",
             ))
             mock_create.return_value = mock_provider
-            
+
             result = await quick_chat(
                 provider="openai",
                 model="gpt-4o-mini",
@@ -190,7 +209,7 @@ class TestQuickChat:
             )
             assert result.content == "hi"
             mock_create.assert_called_once()
-    
+
     @pytest.mark.asyncio
     async def test_quick_chat_default_model(self):
         """不传 model 时用 provider 默认 model"""
@@ -201,14 +220,14 @@ class TestQuickChat:
                 content="x", model="default", provider="qwen",
             ))
             mock_create.return_value = mock_provider
-            
+
             await quick_chat(provider="qwen", prompt="hi", api_key="k")
-            
+
             # 验证传入了 _PROVIDER_DEFAULT_MODEL[QWEN]
             call_args = mock_create.call_args
             cfg = call_args[0][0]
             assert cfg.model_name  # 非空
-    
+
     @pytest.mark.asyncio
     async def test_quick_chat_no_system(self):
         """不传 system 时 messages 只有 user"""
@@ -219,9 +238,9 @@ class TestQuickChat:
                 content="x", model="m", provider="openai",
             ))
             mock_create.return_value = mock_provider
-            
+
             await quick_chat(provider="openai", prompt="hi", api_key="k")
-            
+
             call_args = mock_provider.chat.call_args
             messages = call_args[0][0]
             # 1 条 user message
@@ -231,11 +250,14 @@ class TestQuickChat:
 
 class TestAnthropicProviderFallback:
     """Anthropic provider 没装 SDK 时的 fallback"""
-    
+
     @pytest.mark.asyncio
     async def test_anthropic_import_fails(self):
         from forgemind.core.ai.providers import (
-            AnthropicProvider, ProviderConfig, ProviderType, ChatMessage,
+            AnthropicProvider,
+            ChatMessage,
+            ProviderConfig,
+            ProviderType,
         )
         p = AnthropicProvider(ProviderConfig(
             provider_type=ProviderType.ANTHROPIC,
@@ -250,11 +272,14 @@ class TestAnthropicProviderFallback:
 
 class TestOllamaProviderFallback:
     """Ollama local provider fallback"""
-    
+
     @pytest.mark.asyncio
     async def test_ollama_no_httpx(self):
         from forgemind.core.ai.providers import (
-            OllamaProvider, ProviderConfig, ProviderType, ChatMessage,
+            ChatMessage,
+            OllamaProvider,
+            ProviderConfig,
+            ProviderType,
         )
         p = OllamaProvider(ProviderConfig(
             provider_type=ProviderType.OLLAMA,
@@ -268,11 +293,14 @@ class TestOllamaProviderFallback:
 
 class TestGenericOpenAICompatProviderFallback:
     """GenericOpenAICompatProvider fallback"""
-    
+
     @pytest.mark.asyncio
     async def test_no_openai_sdk(self):
         from forgemind.core.ai.providers import (
-            GenericOpenAICompatProvider, ProviderConfig, ProviderType, ChatMessage,
+            ChatMessage,
+            GenericOpenAICompatProvider,
+            ProviderConfig,
+            ProviderType,
         )
         p = GenericOpenAICompatProvider(ProviderConfig(
             provider_type=ProviderType.QWEN,
@@ -287,11 +315,14 @@ class TestGenericOpenAICompatProviderFallback:
 
 class TestOpenAIProviderFallback:
     """OpenAI provider fallback when SDK missing"""
-    
+
     @pytest.mark.asyncio
     async def test_openai_no_sdk(self):
         from forgemind.core.ai.providers import (
-            OpenAIProvider, ProviderConfig, ProviderType, ChatMessage,
+            ChatMessage,
+            OpenAIProvider,
+            ProviderConfig,
+            ProviderType,
         )
         p = OpenAIProvider(ProviderConfig(
             provider_type=ProviderType.OPENAI,
