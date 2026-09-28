@@ -1,15 +1,15 @@
 # Copyright (c) 2026 灵感引擎工坊 (bin1732)
 # SPDX-License-Identifier: Apache-2.0
 
+from pathlib import Path
+
 import numpy as np
 import pandas as pd
-from typing import Optional, Dict, List
-from pathlib import Path
 
 
 class XGBoostModel:
     """XGBoost 量化预测模型"""
-    
+
     def __init__(
         self,
         n_estimators: int = 1000,
@@ -32,21 +32,21 @@ class XGBoostModel:
         self.tree_method = tree_method
         self.seed = seed
         self.model = None
-        self.feature_names: List[str] = []
-    
+        self.feature_names: list[str] = []
+
     def train(
         self,
         X: pd.DataFrame,
         y: pd.Series,
-        X_val: Optional[pd.DataFrame] = None,
-        y_val: Optional[pd.Series] = None,
-    ) -> Dict:
+        X_val: pd.DataFrame | None = None,
+        y_val: pd.Series | None = None,
+    ) -> dict:
         """训练"""
         try:
             import xgboost as xgb
         except ImportError:
             return self._train_sklearn(X, y)
-        
+
         self.feature_names = list(X.columns)
         self.model = xgb.XGBRegressor(
             n_estimators=self.n_estimators,
@@ -59,15 +59,15 @@ class XGBoostModel:
             tree_method=self.tree_method,
             random_state=self.seed,
         )
-        
+
         if X_val is not None:
             self.model.fit(X, y, eval_set=[(X_val, y_val)], verbose=False)
         else:
             self.model.fit(X, y)
-        
+
         importance = dict(zip(self.feature_names, self.model.feature_importances_))
         return {"feature_importance": importance}
-    
+
     def _train_sklearn(self, X, y):
         """fallback: sklearn GBR"""
         from sklearn.ensemble import GradientBoostingRegressor
@@ -75,15 +75,15 @@ class XGBoostModel:
         self.model = GradientBoostingRegressor(n_estimators=200, random_state=self.seed)
         self.model.fit(X, y)
         return {"feature_importance": dict(zip(self.feature_names, self.model.feature_importances_))}
-    
+
     def predict(self, X: pd.DataFrame) -> np.ndarray:
         return self.model.predict(X)
-    
+
     def save(self, path: str):
         import joblib
         Path(path).parent.mkdir(parents=True, exist_ok=True)
         joblib.dump({"model": self.model, "feature_names": self.feature_names}, path)
-    
+
     @classmethod
     def load(cls, path: str) -> "XGBoostModel":
         import joblib
@@ -96,7 +96,7 @@ class XGBoostModel:
 
 class CatBoostModel:
     """CatBoost 量化预测模型(对类别特征友好)"""
-    
+
     def __init__(
         self,
         iterations: int = 1000,
@@ -112,13 +112,13 @@ class CatBoostModel:
         self.random_seed = random_seed
         self.model = None
         self.feature_names = []
-    
+
     def train(self, X, y, cat_features=None):
         try:
             from catboost import CatBoostRegressor
         except ImportError:
             return self._train_fallback(X, y)
-        
+
         self.feature_names = list(X.columns)
         self.model = CatBoostRegressor(
             iterations=self.iterations,
@@ -130,32 +130,32 @@ class CatBoostModel:
         )
         self.model.fit(X, y, cat_features=cat_features or [])
         return {"feature_importance": dict(zip(self.feature_names, self.model.feature_importances_))}
-    
+
     def _train_fallback(self, X, y):
         from sklearn.ensemble import GradientBoostingRegressor
         self.model = GradientBoostingRegressor(n_estimators=100, random_state=self.random_seed)
         self.model.fit(X, y)
         return {"feature_importance": dict(zip(list(X.columns), self.model.feature_importances_))}
-    
+
     def predict(self, X):
         return self.model.predict(X)
 
 
 class EnsembleModel:
     """模型集成 — 多模型 stacking
-    
+
     对标 RD-Agent / Qlib ensemble 实践
     """
-    
-    def __init__(self, models: List, weights: Optional[List[float]] = None):
+
+    def __init__(self, models: list, weights: list[float] | None = None):
         self.models = models
         self.weights = weights or [1.0 / len(models)] * len(models)
-    
+
     def train(self, X, y):
         for m in self.models:
             if hasattr(m, "train"):
                 m.train(X, y)
-    
+
     def predict(self, X):
         preds = np.array([m.predict(X) for m in self.models])
         # 加权平均
@@ -163,7 +163,7 @@ class EnsembleModel:
         for i, w in enumerate(self.weights):
             weighted += w * preds[i]
         return weighted
-    
+
     def save(self, path: str):
         import joblib
         Path(path).parent.mkdir(parents=True, exist_ok=True)
