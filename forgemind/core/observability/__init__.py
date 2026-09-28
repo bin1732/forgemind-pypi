@@ -2,24 +2,23 @@
 # SPDX-License-Identifier: Apache-2.0
 
 from .logging import get_logger, setup_logging
+from .trace_exporter import (
+    TraceAnalyzer,
+    TraceExporter,
+    TraceVisualizer,
+)
 from .tracing import (
-    Tracer,
+    MetricsRecorder,
+    PipelineTracker,
     SpanRecord,
+    Tracer,
+    get_metrics,
     get_tracer,
+    reset_metrics,
     reset_tracer,
     span,
     span_decorator,
-    MetricsRecorder,
-    get_metrics,
-    reset_metrics,
-    PipelineTracker,
 )
-from .trace_exporter import (
-    TraceExporter,
-    TraceAnalyzer,
-    TraceVisualizer,
-)
-
 
 __all__ = [
     "get_logger",
