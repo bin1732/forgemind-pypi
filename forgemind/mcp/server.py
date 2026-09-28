@@ -17,17 +17,16 @@ GitHub 头部 Agent(Vibe-Trading / OpenBB / TradingAgents / RD-Agent / FinRL / Q
 
 启动:python -m forgemind.mcp.server
 """
-import json
-import asyncio
-from datetime import datetime
-from typing import Optional, List, Dict, Any, Callable, Awaitable
-from dataclasses import dataclass, field
-from uuid import UUID
+import asyncio  # noqa: E402
+import json  # noqa: E402
+from collections.abc import Callable  # noqa: E402
+from dataclasses import dataclass, field  # noqa: E402
+from datetime import datetime  # noqa: E402
+from typing import Any  # noqa: E402
 
-from forgemind.core.observability.logging import get_logger
+from forgemind.core.observability.logging import get_logger  # noqa: E402
 
 logger = get_logger("forgemind.mcp")
-
 
 # ===== 因子元数据辅助 =====
 def _infer_factor_category(name: str) -> str:
@@ -43,7 +42,6 @@ def _infer_factor_category(name: str) -> str:
         return "fundamental"
     return "price_volume"
 
-
 def _get_factor_formula(name: str) -> str:
     """返回因子计算公式描述"""
     formula_map = {
@@ -56,7 +54,6 @@ def _get_factor_formula(name: str) -> str:
     }
     return formula_map.get(name, f"Polars expression for {name} (see forgemind/core/factors/)")
 
-
 # ===== MCP 协议基础(不依赖官方 mcp 库,自己实现 stdio/SSE)=====
 
 @dataclass
@@ -64,8 +61,7 @@ class MCPTool:
     """MCP Tool 定义"""
     name: str
     description: str
-    parameters: Dict[str, Any] = field(default_factory=dict)
-
+    parameters: dict[str, Any] = field(default_factory=dict)
 
 @dataclass
 class MCPResource:
@@ -76,7 +72,6 @@ class MCPResource:
     mime_type: str = "application/json"
     content: Any = None  # 静态内容(字符串或 dict)
 
-
 @dataclass
 class MCPPrompt:
     """MCP Prompt 模板"""
@@ -84,21 +79,20 @@ class MCPPrompt:
     description: str
     template: str
 
-
 class ForgeMindMCPServer:
     """
     ForgeMind MCP Server
-    
+
     对齐 Anthropic MCP 规范(2025):
     - JSON-RPC 2.0 over stdio / SSE
     - resources / tools / prompts 三大原语
     """
-    
+
     def __init__(self):
-        self.tools: Dict[str, MCPTool] = {}
-        self.resources: Dict[str, MCPResource] = {}
-        self.prompts: Dict[str, MCPPrompt] = {}
-        self.handlers: Dict[str, Callable] = {}
+        self.tools: dict[str, MCPTool] = {}
+        self.resources: dict[str, MCPResource] = {}
+        self.prompts: dict[str, MCPPrompt] = {}
+        self.handlers: dict[str, Callable] = {}
         self._register_all()
         logger.info(
             "mcp_server_init",
@@ -106,7 +100,7 @@ class ForgeMindMCPServer:
             resources=len(self.resources),
             prompts=len(self.prompts),
         )
-    
+
     def _register_all(self):
         """注册所有 tools / resources / prompts"""
         # === Tools ===
@@ -214,7 +208,7 @@ class ForgeMindMCPServer:
             },
             self._tool_stock_pick,
         )
-        
+
         # === Resources ===
         self._resource(
             "forgemind://features",
@@ -255,7 +249,7 @@ class ForgeMindMCPServer:
                 "shadow_trader_supported": True,
             },
         )
-        
+
         # === Prompts ===
         self._prompt(
             "stock_analysis",
@@ -296,23 +290,23 @@ class ForgeMindMCPServer:
 6. 决定:保留 / 改进 / 废弃
 """,
         )
-    
+
     # ===== 注册辅助 =====
     def _tool(self, name, description, parameters, handler):
         self.tools[name] = MCPTool(name=name, description=description, parameters=parameters)
         self.handlers[f"tool/{name}"] = handler
-    
+
     def _resource(self, uri, name, description, mime_type="application/json", content=None):
         self.resources[uri] = MCPResource(
             uri=uri, name=name, description=description,
             mime_type=mime_type, content=content,
         )
-    
+
     def _prompt(self, name, description, template):
         self.prompts[name] = MCPPrompt(name=name, description=description, template=template)
-    
+
     # ===== Tool handlers =====
-    async def _tool_search_features(self, query: str, tags: Optional[dict] = None) -> dict:
+    async def _tool_search_features(self, query: str, tags: dict | None = None) -> dict:
         """搜索因子库 — 真实因子名匹配"""
         from forgemind.core.factors import get_all_factors
         all_factors = get_all_factors()
@@ -327,8 +321,8 @@ class ForgeMindMCPServer:
                 for name in matched[:20]
             ],
         }
-    
-    async def _tool_get_feature(self, name: str, version: Optional[int] = None) -> dict:
+
+    async def _tool_get_feature(self, name: str, version: int | None = None) -> dict:
         """取因子定义 — 真实因子元数据"""
         from forgemind.core.factors import get_all_factors
         all_factors = get_all_factors()
@@ -341,7 +335,7 @@ class ForgeMindMCPServer:
             "formula": _get_factor_formula(name),
             "source": "Alpha158 / Alpha101 / Barra",
         }
-    
+
     async def _tool_trace_feature_usage(self, feature_id: str) -> dict:
         """追踪因子使用 — 基于因子 ID 反查"""
         from forgemind.core.factors import get_all_factors
@@ -358,13 +352,14 @@ class ForgeMindMCPServer:
             "strategies": ["StockPickerAgent", "MomentumStrategy", "MeanReversionStrategy"],
             "pipelines": ["EndToEndPipeline"],
         }
-    
-    async def _tool_run_backtest(self, strategy: str, symbol: str, start: str, end: str, params: Optional[dict] = None) -> dict:
+
+    async def _tool_run_backtest(self, strategy: str, symbol: str, start: str, end: str, params: dict | None = None) -> dict:
         """跑回测 — 真实 SimpleBacktestEngine + 随机价格(无网络依赖)"""
+        import numpy as np
+        import pandas as pd
+
         from forgemind.core.backtest.engine import SimpleBacktestEngine
         from forgemind.core.strategies.library import get_strategy_class
-        import pandas as pd
-        import numpy as np
 
         try:
             strategy_cls = get_strategy_class(strategy)
@@ -402,7 +397,7 @@ class ForgeMindMCPServer:
             "sortino": result.sortino,
             "data_source": "deterministic_gbm",
         }
-    
+
     async def _tool_output_signal(self, symbol: str, side: str, confidence: float, rationale: str) -> dict:
         """输出交易信号 JSON(不替用户下单)
 
@@ -425,11 +420,12 @@ class ForgeMindMCPServer:
                 "manual: 在券商终端按信号执行",
             ],
         }
-    
+
     async def _tool_check_ic_decay(self, feature_name: str, window_days: int = 30) -> dict:
         """检查 IC 衰减 — 真实计算"""
         import numpy as np
-        from forgemind.core.factors import get_all_factors, compute_ic_decay
+
+        from forgemind.core.factors import compute_ic_decay, get_all_factors
 
         all_factors = get_all_factors()
         if feature_name not in all_factors:
@@ -456,7 +452,7 @@ class ForgeMindMCPServer:
                 "icir": icir,
                 "status": "estimated_no_data",
             }
-    
+
     async def _tool_query_portfolio(self) -> dict:
         return {
             "cash": 80000.0,
@@ -465,8 +461,8 @@ class ForgeMindMCPServer:
                 {"symbol": "600519.SH", "quantity": 100, "avg_price": 1500.0},
             ],
         }
-    
-    async def _tool_stock_pick(self, universe: List[str], top_n: int = 5) -> dict:
+
+    async def _tool_stock_pick(self, universe: list[str], top_n: int = 5) -> dict:
         from forgemind.core.agents.stock_picker import StockPickerAgent
         picker = StockPickerAgent()
         picks = await picker.pick(universe=universe, top_n=top_n)
@@ -482,14 +478,14 @@ class ForgeMindMCPServer:
                 } for p in picks
             ],
         }
-    
+
     # ===== MCP JSON-RPC 处理 =====
-    async def handle_request(self, request: Dict[str, Any]) -> Dict[str, Any]:
+    async def handle_request(self, request: dict[str, Any]) -> dict[str, Any]:
         """处理 JSON-RPC 2.0 请求"""
         method = request.get("method", "")
         params = request.get("params", {})
         req_id = request.get("id")
-        
+
         if method == "initialize":
             return {
                 "jsonrpc": "2.0",
@@ -500,7 +496,7 @@ class ForgeMindMCPServer:
                     "capabilities": {"tools": {}, "resources": {}, "prompts": {}},
                 },
             }
-        
+
         if method == "tools/list":
             return {
                 "jsonrpc": "2.0",
@@ -515,7 +511,7 @@ class ForgeMindMCPServer:
                     ],
                 },
             }
-        
+
         if method == "tools/call":
             tool_name = params.get("name")
             arguments = params.get("arguments", {})
@@ -539,7 +535,7 @@ class ForgeMindMCPServer:
                     "id": req_id,
                     "error": {"code": -32000, "message": str(e)},
                 }
-        
+
         if method == "resources/list":
             return {
                 "jsonrpc": "2.0",
@@ -551,7 +547,7 @@ class ForgeMindMCPServer:
                     ],
                 },
             }
-        
+
         if method == "prompts/list":
             return {
                 "jsonrpc": "2.0",
@@ -563,7 +559,7 @@ class ForgeMindMCPServer:
                     ],
                 },
             }
-        
+
         if method == "prompts/get":
             prompt_name = params.get("name")
             p = self.prompts.get(prompt_name)
@@ -578,7 +574,7 @@ class ForgeMindMCPServer:
                 "id": req_id,
                 "result": {"messages": [{"role": "user", "content": {"type": "text", "text": p.template}}]},
             }
-        
+
         if method == "resources/read":
             uri = params.get("uri")
             r = self.resources.get(uri)
@@ -599,25 +595,24 @@ class ForgeMindMCPServer:
                     }],
                 },
             }
-        
+
         if method == "notifications/initialized":
             # 客户端通知,不需要 response
             logger.info("mcp_client_initialized", server="forgemind")
             return None
-        
+
         return {
             "jsonrpc": "2.0",
             "id": req_id,
             "error": {"code": -32601, "message": f"Unknown method: {method}"},
         }
 
-
 # CLI 入口
 def main():
     import sys
-    
+
     server = ForgeMindMCPServer()
-    
+
     if len(sys.argv) > 1 and sys.argv[1] == "--demo":
         print("=== ForgeMind MCP Server Demo ===\n")
         print(f"Tools: {len(server.tools)}")
@@ -629,7 +624,7 @@ def main():
         print(f"\nPrompts: {len(server.prompts)}")
         for p in server.prompts.values():
             print(f"  - {p.name}: {p.description}")
-        
+
         # Demo: invoke stock_pick
         print("\n=== Demo: stock_pick ===")
         async def demo():
@@ -654,7 +649,6 @@ def main():
                 },
             },
         }, indent=2))
-
 
 if __name__ == "__main__":
     main()
