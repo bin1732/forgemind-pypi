@@ -1,10 +1,9 @@
 # Copyright (c) 2026 灵感引擎工坊 (bin1732)
 # SPDX-License-Identifier: Apache-2.0
 
-import polars as pl
-import numpy as np
-from typing import List, Optional
 from dataclasses import dataclass
+
+import polars as pl
 
 
 @dataclass
@@ -67,7 +66,7 @@ def price_volume_factors(df: pl.LazyFrame, config: Alpha158Config) -> pl.LazyFra
     """量价因子 (12 因子)"""
     return df.with_columns([
         # 收盘价相对最低/最高位置
-        ((pl.col("close") - _ts_min(pl.col("low"), 5)) / 
+        ((pl.col("close") - _ts_min(pl.col("low"), 5)) /
          (_ts_max(pl.col("high"), 5) - _ts_min(pl.col("low"), 5) + 1e-9)).alias("CLOSE_MINMAX_5"),
         ((pl.col("close") - _ts_min(pl.col("low"), 20)) /
          (_ts_max(pl.col("high"), 20) - _ts_min(pl.col("low"), 20) + 1e-9)).alias("CLOSE_MINMAX_20"),
@@ -81,12 +80,12 @@ def price_volume_factors(df: pl.LazyFrame, config: Alpha158Config) -> pl.LazyFra
         # High-low range
         ((pl.col("high") - pl.col("low")) / pl.col("close")).alias("DAILY_RANGE"),
         # 跳空
-        ((pl.col("open") / pl.col("close").shift(1) - 1)).alias("GAP"),
+        (pl.col("open") / pl.col("close").shift(1) - 1).alias("GAP"),
         # 上下影线
         ((pl.col("high") - pl.max_horizontal(pl.col("open"), pl.col("close"))) / (pl.col("high") - pl.col("low") + 1e-9)).alias("UPPER_SHADOW"),
         ((pl.min_horizontal(pl.col("open"), pl.col("close")) - pl.col("low")) / (pl.col("high") - pl.col("low") + 1e-9)).alias("LOWER_SHADOW"),
         # 量价背离
-        (_rolling_mean(pl.col("close"), 5) / _rolling_mean(pl.col("close"), 20) - 
+        (_rolling_mean(pl.col("close"), 5) / _rolling_mean(pl.col("close"), 20) -
          _rolling_mean(pl.col("volume"), 5) / _rolling_mean(pl.col("volume"), 20)).alias("PV_DIVERGENCE"),
     ])
 
@@ -141,7 +140,7 @@ def technical_indicators(df: pl.LazyFrame, config: Alpha158Config) -> pl.LazyFra
     avg_gain = _rolling_mean(gain, config.rsi_n)
     avg_loss = _rolling_mean(loss, config.rsi_n)
     rsi = 100 - (100 / (1 + avg_gain / (avg_loss + 1e-9)))
-    
+
     # KDJ (9 日)
     low_n = _ts_min(pl.col("low"), config.kdj_n)
     high_n = _ts_max(pl.col("high"), config.kdj_n)
@@ -149,20 +148,20 @@ def technical_indicators(df: pl.LazyFrame, config: Alpha158Config) -> pl.LazyFra
     k = rsv.rolling_mean(3)
     d = k.rolling_mean(3)
     j = 3 * k - 2 * d
-    
+
     # MACD
     ema12 = pl.col("close").ewm_mean(span=12)
     ema26 = pl.col("close").ewm_mean(span=26)
     dif = ema12 - ema26
     dea = dif.ewm_mean(span=9)
     macd = (dif - dea) * 2
-    
+
     # BOLL
     boll_mid = _rolling_mean(pl.col("close"), config.boll_n)
     boll_std = _rolling_std(pl.col("close"), config.boll_n)
     boll_upper = boll_mid + 2 * boll_std
     boll_lower = boll_mid - 2 * boll_std
-    
+
     return df.with_columns([
         rsi.alias("RSI"),
         k.alias("KDJ_K"),
@@ -200,7 +199,7 @@ def momentum_factors(df: pl.LazyFrame, config: Alpha158Config) -> pl.LazyFrame:
     return df.with_columns(exprs)
 
 
-def industry_neutralize(df: pl.LazyFrame, factor_cols: List[str], industry_col: str) -> pl.LazyFrame:
+def industry_neutralize(df: pl.LazyFrame, factor_cols: list[str], industry_col: str) -> pl.LazyFrame:
     """行业中性化: 每个行业内对因子做 z-score"""
     exprs = []
     for col in factor_cols:
@@ -211,19 +210,19 @@ def industry_neutralize(df: pl.LazyFrame, factor_cols: List[str], industry_col: 
     return df.with_columns(exprs)
 
 
-def compute_alpha158(df: pl.LazyFrame, config: Optional[Alpha158Config] = None) -> pl.LazyFrame:
+def compute_alpha158(df: pl.LazyFrame, config: Alpha158Config | None = None) -> pl.LazyFrame:
     """计算 Alpha158 全套因子
-    
+
     Args:
         df: 必须包含 open/high/low/close/volume 列,按 symbol + date 排序
         config: 配置
-    
+
     Returns:
         包含 158 个因子的 LazyFrame
     """
     if config is None:
         config = Alpha158Config()
-    
+
     df = kbar_factors(df, config)
     df = price_volume_factors(df, config)
     df = ma_factors(df, config)
@@ -231,11 +230,11 @@ def compute_alpha158(df: pl.LazyFrame, config: Optional[Alpha158Config] = None) 
     df = technical_indicators(df, config)
     df = returns_factors(df, config)
     df = momentum_factors(df, config)
-    
+
     return df
 
 
-def list_alpha158_factors() -> List[str]:
+def list_alpha158_factors() -> list[str]:
     """列出全部 Alpha158 因子名(用于 IC 监控 / 特征选择)"""
     factors = []
     # KBAR
