@@ -2,40 +2,40 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import json
-from pathlib import Path
-from typing import Dict, List, Optional
-from datetime import datetime
 from collections import defaultdict
-from .tracing import Tracer, SpanRecord
+from datetime import datetime
+from pathlib import Path
+
+from .tracing import Tracer
 
 
 class TraceExporter:
     """Trace 导出器"""
-    
+
     def __init__(self, tracer: Tracer):
         self.tracer = tracer
-    
-    def to_json(self, path: str, trace_id: Optional[str] = None):
+
+    def to_json(self, path: str, trace_id: str | None = None):
         """导出 trace 到 JSON"""
         if trace_id:
             spans = self.tracer.get_trace(trace_id)
         else:
             spans = self.tracer.spans
-        
+
         output = {
             "exported_at": datetime.utcnow().isoformat() + "Z",
             "n_spans": len(spans),
-            "traces": list(set(s.trace_id for s in spans)),
+            "traces": list({s.trace_id for s in spans}),
             "spans": [s.to_dict() for s in spans],
         }
-        
+
         Path(path).parent.mkdir(parents=True, exist_ok=True)
         Path(path).write_text(json.dumps(output, indent=2, default=str))
         return path
-    
+
     def to_otlp(self, path: str):
         """导出为 OTLP JSON(OpenTelemetry 协议)
-        
+
         兼容 Jaeger / Tempo / Honeycomb / Datadog
         """
         spans = []
@@ -57,7 +57,7 @@ class TraceExporter:
                     "value": s.error_message,
                 })
             spans.append(otlp_span)
-        
+
         output = {
             "resourceSpans": [{
                 "resource": {"attributes": [{"key": "service.name", "value": "forgemind"}]},
@@ -67,19 +67,18 @@ class TraceExporter:
                 }],
             }],
         }
-        
+
         Path(path).parent.mkdir(parents=True, exist_ok=True)
         Path(path).write_text(json.dumps(output, indent=2, default=str))
         return path
 
-
 class TraceAnalyzer:
     """Trace 分析器 — 找瓶颈"""
-    
+
     def __init__(self, tracer: Tracer):
         self.tracer = tracer
-    
-    def find_bottlenecks(self, top_n: int = 5) -> List[Dict]:
+
+    def find_bottlenecks(self, top_n: int = 5) -> list[dict]:
         """找最慢的 span"""
         sorted_spans = sorted(self.tracer.spans, key=lambda s: -s.duration_ms)
         return [
@@ -91,8 +90,8 @@ class TraceAnalyzer:
             }
             for s in sorted_spans[:top_n]
         ]
-    
-    def group_by_name(self) -> Dict[str, Dict]:
+
+    def group_by_name(self) -> dict[str, dict]:
         """按名字聚合"""
         groups = defaultdict(lambda: {
             "count": 0,
@@ -101,7 +100,7 @@ class TraceAnalyzer:
             "max_ms": 0.0,
             "errors": 0,
         })
-        
+
         for s in self.tracer.spans:
             g = groups[s.name]
             g["count"] += 1
@@ -110,26 +109,26 @@ class TraceAnalyzer:
             g["max_ms"] = max(g["max_ms"], s.duration_ms)
             if s.status == "ERROR":
                 g["errors"] += 1
-        
-        for name, g in groups.items():
+
+        for _name, g in groups.items():
             g["avg_ms"] = g["total_ms"] / g["count"]
             g["min_ms"] = g["min_ms"] if g["min_ms"] != float("inf") else 0
-        
+
         return dict(groups)
-    
+
     def error_rate(self) -> float:
         """错误率"""
         if not self.tracer.spans:
             return 0.0
         errors = sum(1 for s in self.tracer.spans if s.status == "ERROR")
         return errors / len(self.tracer.spans)
-    
+
     def report(self) -> str:
         """生成完整分析报告"""
         stats = self.tracer.stats()
         if not self.tracer.spans:
             return "无 trace 数据"
-        
+
         lines = [
             "=" * 70,
             "ForgeMind Trace 分析报告",
@@ -143,46 +142,45 @@ class TraceAnalyzer:
             "",
             "Top 5 瓶颈(按耗时):",
         ]
-        
+
         for i, b in enumerate(self.find_bottlenecks(5), 1):
             lines.append(f"  {i}. {b['name']} — {b['duration_ms']:.1f}ms")
-        
+
         lines.extend(["", "按名字聚合:"])
         for name, g in self.group_by_name().items():
             lines.append(f"  {name}: count={g['count']}, avg={g['avg_ms']:.1f}ms, max={g['max_ms']:.1f}ms")
-        
+
         lines.append("=" * 70)
         return "\n".join(lines)
 
-
 class TraceVisualizer:
     """生成简单的 HTML 可视化(Trace 时间轴)"""
-    
+
     def __init__(self, tracer: Tracer):
         self.tracer = tracer
-    
-    def to_html(self, path: str, trace_id: Optional[str] = None):
+
+    def to_html(self, path: str, trace_id: str | None = None):
         """生成 trace 时间轴 HTML"""
         if trace_id:
             spans = self.tracer.get_trace(trace_id)
         else:
             spans = self.tracer.spans
-        
+
         if not spans:
             return None
-        
+
         # 计算时间范围
         min_ts = min(s.start_time for s in spans)
         max_ts = max(s.start_time + s.duration_ms / 1000 for s in spans)
         duration = max_ts - min_ts
-        
+
         # 按 trace 分组
         traces = {}
         for s in spans:
             if s.trace_id not in traces:
                 traces[s.trace_id] = []
             traces[s.trace_id].append(s)
-        
+
         html = ["""<!DOCTYPE html>
 <html>
 <head>
@@ -202,26 +200,26 @@ body { font-family: monospace; background: #0a0a0a; color: #e5e5e5; padding: 20p
 </head>
 <body>
 <h1>📊 ForgeMind Trace 可视化</h1>"""]
-        
+
         for tid, trace_spans in traces.items():
-            html.append(f'<div class="trace">')
+            html.append('<div class="trace">')
             html.append(f'<div class="trace-title">Trace: {tid[:16]} ({len(trace_spans)} spans)</div>')
-            
+
             for s in sorted(trace_spans, key=lambda x: x.start_time):
                 offset = ((s.start_time - min_ts) / duration * 100) if duration > 0 else 0
                 width = (s.duration_ms / 1000 / duration * 100) if duration > 0 else 0
                 status_class = "span-error" if s.status == "ERROR" else "span-ok"
-                
-                html.append(f'<div class="span-row">')
+
+                html.append('<div class="span-row">')
                 html.append(f'<div class="span-label">{s.name}</div>')
                 html.append(f'<div class="span-bar {status_class}" style="margin-left: {offset}%; width: {width}%;"></div>')
                 html.append(f'<div class="span-duration">{s.duration_ms:.1f}ms</div>')
-                html.append(f'</div>')
-            
-            html.append(f'</div>')
-        
+                html.append('</div>')
+
+            html.append('</div>')
+
         html.append("</body></html>")
-        
+
         Path(path).parent.mkdir(parents=True, exist_ok=True)
         Path(path).write_text("\n".join(html))
         return path
