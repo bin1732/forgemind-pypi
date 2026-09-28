@@ -1,12 +1,6 @@
 {
   "version": "latest",
-  "date": "2026-09-28T12:23:40.620142Z",
-  "files": [
-    "releases/builds/windows/forgemind-windows-x64.exe",
-    "releases/builds/macos/forgemind-macos",
-    "releases/builds/source/forgemind-2026.9.0.tar.gz",
-    "releases/builds/source/forgemind-2026.9.0-py3-none-any.whl",
-    "releases/builds/linux/forgemind-linux"
-  ],
+  "assets": [],
+  "source_repo": "bin1732/forgemind",
   "install": "pip install --extra-index-url https://bin1732.github.io/forgemind-pypi/pypi/simple/forgemind/ forgemind"
 }
