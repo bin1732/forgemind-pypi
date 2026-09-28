@@ -1,18 +1,16 @@
 # Copyright (c) 2026 灵感引擎工坊 (bin1732)
 # SPDX-License-Identifier: Apache-2.0
 
-import asyncio
-from typing import Optional, List, Dict, Any, AsyncIterator
-from enum import Enum
-from dataclasses import dataclass
 from abc import ABC, abstractmethod
+from collections.abc import AsyncIterator
+from dataclasses import dataclass
+from enum import Enum
 
 from forgemind.core.observability.logging import get_logger
 
 logger = get_logger("forgemind.providers")
 
-
-class ProviderType(str, Enum):
+class ProviderType(str, Enum):  # noqa: UP042
     """9 个 Provider"""
     OPENAI = "openai"
     ANTHROPIC = "anthropic"
@@ -24,24 +22,21 @@ class ProviderType(str, Enum):
     VLLM = "vllm"              # 本地(高吞吐)
     LMSTUDIO = "lmstudio"      # 本地(桌面)
 
-
 @dataclass
 class ProviderConfig:
     """Provider 配置"""
     provider_type: ProviderType
-    api_key: Optional[str] = None
-    base_url: Optional[str] = None
+    api_key: str | None = None
+    base_url: str | None = None
     model_name: str = ""
     timeout_sec: float = 60.0
     max_retries: int = 3
-
 
 @dataclass
 class ChatMessage:
     """聊天消息"""
     role: str  # "system" / "user" / "assistant"
     content: str
-
 
 @dataclass
 class ChatResponse:
@@ -54,37 +49,35 @@ class ChatResponse:
     latency_ms: int = 0
     cost_usd: float = 0.0
 
-
 class BaseProvider(ABC):
     """Provider 基类"""
-    
+
     def __init__(self, config: ProviderConfig):
         self.config = config
-    
+
     @abstractmethod
     async def chat(
         self,
-        messages: List[ChatMessage],
+        messages: list[ChatMessage],
         temperature: float = 0.7,
         max_tokens: int = 4096,
     ) -> ChatResponse:
         """同步 chat"""
         pass
-    
+
     @abstractmethod
     async def stream_chat(
         self,
-        messages: List[ChatMessage],
+        messages: list[ChatMessage],
         temperature: float = 0.7,
         max_tokens: int = 4096,
     ) -> AsyncIterator[str]:
         """流式 chat"""
         pass
 
-
 class OpenAIProvider(BaseProvider):
     """OpenAI(gpt-4o / gpt-4o-mini / o1)"""
-    
+
     async def chat(self, messages, temperature=0.7, max_tokens=4096):
         try:
             from openai import AsyncOpenAI
@@ -94,15 +87,15 @@ class OpenAIProvider(BaseProvider):
                 model=self.config.model_name,
                 provider=ProviderType.OPENAI,
             )
-        
+
         client = AsyncOpenAI(
             api_key=self.config.api_key,
             base_url=self.config.base_url or "https://api.openai.com/v1",
         )
-        
+
         import time
         start = time.time()
-        
+
         try:
             response = await client.chat.completions.create(
                 model=self.config.model_name or "gpt-4o-mini",
@@ -126,7 +119,7 @@ class OpenAIProvider(BaseProvider):
                 model=self.config.model_name,
                 provider=ProviderType.OPENAI,
             )
-    
+
     async def stream_chat(self, messages, temperature=0.7, max_tokens=4096):
         try:
             from openai import AsyncOpenAI
@@ -144,10 +137,9 @@ class OpenAIProvider(BaseProvider):
         except ImportError:
             yield "[OpenAI not installed]"
 
-
 class AnthropicProvider(BaseProvider):
     """Anthropic(claude-4 / claude-haiku-4 / claude-sonnet-4 / claude-opus-4)"""
-    
+
     async def chat(self, messages, temperature=0.7, max_tokens=4096):
         try:
             from anthropic import AsyncAnthropic
@@ -157,9 +149,9 @@ class AnthropicProvider(BaseProvider):
                 model=self.config.model_name,
                 provider=ProviderType.ANTHROPIC,
             )
-        
+
         client = AsyncAnthropic(api_key=self.config.api_key)
-        
+
         # 分离 system
         system = ""
         chat_msgs = []
@@ -168,10 +160,10 @@ class AnthropicProvider(BaseProvider):
                 system = m.content
             else:
                 chat_msgs.append({"role": m.role, "content": m.content})
-        
+
         import time
         start = time.time()
-        
+
         try:
             response = await client.messages.create(
                 model=self.config.model_name or "claude-sonnet-4-20250514",
@@ -196,7 +188,7 @@ class AnthropicProvider(BaseProvider):
                 model=self.config.model_name,
                 provider=ProviderType.ANTHROPIC,
             )
-    
+
     async def stream_chat(self, messages, temperature=0.7, max_tokens=4096):
         try:
             from anthropic import AsyncAnthropic
@@ -208,7 +200,7 @@ class AnthropicProvider(BaseProvider):
                     system = m.content
                 else:
                     chat_msgs.append({"role": m.role, "content": m.content})
-            
+
             async with client.messages.stream(
                 model=self.config.model_name or "claude-sonnet-4-20250514",
                 system=system,
@@ -221,10 +213,9 @@ class AnthropicProvider(BaseProvider):
         except ImportError:
             yield "[Anthropic not installed]"
 
-
 class OllamaProvider(BaseProvider):
     """Ollama 本地(0 元,完全本地)"""
-    
+
     async def chat(self, messages, temperature=0.7, max_tokens=4096):
         try:
             import httpx
@@ -237,7 +228,7 @@ class OllamaProvider(BaseProvider):
         import time
         start = time.time()
         base_url = self.config.base_url or "http://localhost:11434"
-        
+
         try:
             async with httpx.AsyncClient(timeout=self.config.timeout_sec) as client:
                 response = await client.post(
@@ -267,7 +258,7 @@ class OllamaProvider(BaseProvider):
                 model=self.config.model_name,
                 provider=ProviderType.OLLAMA,
             )
-    
+
     async def stream_chat(self, messages, temperature=0.7, max_tokens=4096):
         try:
             import httpx
@@ -296,13 +287,12 @@ class OllamaProvider(BaseProvider):
         except Exception as e:
             yield f"[Ollama Error: {e}]"
 
-
 class GenericOpenAICompatProvider(BaseProvider):
     """兼容 OpenAI API 协议(Qwen / DeepSeek / Gemini / Mistral / vLLM / LM Studio)
-    
+
     这些 provider 都用 OpenAI 兼容协议
     """
-    
+
     async def chat(self, messages, temperature=0.7, max_tokens=4096):
         try:
             from openai import AsyncOpenAI
@@ -312,7 +302,7 @@ class GenericOpenAICompatProvider(BaseProvider):
                 model=self.config.model_name,
                 provider=self.config.provider_type,
             )
-        
+
         if not self.config.base_url:
             # 默认 URL
             defaults = {
@@ -324,15 +314,15 @@ class GenericOpenAICompatProvider(BaseProvider):
                 ProviderType.LMSTUDIO: "http://localhost:1234/v1",
             }
             self.config.base_url = defaults.get(self.config.provider_type, "")
-        
+
         client = AsyncOpenAI(
             api_key=self.config.api_key or "EMPTY",
             base_url=self.config.base_url,
         )
-        
+
         import time
         start = time.time()
-        
+
         try:
             response = await client.chat.completions.create(
                 model=self.config.model_name,
@@ -356,7 +346,7 @@ class GenericOpenAICompatProvider(BaseProvider):
                 model=self.config.model_name,
                 provider=self.config.provider_type,
             )
-    
+
     async def stream_chat(self, messages, temperature=0.7, max_tokens=4096):
         try:
             from openai import AsyncOpenAI
@@ -374,7 +364,6 @@ class GenericOpenAICompatProvider(BaseProvider):
         except ImportError:
             yield "[openai package not installed]"
 
-
 def create_provider(config: ProviderConfig) -> BaseProvider:
     """工厂 — 按 ProviderType 创建对应 provider"""
     if config.provider_type == ProviderType.OPENAI:
@@ -391,7 +380,6 @@ def create_provider(config: ProviderConfig) -> BaseProvider:
     else:
         raise ValueError(f"Unknown provider: {config.provider_type}")
 
-
 # Provider 默认 base_url 表(从 settings 读,允许 env 覆盖)
 _PROVIDER_DEFAULT_BASE_URL = {
     ProviderType.OPENAI: "https://api.openai.com/v1",
@@ -404,7 +392,6 @@ _PROVIDER_DEFAULT_BASE_URL = {
     ProviderType.VLLM: "http://localhost:8000/v1",
     ProviderType.LMSTUDIO: "http://localhost:1234/v1",
 }
-
 
 # Provider 默认 model
 _PROVIDER_DEFAULT_MODEL = {
@@ -419,16 +406,15 @@ _PROVIDER_DEFAULT_MODEL = {
     ProviderType.LMSTUDIO: "qwen2.5-7b",
 }
 
-
-def _resolve_api_key(provider_type: ProviderType, explicit_key: Optional[str]) -> Optional[str]:
+def _resolve_api_key(provider_type: ProviderType, explicit_key: str | None) -> str | None:
     """解析 API Key — 优先用 explicit, 否则从 settings / env 读"""
     if explicit_key:
         return explicit_key
-    
+
     # 从 settings / env 读(每个 provider 一个 env var)
     from forgemind.core.config.settings import get_settings
     settings = get_settings()
-    
+
     key_map = {
         ProviderType.OPENAI: settings.openai_api_key,
         ProviderType.ANTHROPIC: settings.anthropic_api_key,
@@ -439,19 +425,18 @@ def _resolve_api_key(provider_type: ProviderType, explicit_key: Optional[str]) -
     }
     return key_map.get(provider_type) or None
 
-
 # 便利函数 — 按名字选 provider
 async def quick_chat(
     provider: str,
     model: str = "",
     prompt: str = "",
-    api_key: Optional[str] = None,
-    base_url: Optional[str] = None,
-    system: Optional[str] = None,
+    api_key: str | None = None,
+    base_url: str | None = None,
+    system: str | None = None,
 ) -> ChatResponse:
     """
     快速对话 — 自动从 env / settings 读 API key
-    
+
     provider: openai/anthropic/qwen/deepseek/gemini/mistral/ollama/vllm/lmstudio
     model: 不传时用 provider 默认 model
     prompt: 用户提示
@@ -460,11 +445,11 @@ async def quick_chat(
     system: 系统提示(可选)
     """
     ptype = ProviderType(provider)
-    
+
     resolved_model = model or _PROVIDER_DEFAULT_MODEL.get(ptype, "gpt-4o-mini")
     resolved_key = _resolve_api_key(ptype, api_key)
     resolved_url = base_url or _PROVIDER_DEFAULT_BASE_URL.get(ptype)
-    
+
     config = ProviderConfig(
         provider_type=ptype,
         api_key=resolved_key,
@@ -472,14 +457,13 @@ async def quick_chat(
         model_name=resolved_model,
     )
     p = create_provider(config)
-    
+
     messages = []
     if system:
         messages.append(ChatMessage(role="system", content=system))
     messages.append(ChatMessage(role="user", content=prompt))
-    
-    return await p.chat(messages)
 
+    return await p.chat(messages)
 
 # Provider 信息
 PROVIDER_INFO = {
