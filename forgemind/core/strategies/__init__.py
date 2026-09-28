@@ -2,32 +2,31 @@
 # SPDX-License-Identifier: Apache-2.0
 
 from .base import Strategy as BaseStrategy
-from .library import (
-    MovingAverageCrossStrategy,
-    MeanReversionStrategy,
-    MomentumStrategy,
-    BollingerBandsStrategy,
-    BuyAndHoldStrategy,
-    get_strategy_class,
-    STRATEGY_REGISTRY,
-)
 from .extended_library import (
-    TimeSeriesMomentum,
     CrossSectionalMomentum,
-    MomentumRotation,
-    PairsTrading,
-    OrnsteinUhlenbeck,
-    RSIReversion,
-    LightGBMStrategy,
-    OnlineLearningStrategy,
     EarningsAnnouncement,
     IndexInclusion,
-    RiskParity,
+    LightGBMStrategy,
     MaxSharpe,
-    list_strategies,
+    MomentumRotation,
+    OnlineLearningStrategy,
+    OrnsteinUhlenbeck,
+    PairsTrading,
+    RiskParity,
+    RSIReversion,
+    TimeSeriesMomentum,
     list_categories,
+    list_strategies,
 )
-
+from .library import (
+    STRATEGY_REGISTRY,
+    BollingerBandsStrategy,
+    BuyAndHoldStrategy,
+    MeanReversionStrategy,
+    MomentumStrategy,
+    MovingAverageCrossStrategy,
+    get_strategy_class,
+)
 
 __all__ = [
     # 原有
