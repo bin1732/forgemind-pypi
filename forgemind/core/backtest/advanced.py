@@ -1,10 +1,11 @@
 # Copyright (c) 2026 灵感引擎工坊 (bin1732)
 # SPDX-License-Identifier: Apache-2.0
 
+from collections.abc import Callable
+from dataclasses import asdict, dataclass
+
 import numpy as np
 import pandas as pd
-from typing import Callable, Dict, List, Tuple, Optional
-from dataclasses import dataclass, field, asdict
 
 
 @dataclass
@@ -31,12 +32,12 @@ class BacktestMetrics:
     # 信息比率
     information_ratio: float
     # 其他
-    start_date: Optional[str] = None
-    end_date: Optional[str] = None
-    
-    def to_dict(self) -> Dict:
+    start_date: str | None = None
+    end_date: str | None = None
+
+    def to_dict(self) -> dict:
         return asdict(self)
-    
+
     def summary(self) -> str:
         return (
             f"  Total Return:    {self.total_return:.2%}\n"
@@ -55,12 +56,12 @@ class BacktestMetrics:
 
 class BacktestReport:
     """回测报告生成器"""
-    
+
     @staticmethod
     def compute_metrics(
         returns: pd.Series,
-        benchmark_returns: Optional[pd.Series] = None,
-        trades: Optional[pd.DataFrame] = None,
+        benchmark_returns: pd.Series | None = None,
+        trades: pd.DataFrame | None = None,
     ) -> BacktestMetrics:
         """从日度收益序列计算完整指标"""
         returns = returns.dropna()
@@ -71,7 +72,7 @@ class BacktestReport:
                 win_rate=0, profit_factor=0, n_trades=0, avg_win=0,
                 avg_loss=0, expectancy=0, information_ratio=0,
             )
-        
+
         # 总收益 + CAGR
         total_return = float((1 + returns).prod() - 1)
         n_days = len(returns)
@@ -105,7 +106,7 @@ class BacktestReport:
 
         # Calmar
         calmar = float(cagr / (abs(max_drawdown) + 1e-9))
-        
+
         # 交易指标(从 returns 序列推断)
         win_rate = float((returns > 0).sum() / len(returns))
         wins = returns[returns > 0]
@@ -114,14 +115,14 @@ class BacktestReport:
         avg_loss = float(losses.mean()) if len(losses) > 0 else 0.0
         profit_factor = float(wins.sum() / abs(losses.sum())) if len(losses) > 0 and losses.sum() != 0 else float('inf')
         expectancy = float(win_rate * avg_win - (1 - win_rate) * abs(avg_loss))
-        
+
         # Information Ratio
         info_ratio = 0.0
         if benchmark_returns is not None:
             benchmark_returns = benchmark_returns.reindex(returns.index).fillna(0)
             excess = returns - benchmark_returns
             info_ratio = float(excess.mean() / (excess.std() + 1e-9) * np.sqrt(252))
-        
+
         return BacktestMetrics(
             total_return=total_return,
             cagr=cagr,
@@ -147,7 +148,7 @@ class BacktestReport:
 @dataclass
 class WFOResult:
     """Walk-Forward 结果"""
-    folds: List[Dict]  # 每个 fold 的结果
+    folds: list[dict]  # 每个 fold 的结果
     oos_returns: pd.Series  # OOS 拼接收益
     combined_sharpe: float
     combined_metrics: BacktestMetrics
@@ -155,15 +156,15 @@ class WFOResult:
 
 class WalkForwardOptimizer:
     """Walk-Forward 优化(防 look-ahead 偏差)
-    
+
     流程(AFML Ch.11):
     1. 划分数据为 N 个连续 fold
     2. 每个 fold: 在 train 上找最优参数, 在 test 上评估
     3. 拼接所有 test 段 → 得到 OOS 收益序列
-    
+
     这是判断策略真实性的黄金标准。
     """
-    
+
     def __init__(
         self,
         strategy_factory: Callable,  # 接受 params 返回策略实例
@@ -175,8 +176,8 @@ class WalkForwardOptimizer:
         self.backtest_fn = backtest_fn
         self.n_folds = n_folds
         self.anchored = anchored
-    
-    def _split_folds(self, n: int) -> List[Tuple[int, int, int, int]]:
+
+    def _split_folds(self, n: int) -> list[tuple[int, int, int, int]]:
         """划分 folds: 返回 (train_start, train_end, test_start, test_end)"""
         fold_size = n // (self.n_folds + 1)  # 留 1/n 给 test
         test_size = fold_size
@@ -186,30 +187,30 @@ class WalkForwardOptimizer:
                 train_start = 0
             else:
                 train_start = i * fold_size
-            
+
             train_end = (i + 1) * fold_size
             test_start = train_end
             test_end = test_start + test_size
-            
+
             if test_end > n:
                 test_end = n
-            
+
             result.append((train_start, train_end, test_start, test_end))
         return result
-    
+
     def run(
         self,
         df: pd.DataFrame,
-        param_grid: Dict[str, List],
+        param_grid: dict[str, list],
         primary_metric: str = "sharpe",
     ) -> WFOResult:
         """执行 Walk-Forward
-        
+
         Args:
             df: 数据(按时间排序)
             param_grid: 参数网格 {"lookback": [10, 20, 30], "threshold": [0.5, 1.0]}
             primary_metric: 用什么指标选最优("sharpe" / "calmar" / "total_return")
-        
+
         Returns:
             WFOResult
         """
@@ -217,19 +218,19 @@ class WalkForwardOptimizer:
         folds = self._split_folds(n)
         all_oos_returns = []
         fold_results = []
-        
+
         for fold_idx, (train_start, train_end, test_start, test_end) in enumerate(folds):
             train_df = df.iloc[train_start:train_end]
             test_df = df.iloc[test_start:test_end]
-            
+
             # 在 train 上网格搜索
             best_params = None
             best_metric = -np.inf
-            
+
             from itertools import product
             param_keys = list(param_grid.keys())
             param_values = list(param_grid.values())
-            
+
             for combo in product(*param_values):
                 params = dict(zip(param_keys, combo))
                 try:
@@ -242,13 +243,13 @@ class WalkForwardOptimizer:
                         best_params = params
                 except Exception:
                     continue
-            
+
             # 用最优参数在 test 上跑
             if best_params:
                 strategy = self.strategy_factory(**best_params)
                 test_returns = self.backtest_fn(strategy, test_df)
                 all_oos_returns.append(test_returns)
-                
+
                 fold_metrics = BacktestReport.compute_metrics(test_returns)
                 fold_results.append({
                     "fold": fold_idx,
@@ -260,10 +261,10 @@ class WalkForwardOptimizer:
                     "test_sharpe": fold_metrics.sharpe,
                     "test_return": fold_metrics.total_return,
                 })
-        
+
         oos_returns = pd.concat(all_oos_returns) if all_oos_returns else pd.Series()
         combined_metrics = BacktestReport.compute_metrics(oos_returns)
-        
+
         return WFOResult(
             folds=fold_results,
             oos_returns=oos_returns,
@@ -275,7 +276,7 @@ class WalkForwardOptimizer:
 # === Monte Carlo Simulator ===
 class MonteCarloSimulator:
     """蒙特卡洛模拟 — 参数扰动评估策略稳健性"""
-    
+
     def __init__(
         self,
         strategy_factory: Callable,
@@ -287,17 +288,17 @@ class MonteCarloSimulator:
         self.backtest_fn = backtest_fn
         self.n_simulations = n_simulations
         self.param_noise_pct = param_noise_pct
-    
-    def run(self, df: pd.DataFrame, base_params: Dict) -> Dict:
+
+    def run(self, df: pd.DataFrame, base_params: dict) -> dict:
         """运行蒙特卡洛
-        
+
         Returns:
             {metric_name: distribution array}
         """
         sharpes = []
         returns = []
         max_dds = []
-        
+
         for _ in range(self.n_simulations):
             # 扰动参数
             perturbed = {}
@@ -309,7 +310,7 @@ class MonteCarloSimulator:
                         perturbed[k] = int(perturbed[k])
                 else:
                     perturbed[k] = v
-            
+
             try:
                 strategy = self.strategy_factory(**perturbed)
                 rets = self.backtest_fn(strategy, df)
@@ -319,7 +320,7 @@ class MonteCarloSimulator:
                 max_dds.append(metrics.max_drawdown)
             except Exception:
                 continue
-        
+
         return {
             "sharpe_distribution": np.array(sharpes),
             "return_distribution": np.array(returns),
@@ -335,16 +336,16 @@ class MonteCarloSimulator:
 # === Slippage Models ===
 class SlippageModel:
     """滑点模型 — 三种: Fixed / Linear / Square-Root
-    
+
     对标 Zipline / Nautilus Trader slippage
     """
-    
+
     @staticmethod
     def fixed_slippage(price: float, size: int, bps: float = 5.0) -> float:
         """固定 bps 滑点"""
         slippage = price * bps / 10000
         return price + slippage  # 买入多付
-    
+
     @staticmethod
     def linear_slippage(price: float, size: int, adv: int, impact_bps: float = 10.0) -> float:
         """线性冲击: impact = adv_pct * impact_bps"""
@@ -353,12 +354,12 @@ class SlippageModel:
         adv_pct = size / adv
         slippage = price * adv_pct * impact_bps / 10000
         return price + slippage
-    
+
     @staticmethod
     def square_root_slippage(price: float, size: int, adv: int, impact_bps: float = 10.0) -> float:
         """平方根冲击(对标 Almgren-Chriss):
         slippage = σ * √(size / adv) * impact_bps
-        
+
         更真实: 大单冲击比线性模型低
         """
         if adv <= 0:
@@ -371,7 +372,7 @@ class SlippageModel:
 # === Multi-Asset Portfolio Backtest ===
 class PortfolioBacktest:
     """多资产组合回测"""
-    
+
     def __init__(
         self,
         weights: pd.DataFrame,  # date x symbol 权重
@@ -383,7 +384,7 @@ class PortfolioBacktest:
         self.prices = prices
         self.rebalance_freq = rebalance_freq
         self.transaction_cost_bps = transaction_cost_bps
-    
+
     def run(self) -> pd.Series:
         """返回组合日度收益"""
         # 对齐
@@ -391,15 +392,15 @@ class PortfolioBacktest:
         weights = self.weights.loc[common_dates].fillna(0)
         prices = self.prices.loc[common_dates]
         returns = prices.pct_change().fillna(0)
-        
+
         # 调仓
         portfolio_returns = []
         prev_weights = pd.Series(0, index=weights.columns)
         rebalance_count = 0
-        
+
         for date in common_dates[1:]:
             current_weights = weights.loc[date] if date in weights.index else prev_weights
-            
+
             # 调仓成本
             if rebalance_count % self.rebalance_freq == 0:
                 turnover = (current_weights - prev_weights).abs().sum()
@@ -408,15 +409,15 @@ class PortfolioBacktest:
             else:
                 cost = 0
             rebalance_count += 1
-            
+
             # 漂移权重(因价格变动)
             drift_weights = prev_weights * (1 + returns.loc[date])
             drift_weights = drift_weights / (drift_weights.sum() + 1e-9)
-            
+
             # 当日收益(用漂移权重 × 资产收益)
             day_return = (drift_weights * returns.loc[date]).sum() - cost
-            
+
             portfolio_returns.append(day_return)
             prev_weights = current_weights
-        
+
         return pd.Series(portfolio_returns, index=common_dates[1:])
