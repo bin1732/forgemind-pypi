@@ -1,0 +1,198 @@
+name: verify
+
+# 真实验证:装完 wheel 后跑完整冒烟,并且**实际执行**三个平台二进制。
+# 二进制跑不起来 = 直接判失败,不允许"构建成功"就算过。
+#
+# 需要的 secret: PRIVATE_REPO_TOKEN(与 ship.yml 相同)
+
+on:
+  workflow_run:
+    workflows: ["ship"]
+    types: [completed]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify-wheel:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Fetch private source
+        env:
+          PRIVATE_REPO_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN }}
+        run: |
+          set -euo pipefail
+          mkdir -p src && cd src
+          git init -q
+          git remote add origin "https://x-access-token:${PRIVATE_REPO_TOKEN}@github.com/bin1732/forgemind.git"
+          git fetch -q --depth 1 origin main
+          git checkout -q FETCH_HEAD
+          echo "private source @ $(git rev-parse --short HEAD)"
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Build and install wheel
+        run: |
+          set -euo pipefail
+          python -m pip install -q --upgrade pip build
+          python -m build --wheel --outdir "$GITHUB_WORKSPACE/dist" .
+          python -m venv "$GITHUB_WORKSPACE/.v"
+          "$GITHUB_WORKSPACE/.v/bin/pip" install -q --upgrade pip
+          "$GITHUB_WORKSPACE/.v/bin/pip" install -q "$GITHUB_WORKSPACE"/dist/*.whl
+          "$GITHUB_WORKSPACE/.v/bin/python" -c "import forgemind; print('import ok', forgemind.__version__)"
+
+      - name: Smoke - all CLI subcommands
+        run: |
+          set -euo pipefail
+          V="$GITHUB_WORKSPACE/.v/bin"
+          for c in info signal router-demo; do
+            "$V/forgemind" $c >/dev/null && echo "PASS forgemind $c" || { echo "FAIL forgemind $c"; exit 1; }
+          done
+          "$V/forgemind" backtest --start 2024-01-01 --end 2024-12-31 | grep -q "Total Return" \
+            && echo "PASS backtest" || { echo "FAIL backtest"; exit 1; }
+          "$V/forgemind" agent --symbol 600519.SH --cash 100000 --position-qty 5 --position-price 1600 2>/dev/null \
+            | grep -q "snapshot saved" && echo "PASS agent(+snapshot)" || { echo "FAIL agent"; exit 1; }
+
+      - name: Smoke - 12 strategies produce results
+        run: |
+          set -euo pipefail
+          V="$GITHUB_WORKSPACE/.v/bin"
+          for s in ma_cross mean_reversion momentum bollinger buy_hold \
+                   TimeSeriesMomentum CrossSectionalMomentum MomentumRotation \
+                   OrnsteinUhlenbeck RSIReversion MaxSharpe RiskParity; do
+            out=$("$V/forgemind" backtest --strategy "$s" --start 2024-01-01 --end 2024-12-31 2>&1)
+            echo "$out" | grep -q "Total Return" \
+              && echo "PASS $s" || { echo "FAIL $s: $(echo "$out" | tail -1)"; exit 1; }
+          done
+
+      - name: Smoke - portfolio strategies switch on multi-symbol data
+        run: |
+          set -euo pipefail
+          "$GITHUB_WORKSPACE/.v/bin/python" - <<'EOF'
+          import numpy as np
+          import pandas as pd
+          from forgemind.core.strategies.extended_library import list_strategies
+          rng = np.random.default_rng(7)
+          rows = []
+          for i in range(10):
+              drift = rng.normal(0.0004, 0.001)
+              c = 100 * np.exp(np.cumsum(rng.normal(drift, 0.015, 300)))
+              for d, cl in zip(pd.date_range("2024-01-01", periods=300), c):
+                  rows.append({"date": d, "symbol": f"S{i}", "close": cl})
+          df = pd.DataFrame(rows)
+          for name in ("MaxSharpe", "RiskParity", "CrossSectionalMomentum"):
+              sig = list_strategies()[name](lookback=60).generate_signal(df)
+              assert len(sig) == len(df), f"{name} 信号长度 {len(sig)} != {len(df)}"
+              assert sig.sum() > 0, f"{name} 在多标的数据上无任何信号"
+              print(f"PASS {name}: {int(sig.sum())} signals")
+          EOF
+
+      - name: Smoke - MCP tools, no fabricated data
+        run: |
+          set -euo pipefail
+          "$GITHUB_WORKSPACE/.v/bin/python" - <<'EOF'
+          import asyncio
+          import json
+          from forgemind.mcp.server import ForgeMindMCPServer
+
+          async def main():
+              s = ForgeMindMCPServer()
+              for name, args in [
+                  ("search_features", {"query": "momentum"}),
+                  ("get_feature", {"name": "kmid"}),
+                  ("trace_feature_usage", {"feature_id": "KMID"}),
+                  ("output_signal", {"symbol": "X", "side": "buy", "confidence": 0.8, "rationale": "t"}),
+              ]:
+                  r = await s.handle_request({
+                      "jsonrpc": "2.0", "id": 1, "method": "tools/call",
+                      "params": {"name": name, "arguments": args}})
+                  assert "error" not in r, f"{name} 失败: {r.get('error')}"
+                  print(f"PASS mcp/{name}")
+              r = await s.handle_request({
+                  "jsonrpc": "2.0", "id": 1, "method": "tools/call",
+                  "params": {"name": "query_portfolio", "arguments": {}}})
+              p = json.loads(r["result"]["content"][0]["text"])
+              assert p.get("status") == "ok", f"query_portfolio 未读到快照: {p}"
+              assert p["cash"] == 100000.0, f"cash 不对: {p['cash']}"
+              assert p["positions"], "positions 为空"
+              print(f"PASS mcp/query_portfolio 真实快照 cash={p['cash']} pos={p['positions']}")
+          asyncio.run(main())
+          EOF
+
+      - name: Smoke - API endpoints and input validation
+        run: |
+          set -euo pipefail
+          printf '%s\n' \
+            'from forgemind.api.main import app' \
+            'import uvicorn' \
+            'uvicorn.run(app, host="127.0.0.1", port=8095, log_level="error")' \
+            > "$GITHUB_WORKSPACE/serve_verify.py"
+          "$GITHUB_WORKSPACE/.v/bin/python" "$GITHUB_WORKSPACE/serve_verify.py" &
+          for _ in $(seq 1 40); do
+            curl -sf http://127.0.0.1:8095/health >/dev/null && break
+            sleep 2
+          done
+          B=http://127.0.0.1:8095
+          for ep in /health /api/v1/info /api/v1/health/services /mcp/tools/list; do
+            code=$(curl -s -o /dev/null -w '%{http_code}' "$B$ep")
+            [ "$code" = "200" ] && echo "PASS GET $ep" || { echo "FAIL GET $ep -> $code"; exit 1; }
+          done
+          for body in '{"start_date":"bad","end_date":"2024-06-01"}' \
+                      '{"start_date":"2024-06-01","end_date":"2024-01-01"}' \
+                      '{"start_date":"2024-01-01","end_date":"2024-06-01","fast_period":50,"slow_period":10}'; do
+            code=$(curl -s -o /dev/null -w '%{http_code}' -X POST "$B/api/v1/backtest/run" \
+                   -H 'Content-Type: application/json' -d "$body")
+            [ "$code" = "422" ] && echo "PASS 422" || { echo "FAIL expected 422 got $code for $body"; exit 1; }
+          done
+          R=$(curl -s "$B/api/v1/health/services")
+          for leak in "127.0" "::1" "password" "Traceback" "site-packages"; do
+            echo "$R" | grep -qi "$leak" && { echo "FAIL 泄露 $leak"; exit 1; } || echo "PASS 无泄露 $leak"
+          done
+
+  verify-binaries:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-22.04
+            name: linux
+          - os: windows-latest
+            name: windows
+          - os: macos-latest
+            name: macos
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Download the released binary
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "${{ matrix.os }}" = "windows-latest" ]; then
+            NAME="forgemind-windows-x64.exe"
+          else
+            NAME="forgemind-${{ matrix.name }}"
+          fi
+          curl -sL --retry 3 -o "$NAME" \
+            "https://github.com/bin1732/forgemind-pypi/releases/download/continuous/$NAME"
+          ls -lh "$NAME"
+          [ -s "$NAME" ] || { echo "FAIL: 二进制下载为空"; exit 1; }
+
+      - name: Actually execute the binary
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "${{ matrix.os }}" = "windows-latest" ]; then
+            BIN="forgemind-windows-x64.exe"
+          else
+            BIN="forgemind-${{ matrix.name }}"
+            chmod +x "$BIN"
+          fi
+          file "$BIN" 2>/dev/null || true
+          "$BIN" info || { echo "FAIL: $BIN info 跑不起来"; exit 1; }
+          "$BIN" signal >/dev/null || { echo "FAIL: signal"; exit 1; }
+          "$BIN" router-demo >/dev/null || { echo "FAIL: router-demo"; exit 1; }
+          "$BIN" backtest --start 2024-01-01 --end 2024-12-31 | tee bt.log
+          grep -q "Total Return" bt.log || { echo "FAIL: backtest 无输出"; exit 1; }
+          echo "PASS 二进制(${{ matrix.name }})全部子命令"
