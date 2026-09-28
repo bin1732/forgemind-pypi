@@ -171,6 +171,13 @@ jobs:
                   upload_url = rel['upload_url'].replace('{?name,label}', f'?name={fname}')
                   with open(f, 'rb') as fp:
                       data = fp.read()
+                  # 同名资源已存在会 422,必须先删除再上传
+                  for a in rel.get('assets', []):
+                      if a['name'] == fname:
+                          requests.delete(a['url'], headers={
+                              'Authorization': f'Bearer {token}',
+                              'Accept': 'application/vnd.github+json'})
+                          print(f'  [del] 已删除旧资源 {fname}')
                   try:
                       r = urllib.request.Request(upload_url, data=data,
                           headers={'Authorization': f'Bearer {token}',
@@ -180,6 +187,8 @@ jobs:
                           ucode = resp.status
                   except urllib.error.HTTPError as e:
                       ucode = e.code
+                  if ucode == 422:
+                      print(f'  [422] {fname} 仍被占用,需手动处理')
                   dl_url = (rel.get('html_url', '') + '/assets/' + fname) if ucode in (200, 201) else ''
                   print(f'  [{ucode}] release/{plat}/{fname} ({size//1024//1024}MB) {dl_url}')
                   uploaded.append(f'releases/builds/{plat}/{fname}')
