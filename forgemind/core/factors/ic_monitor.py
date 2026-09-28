@@ -1,10 +1,10 @@
 # Copyright (c) 2026 灵感引擎工坊 (bin1732)
 # SPDX-License-Identifier: Apache-2.0
 
-import polars as pl
-import numpy as np
-from typing import List, Optional, Dict
 from dataclasses import dataclass, field
+
+import numpy as np
+import polars as pl
 
 
 @dataclass
@@ -19,9 +19,9 @@ class ICResult:
     positive_ratio: float  # IC > 0 的天数比例
     t_stat: float
     p_value: float
-    decay: Dict[int, float] = field(default_factory=dict)  # {days: ic}
-    by_industry: Dict[str, float] = field(default_factory=dict)
-    
+    decay: dict[int, float] = field(default_factory=dict)  # {days: ic}
+    by_industry: dict[str, float] = field(default_factory=dict)
+
     def summary(self) -> str:
         return (
             f"Factor: {self.factor}\n"
@@ -35,10 +35,10 @@ def compute_ic(
     factor_df: pl.LazyFrame,
     factor_col: str,
     forward_returns_col: str = "fwd_return_1",
-    by_industry_col: Optional[str] = None,
+    by_industry_col: str | None = None,
 ) -> ICResult:
     """计算单因子的 IC 评估
-    
+
     Args:
         factor_df: 包含 factor 和 forward returns 列的 df
         factor_col: 因子列名
@@ -49,7 +49,7 @@ def compute_ic(
         pl.col(factor_col),
         pl.col(forward_returns_col),
     ] + ([pl.col(by_industry_col)] if by_industry_col else [])).drop_nulls().collect().to_pandas()
-    
+
     if len(df) < 30:
         return ICResult(
             factor=factor_col,
@@ -57,25 +57,25 @@ def compute_ic(
             rank_ic_mean=0.0, rank_icir=0.0,
             positive_ratio=0.0, t_stat=0.0, p_value=1.0,
         )
-    
+
     from scipy import stats
-    
+
     x = df[factor_col].values
     y = df[forward_returns_col].values
-    
+
     ic, _ = stats.pearsonr(x, y)
     rank_ic, _ = stats.spearmanr(x, y)
-    
+
     # 日度 IC 时间序列(简化: 全样本)
     icir = ic / 0.01 if abs(ic) > 0 else 0
-    
+
     # Positive ratio: 随机,这里按整体 IC 正负判定
     positive_ratio = 1.0 if ic > 0 else 0.0
-    
+
     n = len(df)
     t_stat = ic * np.sqrt(n) / np.sqrt(1 - ic**2 + 1e-9)
     p_value = 2 * (1 - stats.t.cdf(abs(t_stat), df=n-2))
-    
+
     return ICResult(
         factor=factor_col,
         ic_mean=ic,
@@ -92,15 +92,15 @@ def compute_ic(
 def compute_ic_decay(
     factor_df: pl.LazyFrame,
     factor_col: str,
-    forward_returns_cols: List[str],
-) -> Dict[int, float]:
+    forward_returns_cols: list[str],
+) -> dict[int, float]:
     """计算 IC 衰减曲线
-    
+
     Args:
         factor_df: 包含多个 forward_returns 列(fwd_return_1, fwd_return_5, ...)
         factor_col: 因子列
         forward_returns_cols: 多个 forward returns 列名列表(对应不同天数)
-    
+
     Returns:
         {days: ic} 字典
     """
@@ -118,7 +118,7 @@ def compute_ic_by_industry(
     factor_col: str,
     forward_returns_col: str,
     industry_col: str,
-) -> Dict[str, float]:
+) -> dict[str, float]:
     """分行业 IC"""
     df = factor_df.select([factor_col, forward_returns_col, industry_col]).drop_nulls().collect().to_pandas()
     result = {}
@@ -133,40 +133,49 @@ def compute_ic_by_industry(
 
 def batch_compute_ic(
     factor_df: pl.LazyFrame,
-    factor_cols: List[str],
+    factor_cols: list[str],
     forward_returns_col: str = "fwd_return_1",
-    by_industry_col: Optional[str] = None,
-    decay_cols: Optional[List[str]] = None,
-) -> List[ICResult]:
+    by_industry_col: str | None = None,
+    decay_cols: list[str] | None = None,
+) -> list[ICResult]:
     """批量计算多因子 IC"""
     results = []
     for fc in factor_cols:
         try:
             decay = compute_ic_decay(factor_df, fc, decay_cols) if decay_cols else {}
             industry_ic = compute_ic_by_industry(factor_df, fc, forward_returns_col, by_industry_col) if by_industry_col else {}
-            
+
             r = compute_ic(factor_df, fc, forward_returns_col)
             r.decay = decay
             r.by_industry = industry_ic
             results.append(r)
-        except Exception as e:
+        except Exception:
             continue
     return results
 
 
 def compute_forward_returns(
     df: pl.LazyFrame,
-    horizons: List[int] = [1, 5, 10, 20],
+    horizons: list[int] | None = None,
 ) -> pl.LazyFrame:
     """计算前向收益率(用 close / shift(horizon) - 1)
-    
+
     Args:
         df: 包含 close 列,按 symbol 排序
         horizons: 前瞻期列表
-    
+
+    Returns:
+        新增 fwd_return_1, fwd_return_5, ... 列
+
+    Args:
+        df: 包含 close 列,按 symbol 排序
+        horizons: 前瞻期列表
+
     Returns:
         新增 fwd_return_1, fwd_return_5, ... 列
     """
+    if horizons is None:
+        horizons = [1, 5, 10, 20]
     exprs = []
     for h in horizons:
         exprs.append(
@@ -175,12 +184,12 @@ def compute_forward_returns(
     return df.with_columns(exprs)
 
 
-def rank_factors_by_ic(results: List[ICResult]) -> List[ICResult]:
+def rank_factors_by_ic(results: list[ICResult]) -> list[ICResult]:
     """按 |Rank IC| 排序"""
     return sorted(results, key=lambda r: abs(r.rank_ic_mean), reverse=True)
 
 
-def filter_significant_factors(results: List[ICResult], min_abs_ic: float = 0.02, max_p_value: float = 0.05) -> List[ICResult]:
+def filter_significant_factors(results: list[ICResult], min_abs_ic: float = 0.02, max_p_value: float = 0.05) -> list[ICResult]:
     """过滤显著因子"""
     return [
         r for r in results
