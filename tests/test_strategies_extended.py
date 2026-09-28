@@ -1,10 +1,10 @@
 # Copyright (c) 2026 灵感引擎工坊 (bin1732)
 # SPDX-License-Identifier: Apache-2.0
 
-import pytest
+from datetime import datetime, timedelta
+
 import numpy as np
 import pandas as pd
-from datetime import datetime, timedelta
 
 
 def make_multi_symbol_data(n_days=300, n_symbols=20):
@@ -12,7 +12,7 @@ def make_multi_symbol_data(n_days=300, n_symbols=20):
     np.random.seed(42)
     dates = [datetime(2024, 1, 1) + timedelta(days=i) for i in range(n_days)]
     symbols = [f"S{i:04d}" for i in range(n_symbols)]
-    
+
     rows = []
     for sym in symbols:
         price = 100.0
@@ -26,7 +26,7 @@ def make_multi_symbol_data(n_days=300, n_symbols=20):
                 "open": price, "high": high, "low": low, "close": price,
                 "volume": 1000000,
             })
-    
+
     return pd.DataFrame(rows)
 
 
@@ -38,7 +38,7 @@ class TestMomentumStrategies:
         signals = strategy.generate_signal(df[df["symbol"] == "S0000"])
         assert len(signals) == 100
         assert signals.iloc[-1] in [-1, 0, 1]
-    
+
     def test_cross_sectional_momentum(self):
         from forgemind.core.strategies import CrossSectionalMomentum
         df = make_multi_symbol_data(100, 10)
@@ -47,7 +47,7 @@ class TestMomentumStrategies:
         # 应该有不买入也有卖
         assert (signals == 1).sum() > 0
         assert (signals == -1).sum() > 0
-    
+
     def test_momentum_rotation(self):
         from forgemind.core.strategies import MomentumRotation
         df = make_multi_symbol_data(150, 5)
@@ -63,7 +63,7 @@ class TestMeanReversionStrategies:
         strategy = OrnsteinUhlenbeck(lookback=30)
         signals = strategy.generate_signal(df)
         assert len(signals) == 100
-    
+
     def test_rsi_reversion(self):
         from forgemind.core.strategies import RSIReversion
         df = make_multi_symbol_data(100, 1)
@@ -78,7 +78,7 @@ class TestPairsTrading:
         df = make_multi_symbol_data(200, 2)
         df_a = df[df["symbol"] == "S0000"].reset_index(drop=True)
         df_b = df[df["symbol"] == "S0001"].reset_index(drop=True)
-        
+
         strategy = PairsTrading(lookback=60, entry_z=2.0)
         sig_a, sig_b = strategy.generate_signal(df_a, df_b)
         # 信号应该大部分时间 0, 偶尔有 ±1
@@ -97,7 +97,7 @@ class TestPortfolioStrategies:
         # 后 50 天的权重和应该接近 1
         late = daily_sum.iloc[-50:]
         assert (late > 0.95).all() or (late < 0.05).all()
-    
+
     def test_max_sharpe_weights(self):
         from forgemind.core.strategies import MaxSharpe
         df = make_multi_symbol_data(100, 5)
@@ -109,10 +109,10 @@ class TestPortfolioStrategies:
 
 class TestStrategyRegistry:
     def test_strategy_count(self):
-        from forgemind.core.strategies import total_strategies, list_categories
+        from forgemind.core.strategies import list_categories, total_strategies
         # 5 基础 + 12 扩展
         assert total_strategies() >= 15
-        
+
         cats = list_categories()
         assert "momentum" in cats
         assert "mean_reversion" in cats
@@ -120,7 +120,7 @@ class TestStrategyRegistry:
         assert "ml" in cats
         assert "event" in cats
         assert "portfolio" in cats
-    
+
     def test_list_strategies(self):
         from forgemind.core.strategies import list_strategies
         strategies = list_strategies()
@@ -131,22 +131,22 @@ class TestStrategyRegistry:
 
 class TestMLStrategy:
     def test_lightgbm_strategy(self):
-        from forgemind.core.strategies import LightGBMStrategy
         from forgemind.core.models import LightGBMModel
-        
+        from forgemind.core.strategies import LightGBMStrategy
+
         # 训练简单模型
         df = make_multi_symbol_data(150, 5)
         df["feature1"] = np.random.randn(len(df))
         df["feature2"] = np.random.randn(len(df))
         df["target"] = df.groupby("symbol")["close"].pct_change(5)
-        
+
         train_df = df.dropna()
         X = train_df[["feature1", "feature2"]]
         y = train_df["target"]
-        
+
         model = LightGBMModel()
         model.train(X, y, use_cv=False)
-        
+
         strategy = LightGBMStrategy(model=model, top_k=2)
         signals = strategy.generate_signal(train_df, feature_cols=["feature1", "feature2"])
         assert len(signals) == len(train_df)
