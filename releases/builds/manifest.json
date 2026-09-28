@@ -3,7 +3,6 @@
   "assets": [
     "forgemind-2026.9.0-py3-none-any.whl",
     "forgemind-2026.9.0.tar.gz",
-    "forgemind-linux",
     "forgemind-macos",
     "forgemind-windows-x64.exe"
   ],
