@@ -169,21 +169,21 @@ jobs:
       - name: Download the released binary
         shell: bash
         run: |
-          set -euo pipefail
           if [ "${{ matrix.os }}" = "windows-latest" ]; then
             NAME="forgemind-windows-x64.exe"
           else
             NAME="forgemind-${{ matrix.name }}"
           fi
-          # 关键:release 资产 URL 不变时会被 CDN 缓存,必须加时间戳破坏缓存,
-          # 否则验证的是上一版二进制(曾因此误判 Windows 修复无效)。
-          URL="https://github.com/bin1732/forgemind-pypi/releases/download/continuous/$NAME?cb=$RUN_ID"
-          curl -sL --retry 3 -o "$NAME" "$URL"
-          ls -lh "$NAME"
-          [ -s "$NAME" ] || { echo "FAIL: 二进制下载为空"; exit 1; }
-          # 断言下载到的确实是 ELF/PE/Mach-O 而不是错误页
-          head -c 4 "$NAME" | od -An -tx1 | tr -d ' \n' > magic.hex
-          echo "magic=$(cat magic.hex)"
+          # release 资产 URL 不变时会被 CDN 缓存,必须破坏缓存才能验到新版
+          URL="https://github.com/bin1732/forgemind-pypi/releases/download/continuous/${NAME}?cb=${GITHUB_RUN_ID}"
+          curl -sSL --retry 3 -o "$NAME" "$URL" || { echo "FAIL 下载失败"; exit 1; }
+          SIZE=$(wc -c < "$NAME")
+          echo "downloaded $NAME ($SIZE bytes)"
+          if [ "$SIZE" -lt 1000000 ]; then
+            echo "FAIL: 文件过小($SIZE),很可能拿到的是错误页而不是二进制"
+            head -c 200 "$NAME"
+            exit 1
+          fi
 
       - name: Actually execute the binary
         shell: bash
