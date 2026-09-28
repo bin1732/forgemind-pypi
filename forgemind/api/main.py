@@ -354,11 +354,25 @@ async def services_health():
         services["redis"] = _classify_error(e)
 
     # NATS
+    # nats-py 2.x 会在后台起重连任务;若不吞掉其异常,任务会在事件循环收尾时
+    # 逃逸出 except,把整个 /health/services 打成 500。这里用 error_cb 兜底 + 硬超时。
     try:
         import nats
-        nc = await nats.connect(settings.nats_url, connect_timeout=2)
-        await nc.close()
-        services["nats"] = "ok"
+
+        async def _nats_error_cb(_e: Exception) -> None:
+            return None  # 健康检查不关心重连细节,吞掉以免逃逸
+
+        nc = await asyncio.wait_for(
+            nats.connect(settings.nats_url, connect_timeout=2, error_cb=_nats_error_cb),
+            timeout=5,
+        )
+        try:
+            await asyncio.wait_for(nc.flush(timeout=2), timeout=3)
+            services["nats"] = "ok"
+        finally:
+            await nc.close()
+    except TimeoutError:
+        services["nats"] = "timeout"
     except Exception as e:
         services["nats"] = _classify_error(e)
 
