@@ -9,22 +9,22 @@ Transformer imports torch lazily (heavy). Import it explicitly:
 from .lightgbm_model import (
     LightGBMModel,
     ModelConfig,
-    TrainResult,
     ModelRegistry,
+    TrainResult,
 )
 from .xgboost_model import (
-    XGBoostModel,
     CatBoostModel,
     EnsembleModel,
+    XGBoostModel,
 )
 
 
 def _load_transformer():
     """Lazy import transformer (requires torch)."""
     from .transformer_model import (
+        PositionalEncoding,
         TransformerModel,
         TransformerTimeSeries,
-        PositionalEncoding,
     )
     return TransformerModel, TransformerTimeSeries, PositionalEncoding
 
