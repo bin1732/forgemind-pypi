@@ -2,12 +2,11 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import asyncio
-from datetime import datetime, timedelta
-from typing import List, Optional, Dict, Any
+
 import pandas as pd
 
-from forgemind.core.observability.logging import get_logger
 from forgemind.core.data.storage import DuckDBStorage
+from forgemind.core.observability.logging import get_logger
 
 logger = get_logger("forgemind.akshare_etl")
 
@@ -20,11 +19,11 @@ class AKShareDataSource:
         async with AKShareDataSource() as ds:
             df = await ds.get_history("600519.SH", start="2024-01-01", end="2024-12-31")
     """
-    
+
     def __init__(self):
         self._akshare = None
         logger.info("akshare_init")
-    
+
     async def __aenter__(self):
         try:
             import akshare as ak
@@ -33,14 +32,14 @@ class AKShareDataSource:
         except ImportError:
             logger.warning(
                 "akshare_not_installed",
-                hint="pip install akshare --index-url https://mirrors.aliyun.com/pypi/simple/",
+                hint="pip install 'forgemind[cn]'",
             )
             self._akshare = None
         return self
-    
+
     async def __aexit__(self, *args):
         pass
-    
+
     async def get_stock_list(self) -> pd.DataFrame:
         """拉 A 股全列表"""
         if not self._akshare:
@@ -57,7 +56,7 @@ class AKShareDataSource:
         except Exception as e:
             logger.error("akshare_stock_list_failed", error=str(e))
             return pd.DataFrame()
-    
+
     async def get_history(
         self,
         symbol: str,
@@ -93,10 +92,10 @@ class AKShareDataSource:
                 end_date=end_fmt,
                 adjust=adjust,
             )
-            
+
             if df.empty:
                 return df
-            
+
             # 标准化列名
             df = df.rename(columns={
                 "日期": "date",
@@ -109,7 +108,7 @@ class AKShareDataSource:
             })
             df["symbol"] = symbol
             df["date"] = pd.to_datetime(df["date"])
-            
+
             logger.info(
                 "akshare_history_loaded",
                 symbol=symbol,
@@ -131,11 +130,11 @@ class AKShareETL:
         etl = AKShareETL()
         await etl.run(symbols=["600519", "000001"], days=365)
     """
-    
-    def __init__(self, storage: Optional[DuckDBStorage] = None):
+
+    def __init__(self, storage: DuckDBStorage | None = None):
         self.storage = storage or DuckDBStorage()
         logger.info("akshare_etl_init")
-    
+
     async def init_tables(self):
         """初始化 DuckDB 表"""
         with self.storage as db:
@@ -159,14 +158,14 @@ class AKShareETL:
             """)
             db.execute("CREATE INDEX IF NOT EXISTS idx_kline_symbol ON kline_daily(symbol, date)")
             logger.info("akshare_etl_tables_created")
-    
+
     async def run(
         self,
-        symbols: List[str],
+        symbols: list[str],
         start: str = "2024-01-01",
         end: str = "2024-12-31",
         batch_size: int = 10,
-    ):
+    ) -> dict[str, int]:
         """
         跑 ETL
 
@@ -177,7 +176,7 @@ class AKShareETL:
             batch_size: 每批多少(防限流)
         """
         await self.init_tables()
-        
+
         async with AKShareDataSource() as ds:
             # 1. 股票列表
             stock_list = await ds.get_stock_list()
@@ -188,7 +187,7 @@ class AKShareETL:
                             "INSERT OR REPLACE INTO stock_list VALUES (?, ?)",
                             [row["symbol"], row["name"]],
                         )
-            
+
             # 2. 历史 K 线
             for i in range(0, len(symbols), batch_size):
                 batch = symbols[i : i + batch_size]
@@ -197,12 +196,12 @@ class AKShareETL:
                     batch=i // batch_size + 1,
                     n=len(batch),
                 )
-                
+
                 for symbol in batch:
                     df = await ds.get_history(symbol, start, end)
                     if df.empty:
                         continue
-                    
+
                     with self.storage as db:
                         for _, row in df.iterrows():
                             db.execute(
@@ -219,10 +218,10 @@ class AKShareETL:
                                     row["volume"],
                                 ],
                             )
-                    
+
                     # 防限流
                     await asyncio.sleep(0.5)
-            
+
             # 3. 统计
             with self.storage as db:
                 n_stocks = db.query_scalar("SELECT COUNT(*) FROM stock_list")
@@ -232,3 +231,4 @@ class AKShareETL:
                     stocks=n_stocks,
                     klines=n_klines,
                 )
+                return {"stocks": n_stocks, "klines": n_klines}
