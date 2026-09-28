@@ -31,7 +31,7 @@ class SignalSeriesAdapter(Strategy):
         )
 
     def generate_signals(self, price_df: pd.DataFrame) -> pd.DataFrame:
-        raw = self.inner.generate_signal(price_df)
+        raw = self.inner.generate_signal(self._normalize(price_df))
         pos = pd.Series(raw, index=price_df.index).fillna(0).astype(float)
 
         # 归一到 {0, 1}: 正数视为多头持仓,负数视为空头
@@ -44,6 +44,23 @@ class SignalSeriesAdapter(Strategy):
             "entries": entries.astype(bool),
             "exits": exits.astype(bool),
         })
+
+    @staticmethod
+    def _normalize(price_df: pd.DataFrame) -> pd.DataFrame:
+        """扩展策略要 `date` / `symbol` 是真实列,而回测引擎把它们放在索引/常量上
+
+        这里补齐列,让组合类策略(df.pivot(index="date", columns="symbol"))
+        和横截面策略都能工作。
+        """
+        df = price_df.copy()
+        if "date" not in df.columns:
+            if isinstance(df.index, pd.DatetimeIndex):
+                df["date"] = df.index
+            else:
+                df["date"] = pd.RangeIndex(len(df))
+        if "symbol" not in df.columns:
+            df["symbol"] = "DEMO"
+        return df
 
     def validate_parameters(self) -> None:
         """扩展策略自己管参数,这里不做额外校验"""
