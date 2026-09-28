@@ -1,31 +1,30 @@
 # Copyright (c) 2026 灵感引擎工坊 (bin1732)
 # SPDX-License-Identifier: Apache-2.0
 
-from .alpha158 import (
-    compute_alpha158,
-    list_alpha158_factors,
-    Alpha158Config,
-    industry_neutralize,
-)
 from .alpha101 import (
     compute_alpha101,
     list_alpha101_factors,
+)
+from .alpha158 import (
+    Alpha158Config,
+    compute_alpha158,
+    industry_neutralize,
+    list_alpha158_factors,
 )
 from .barra import (
     compute_barra,
     list_barra_factors,
 )
 from .ic_monitor import (
-    compute_ic,
-    compute_ic_decay,
-    compute_ic_by_industry,
+    ICResult,
     batch_compute_ic,
     compute_forward_returns,
-    rank_factors_by_ic,
+    compute_ic,
+    compute_ic_by_industry,
+    compute_ic_decay,
     filter_significant_factors,
-    ICResult,
+    rank_factors_by_ic,
 )
-
 
 __all__ = [
     "compute_alpha158",
