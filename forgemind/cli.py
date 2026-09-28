@@ -134,11 +134,19 @@ def cmd_etl(args):
         print(f"✅ ETL complete — {n_klines} bars loaded into DuckDB")
         print("   Next: forgemind pick --symbol 600519.SH")
     else:
+        try:
+            import akshare  # noqa: F401
+            installed = True
+        except ImportError:
+            installed = False
         print("⚠️  ETL 拉到 0 条数据,没有写入任何 K 线。")
-        print("   常见原因:")
-        print("     · akshare 未安装 → pip install 'forgemind[cn]'")
-        print("     · 网络不通 / akshare 上游限流 → 稍后重试")
-        print("     · 代码格式应为 6 位(如 600519),而非 600519.SH")
+        if installed:
+            print("   akshare 已安装,问题在上游取数。常见原因:")
+            print("     · akshare 上游限流 / 临时不可用 → 稍后重试")
+            print("     · 本机网络无法访问行情源")
+        else:
+            print("   akshare 未安装 → pip install 'forgemind[cn]'")
+        print("   代码格式应为 6 位(如 600519),而非 600519.SH")
         sys.exit(1)
 
 def cmd_broker_test(args):
