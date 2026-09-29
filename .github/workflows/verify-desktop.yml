@@ -36,8 +36,9 @@ jobs:
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y -qq \
-            libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf \
-            build-essential curl wget file libssl-dev libgtk-3-dev libayatana-appindicator3-dev
+            # libappindicator3-dev 与 libayatana-appindicator3-dev 在 ubuntu-22.04 互斥
+            libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev patchelf \
+            build-essential curl wget file libssl-dev libgtk-3-dev
 
       - uses: dtolnay/rust-toolchain@stable
 
@@ -76,8 +77,9 @@ jobs:
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y -qq \
-            libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf \
-            build-essential curl wget file libssl-dev libgtk-3-dev libayatana-appindicator3-dev
+            # libappindicator3-dev 与 libayatana-appindicator3-dev 在 ubuntu-22.04 互斥
+            libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev patchelf \
+            build-essential curl wget file libssl-dev libgtk-3-dev
 
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
