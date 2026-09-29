@@ -117,9 +117,11 @@ jobs:
           set -uo pipefail
           BIN=forgemind-ui/src-tauri/target/release/forgemind-desktop
           # 前 25 秒算存活:无 DISPLAY 时 Tauri 会在初始化阶段直接退出
+          # GitHub 的默认 shell 已带 -e,`timeout` 返回 124(存活超时)会直接终止脚本,
+          # 所以必须用 `|| code=$?` 把失败显式吃掉。
+          code=0
           timeout 25 xvfb-run -a --server-args="-screen 0 1280x900x24" \
-            "$PWD/$BIN" > app.log 2>&1
-          code=$?
+            "$PWD/$BIN" > app.log 2>&1 || code=$?
           echo "exit code: $code"
           tail -25 app.log
           if grep -qiE "cannot open display|failed to.*gtk|panicked" app.log; then
