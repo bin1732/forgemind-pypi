@@ -22,6 +22,7 @@ jobs:
     runs-on: ubuntu-22.04
     steps:
       - name: Fetch private source
+        shell: bash
         env:
           PRIVATE_REPO_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN }}
         run: |
@@ -73,6 +74,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - name: Fetch private source
+        shell: bash
         env:
           PRIVATE_REPO_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN }}
         run: |
