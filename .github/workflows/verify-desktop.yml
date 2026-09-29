@@ -123,9 +123,9 @@ jobs:
 
       - name: Show artifact
         working-directory: forgemind-ui/src-tauri
+        shell: bash
         run: |
-          ls -lh target/release/ 2>/dev/null | head -20
-          file target/release/forgemind-desktop* 2>/dev/null || true
+          ls -lh target/release/forgemind-desktop* 2>/dev/null || true
 
       - name: Actually run the desktop app under Xvfb (Linux)
         if: runner.os == 'Linux'
