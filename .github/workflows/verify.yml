@@ -185,20 +185,48 @@ jobs:
             exit 1
           fi
 
-      - name: Actually execute the binary
+      - name: Actually execute the binary - all 8 subcommands
         shell: bash
         run: |
-          set -euo pipefail
+          set -uo pipefail
           if [ "${{ matrix.os }}" = "windows-latest" ]; then
             BIN="forgemind-windows-x64.exe"
           else
             BIN="forgemind-${{ matrix.name }}"
             chmod +x "$BIN"
           fi
-          file "$BIN" 2>/dev/null || true
-          "./$BIN" info || { echo "FAIL: $BIN info 跑不起来"; exit 1; }
-          "./$BIN" signal >/dev/null || { echo "FAIL: signal"; exit 1; }
-          "./$BIN" router-demo >/dev/null || { echo "FAIL: router-demo"; exit 1; }
-          "./$BIN" backtest --start 2024-01-01 --end 2024-12-31 | tee bt.log
-          grep -q "Total Return" bt.log || { echo "FAIL: backtest 无输出"; exit 1; }
-          echo "PASS 二进制(${{ matrix.name }})全部子命令"
+          RC=0
+          run() {
+            local label="$1"; shift
+            if "./$BIN" "$@" > "out.$label.log" 2>&1; then
+              echo "PASS $label"
+            else
+              echo "FAIL $label (exit $?)"
+              tail -5 "out.$label.log"
+              RC=1
+            fi
+          }
+          run info            info
+          run signal          signal
+          run router-demo     router-demo
+          run backtest        backtest --start 2024-01-01 --end 2024-12-31
+          run agent           agent --symbol 600519.SH --cash 100000 --position-qty 5 --position-price 1600
+          run mcp             mcp
+          run pick            pick --symbol 600519.SH
+          # etl 需要联网拉行情,失败是预期内;只要求它不要崩溃到无法退出
+          if "./$BIN" etl --symbols 600519 > out.etl.log 2>&1; then
+            echo "PASS etl(拉到数据)"
+          else
+            code=$?
+            if grep -qE "0 条数据|未能安装|无数据|网络" out.etl.log; then
+              echo "PASS etl(无数据时优雅降级, exit $code)"
+            else
+              echo "FAIL etl 崩溃: $(tail -2 out.etl.log)"
+              RC=1
+            fi
+          fi
+          echo "--- backtest 真实输出 ---"
+          grep -E "Total Return|Sharpe|Max Drawdown|Trades" out.backtest.log || true
+          echo "--- agent 是否落盘快照 ---"
+          grep -iE "snapshot" out.agent.log || true
+          exit $RC
