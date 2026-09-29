@@ -55,10 +55,22 @@ jobs:
         working-directory: forgemind-ui/src-tauri
         run: cargo test --no-run --message-format=short
 
-  build-desktop-bundle:
-    name: tauri bundle (ubuntu)
+  build-desktop:
     needs: check-rust
-    runs-on: ubuntu-22.04
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-22.04
+            name: linux
+            bundler: deb
+          - os: macos-14
+            name: macos
+            bundler: dmg
+          - os: windows-latest
+            name: windows
+            bundler: msi
+    runs-on: ${{ matrix.os }}
     steps:
       - name: Fetch private source
         env:
@@ -74,14 +86,18 @@ jobs:
         with:
           node-version: '22'
 
-      - name: Install Tauri system dependencies
+      - name: Install Tauri system dependencies (Linux)
+        if: runner.os == 'Linux'
         run: |
-          # 注意:注释不能放在反斜杠续行中间,否则 shell 会把下一行当命令执行
           # libappindicator3-dev 与 libayatana-appindicator3-dev 在 ubuntu-22.04 互斥
           sudo apt-get update -qq
           sudo apt-get install -y -qq \
             libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev patchelf \
-            build-essential curl wget file libssl-dev libgtk-3-dev
+            build-essential curl wget file libssl-dev libgtk-3-dev xvfb
+
+      - name: Install Tauri system dependencies (macOS)
+        if: runner.os == 'macOS'
+        run: echo "macOS runner 已预装 WebKit,无需额外系统依赖"
 
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
@@ -106,37 +122,36 @@ jobs:
       - name: Show artifact
         working-directory: forgemind-ui/src-tauri
         run: |
-          ls -lh target/release/forgemind-desktop || true
-          file target/release/forgemind-desktop || true
+          ls -lh target/release/ 2>/dev/null | head -20
+          file target/release/forgemind-desktop* 2>/dev/null || true
 
-      - name: Install Xvfb for headless run
-        run: sudo apt-get install -y -qq xvfb
-
-      - name: Actually run the desktop app under Xvfb
+      - name: Actually run the desktop app under Xvfb (Linux)
+        if: runner.os == 'Linux'
         run: |
           set -uo pipefail
           BIN=forgemind-ui/src-tauri/target/release/forgemind-desktop
-          # 前 25 秒算存活:无 DISPLAY 时 Tauri 会在初始化阶段直接退出
-          # GitHub 的默认 shell 已带 -e,`timeout` 返回 124(存活超时)会直接终止脚本,
-          # 所以必须用 `|| code=$?` 把失败显式吃掉。
+          # GitHub 默认 shell 已带 -e,timeout 返回 124(存活超时)会终止脚本,
+          # 必须用 || code=$? 吃掉
           code=0
           timeout 25 xvfb-run -a --server-args="-screen 0 1280x900x24" \
             "$PWD/$BIN" > app.log 2>&1 || code=$?
           echo "exit code: $code"
-          tail -25 app.log
+          tail -20 app.log
           if grep -qiE "cannot open display|failed to.*gtk|panicked" app.log; then
             echo "FAIL: 桌面应用无法初始化图形后端"
             exit 1
           fi
-          # 124 = timeout 杀死 = 应用一直存活,这是 headless 下的成功信号
           if [ "$code" -ne 124 ] && [ "$code" -ne 0 ]; then
             echo "FAIL: 应用在 25 秒内异常退出 ($code)"
             exit 1
           fi
-          echo "PASS 桌面应用在虚拟显示下存活 25 秒"
+          echo "PASS 桌面应用(Linux)在虚拟显示下存活 25 秒"
 
       - uses: actions/upload-artifact@v4
         with:
-          name: forgemind-desktop-linux
-          path: forgemind-ui/src-tauri/target/release/forgemind-desktop
+          name: forgemind-desktop-${{ matrix.name }}
+          path: |
+            forgemind-ui/src-tauri/target/release/forgemind-desktop
+            forgemind-ui/src-tauri/target/release/forgemind-desktop.exe
           if-no-files-found: error
+          retention-days: 7
