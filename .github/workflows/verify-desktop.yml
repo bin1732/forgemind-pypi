@@ -109,6 +109,30 @@ jobs:
           ls -lh target/release/forgemind-desktop || true
           file target/release/forgemind-desktop || true
 
+      - name: Install Xvfb for headless run
+        run: sudo apt-get install -y -qq xvfb
+
+      - name: Actually run the desktop app under Xvfb
+        run: |
+          set -uo pipefail
+          BIN=forgemind-ui/src-tauri/target/release/forgemind-desktop
+          # 前 25 秒算存活:无 DISPLAY 时 Tauri 会在初始化阶段直接退出
+          timeout 25 xvfb-run -a --server-args="-screen 0 1280x900x24" \
+            "$PWD/$BIN" > app.log 2>&1
+          code=$?
+          echo "exit code: $code"
+          tail -25 app.log
+          if grep -qiE "cannot open display|failed to.*gtk|panicked" app.log; then
+            echo "FAIL: 桌面应用无法初始化图形后端"
+            exit 1
+          fi
+          # 124 = timeout 杀死 = 应用一直存活,这是 headless 下的成功信号
+          if [ "$code" -ne 124 ] && [ "$code" -ne 0 ]; then
+            echo "FAIL: 应用在 25 秒内异常退出 ($code)"
+            exit 1
+          fi
+          echo "PASS 桌面应用在虚拟显示下存活 25 秒"
+
       - uses: actions/upload-artifact@v4
         with:
           name: forgemind-desktop-linux
