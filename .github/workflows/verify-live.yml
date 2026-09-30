@@ -56,6 +56,22 @@ jobs:
                   start="2024-01-01", end="2024-12-31",
               )
               print("STATS", stats)
+              # 把每个源的成败打出来:GitHub runner 与本地沙箱的网络环境不同,
+              # 需要看到在这台机器上三个源各自的结果才能判断该怎么办
+              import akshare as _ak
+              for _nm, _fn in [
+                  ("eastmoney", lambda: _ak.stock_zh_a_hist(symbol="600519", period="daily",
+                                                            start_date="20240101", end_date="20240110", adjust="qfq")),
+                  ("tencent", lambda: _ak.stock_zh_a_hist_tx(symbol="sh600519", start_date="20240101",
+                                                             end_date="20240110", adjust="qfq")),
+                  ("sina", lambda: _ak.stock_zh_a_daily(symbol="sh600519", start_date="20240101",
+                                                         end_date="20240110", adjust="qfq")),
+              ]:
+                  try:
+                      _d = _fn()
+                      print(f"PROBE {_nm}: OK rows={len(_d)}")
+                  except Exception as _e:
+                      print(f"PROBE {_nm}: {type(_e).__name__}: {str(_e)[:90]}")
               # ETL 现在是多源回退(东财 → 腾讯 → 新浪),
               # 实测在任何网络环境下都应能取到数据,因此这里**要求必须有数据**。
               assert stats["klines"] > 0, f"三源回退后仍拉到 0 条: {stats}"
