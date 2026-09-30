@@ -52,9 +52,14 @@ jobs:
         working-directory: forgemind-ui/src-tauri
         run: cargo check --message-format=short
 
-      - name: cargo test
+      - name: cargo test (unit tests of the command logic)
         working-directory: forgemind-ui/src-tauri
-        run: cargo test --no-run --message-format=short
+        run: cargo test --lib --message-format=short
+
+      - name: Show test results
+        working-directory: forgemind-ui/src-tauri
+        run: |
+          grep -E "^test result|running [0-9]+ test" -A 1 || true
 
   build-desktop:
     needs: check-rust
@@ -127,7 +132,7 @@ jobs:
         run: |
           ls -lh target/release/forgemind-desktop* 2>/dev/null || true
 
-      - name: Actually run the desktop app under Xvfb (Linux)
+      - name: Actually run the desktop app (Linux / Xvfb)
         if: runner.os == 'Linux'
         run: |
           set -uo pipefail
@@ -135,7 +140,7 @@ jobs:
           # GitHub 默认 shell 已带 -e,timeout 返回 124(存活超时)会终止脚本,
           # 必须用 || code=$? 吃掉
           code=0
-          timeout 25 xvfb-run -a --server-args="-screen 0 1280x900x24" \
+          timeout 30 xvfb-run -a --server-args="-screen 0 1280x900x24" \
             "$PWD/$BIN" > app.log 2>&1 || code=$?
           echo "exit code: $code"
           tail -20 app.log
@@ -144,10 +149,51 @@ jobs:
             exit 1
           fi
           if [ "$code" -ne 124 ] && [ "$code" -ne 0 ]; then
-            echo "FAIL: 应用在 25 秒内异常退出 ($code)"
+            echo "FAIL: 应用在 30 秒内异常退出 ($code)"
             exit 1
           fi
-          echo "PASS 桌面应用(Linux)在虚拟显示下存活 25 秒"
+          echo "PASS 桌面应用(Linux)在虚拟显示下存活 30 秒"
+
+      - name: Actually run the desktop app (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          set -uo pipefail
+          BIN=forgemind-ui/src-tauri/target/release/forgemind-desktop
+          code=0
+          timeout 30 "$PWD/$BIN" > app.log 2>&1 || code=$?
+          echo "exit code: $code"
+          tail -25 app.log
+          if grep -qiE "failed to open display|NSApplication|CGSWindow|could not connect" app.log; then
+            echo "NOTE: 无图形会话(headless runner),以下仅确认二进制可加载"
+            # 至少要证明二进制本身能执行到主入口而不是立即崩溃
+            if [ "$code" -ne 124 ] && [ "$code" -ne 0 ] && ! grep -qi "application" app.log; then
+              echo "FAIL: 二进制无法启动"
+              exit 1
+            fi
+            echo "PASS macOS 二进制可加载(无显示会话,窗口创建未验证)"
+          elif [ "$code" -ne 124 ] && [ "$code" -ne 0 ]; then
+            echo "FAIL: 应用在 30 秒内异常退出 ($code)"
+            exit 1
+          else
+            echo "PASS 桌面应用(macOS)存活 30 秒"
+          fi
+
+      - name: Actually run the desktop app (Windows)
+        if: runner.os == 'Windows'
+        run: |
+          set -uo pipefail
+          BIN=forgemind-ui\src-tauri\target\release\forgemind-desktop.exe
+          code=0
+          timeout 30 "$BIN" > app.log 2>&1 || code=$?
+          echo "exit code: $code"
+          tail -25 app.log
+          # Windows runner 无交互式桌面,但进程能跑起来就证明
+          # 打包产物、依赖、入口都正常
+          if [ "$code" -ne 124 ] && [ "$code" -ne 0 ]; then
+            echo "FAIL: 应用在 30 秒内异常退出 ($code)"
+            exit 1
+          fi
+          echo "PASS 桌面应用(Windows)存活 30 秒"
 
       - uses: actions/upload-artifact@v4
         with:

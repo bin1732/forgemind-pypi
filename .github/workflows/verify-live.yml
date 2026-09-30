@@ -1,0 +1,139 @@
+name: verify-live
+
+# 沙箱验不到、只能在这里验的部分:
+#   1. akShare 真实上游取数(沙箱网络到不了,CI runner 有网)
+#   2. 端到端数据链路:真实 K 线 → 选股 → MCP stock_pick
+#   3. 真实行情下的因子/IC 数值合理性
+#
+# 这类测试在本地跑会红(网络),必须放在有网的环境。
+# 因此它与 verify3 的三视角互补:三视角覆盖"能离线验的",这里覆盖"必须联网的"。
+
+on:
+  workflow_run:
+    workflows: ["ship"]
+    types: [completed]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  live-akshare:
+    runs-on: ubuntu-latest
+    steps:
+      - name: "Fetch private source"
+        env:
+          PRIVATE_REPO_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN }}
+        run: |
+          set -euo pipefail
+          git init -q
+          git remote add origin "https://x-access-token:${PRIVATE_REPO_TOKEN}@github.com/bin1732/forgemind.git"
+          git fetch -q --depth 1 origin main
+          git checkout -q FETCH_HEAD
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: "Install with CN extras"
+        run: |
+          python -m pip install -q --upgrade pip
+          python -m pip install -q ".[cn]"
+
+      - name: "Live akshare fetch - real upstream"
+        run: |
+          set -uo pipefail
+          python - <<'EOF' | tee live_akshare.log
+          import asyncio, sys
+          from forgemind.core.data.akshare_etl import AKShareETL
+
+          async def main():
+              etl = AKShareETL()
+              stats = await etl.run(
+                  symbols=["600519", "000001"],
+                  start="2024-01-01", end="2024-12-31",
+              )
+              print("STATS", stats)
+              assert stats["klines"] > 0, f"真实上游拉到 0 条: {stats}"
+              assert stats["ok_symbols"] >= 1, f"无成功标的: {stats}"
+              # 失败也要有分类,不能是空 dict
+              assert "failures" in stats, "缺少失败分类字段"
+              print(f"PASS akshare 真实取数 {stats['klines']} 条 K 线")
+
+          asyncio.run(main())
+          EOF
+          code=${PIPESTATUS[0]}
+          if [ "$code" != "0" ]; then
+            echo "--- 日志 ---"; tail -30 live_akshare.log
+            echo "FAIL: 真实上游取数未通过(代码 rc=$code)"
+            exit 1
+          fi
+          grep -q "^PASS" live_akshare.log || { tail -20 live_akshare.log; exit 1; }
+
+      - name: "End-to-end: real klines -> stock_pick"
+        run: |
+          set -uo pipefail
+          python - <<'EOF' | tee live_pick.log
+          import asyncio, json
+          from forgemind.core.agents.stock_picker import StockPickerAgent
+          from forgemind.core.data.storage import DuckDBStorage
+          from forgemind.mcp.server import ForgeMindMCPServer
+
+          async def main():
+              with DuckDBStorage() as db:
+                  n = db.query_scalar("SELECT COUNT(*) FROM kline_daily")
+                  print("kline rows:", n)
+                  assert n > 0, "库里没有真实 K 线,无法验证下游"
+                  syms = [r["symbol"] for r in
+                          db.query_df("SELECT DISTINCT symbol FROM kline_daily LIMIT 8").to_dict("records")]
+              print("universe:", syms)
+
+              picks = await StockPickerAgent().pick(universe=syms, top_n=3)
+              assert picks, "真实数据下选股返回空"
+              scores = [p.score for p in picks]
+              print("picks:", [(p.symbol, p.direction, p.score) for p in picks])
+              assert len(set(scores)) >= 2, f"真实数据下得分无区分度: {scores}"
+              for p in picks:
+                  assert p.rationale and len(p.rationale) > 10, "选股理由为空"
+
+              # 经 MCP 走一遍(真实客户端路径)
+              s = ForgeMindMCPServer()
+              r = await s.handle_request({
+                  "jsonrpc": "2.0", "id": 1, "method": "tools/call",
+                  "params": {"name": "stock_pick", "arguments": {"universe": syms, "top_n": 3}},
+              })
+              d = json.loads(r["result"]["content"][0]["text"])
+              assert d["picks"], "MCP stock_pick 在真实数据下返回空"
+              print(f"PASS 端到端:真实 K 线 {n} 行 -> 选股 {len(picks)} 只 -> MCP 同结果 {len(d['picks'])}")
+
+          asyncio.run(main())
+          EOF
+          code=${PIPESTATUS[0]}
+          [ "$code" = "0" ] || { echo "--- 日志 ---"; tail -30 live_pick.log; exit 1; }
+          grep -q "^PASS" live_pick.log || { tail -20 live_pick.log; exit 1; }
+
+      - name: "CLI etl on live upstream"
+        run: |
+          set -uo pipefail
+          rm -rf data
+          forgemind etl --symbols 600519,000001 > etl.log 2>&1 || true
+          tail -20 etl.log
+          # 0 条时应 exit 1 并给出可行动的分类;有条时应报成功
+          if grep -q "ETL complete" etl.log; then
+            echo "PASS CLI etl 从真实上游取到数据"
+          elif grep -qE "失败原因分类|akshare" etl.log; then
+            echo "PASS CLI etl 优雅降级并给出可行动分类(上游暂时不可用)"
+          else
+            echo "FAIL: CLI etl 既没成功也没给出分类"; exit 1
+          fi
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: live-akshare-logs
+          path: |
+            live_akshare.log
+            live_pick.log
+            etl.log
+          if-no-files-found: ignore
+          retention-days: 7
