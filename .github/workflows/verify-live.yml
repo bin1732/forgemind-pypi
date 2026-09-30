@@ -45,7 +45,8 @@ jobs:
         shell: bash
         run: |
           set -uo pipefail
-          python - <<'EOF' > live_akshare.log 2>&1
+          code=0
+          python - <<'EOF' > live_akshare.log 2>&1 || code=$?
           import asyncio, sys
           from forgemind.core.data.akshare_etl import AKShareETL
 
@@ -82,7 +83,6 @@ jobs:
 
                     asyncio.run(main())
           EOF
-          code=$?
           echo "--- live_akshare.log ---"
           cat live_akshare.log
           if [ "$code" != "0" ]; then
