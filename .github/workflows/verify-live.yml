@@ -24,6 +24,7 @@ jobs:
       - name: "Fetch private source"
         env:
           PRIVATE_REPO_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN }}
+        shell: bash
         run: |
           set -euo pipefail
           git init -q
@@ -41,6 +42,7 @@ jobs:
           python -m pip install -q ".[cn]"
 
       - name: "Live akshare fetch - real upstream"
+        shell: bash
         run: |
           set -uo pipefail
           python - <<'EOF' | tee live_akshare.log
@@ -85,6 +87,7 @@ jobs:
           grep -q "^PASS" live_akshare.log || { tail -20 live_akshare.log; exit 1; }
 
       - name: "End-to-end: real klines -> stock_pick"
+        shell: bash
         run: |
           set -uo pipefail
           # 境外 runner 上游常不可达;此时上游步骤已验证"优雅降级",

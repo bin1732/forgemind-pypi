@@ -21,6 +21,7 @@ jobs:
       - name: Fetch private source
         env:
           PRIVATE_REPO_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN }}
+        shell: bash
         run: |
           set -euo pipefail
           mkdir -p src && cd src
@@ -35,6 +36,7 @@ jobs:
           python-version: '3.11'
 
       - name: Build and install wheel
+        shell: bash
         run: |
           set -euo pipefail
           python -m pip install -q --upgrade pip build
@@ -66,6 +68,7 @@ jobs:
           ruff check --isolated --select E9,F63,F7,F82 "$GITHUB_WORKSPACE/src-scripts/verify.py"
 
       - name: Smoke - all CLI subcommands
+        shell: bash
         run: |
           set -euo pipefail
           V="$GITHUB_WORKSPACE/.v/bin"
@@ -78,6 +81,7 @@ jobs:
             | grep -q "snapshot saved" && echo "PASS agent(+snapshot)" || { echo "FAIL agent"; exit 1; }
 
       - name: Smoke - 12 strategies produce results
+        shell: bash
         run: |
           set -euo pipefail
           V="$GITHUB_WORKSPACE/.v/bin"
@@ -90,6 +94,7 @@ jobs:
           done
 
       - name: Smoke - portfolio strategies switch on multi-symbol data
+        shell: bash
         run: |
           set -euo pipefail
           "$GITHUB_WORKSPACE/.v/bin/python" - <<'EOF'
@@ -112,6 +117,7 @@ jobs:
           EOF
 
       - name: Smoke - MCP tools, no fabricated data
+        shell: bash
         run: |
           set -euo pipefail
           "$GITHUB_WORKSPACE/.v/bin/python" - <<'EOF'
@@ -144,6 +150,7 @@ jobs:
           EOF
 
       - name: Smoke - API endpoints and input validation
+        shell: bash
         run: |
           set -euo pipefail
           printf '%s\n' \

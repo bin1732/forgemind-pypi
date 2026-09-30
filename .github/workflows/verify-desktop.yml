@@ -113,6 +113,7 @@ jobs:
 
       - name: Assert lockfile matches package.json
         working-directory: forgemind-ui
+        shell: bash
         run: |
           set -euo pipefail
           # 曾出现 package.json 写 next=15.0.3 而 lockfile 是 15.5.26 的情况:
@@ -170,6 +171,7 @@ jobs:
 
       - name: Actually run the desktop app (Linux / Xvfb)
         if: runner.os == 'Linux'
+        shell: bash
         run: |
           set -uo pipefail
           BIN=forgemind-ui/src-tauri/target/release/forgemind-desktop
@@ -192,6 +194,7 @@ jobs:
 
       - name: Actually run the desktop app (macOS)
         if: runner.os == 'macOS'
+        shell: bash
         run: |
           set -uo pipefail
           BIN=forgemind-ui/src-tauri/target/release/forgemind-desktop
@@ -216,6 +219,7 @@ jobs:
 
       - name: Actually run the desktop app (Windows)
         if: runner.os == 'Windows'
+        shell: bash
         run: |
           set -uo pipefail
           BIN=forgemind-ui\src-tauri\target\release\forgemind-desktop.exe
