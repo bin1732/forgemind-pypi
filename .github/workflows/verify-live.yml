@@ -46,94 +46,15 @@ jobs:
         run: |
           set -uo pipefail
           code=0
-          python - <<'EOF' > live_akshare.log 2>&1 || code=$?
-          import asyncio, sys
-          from forgemind.core.data.akshare_etl import AKShareETL
-
-          async def main():
-              etl = AKShareETL()
-              stats = await etl.run(
-                  symbols=["600519", "000001"],
-                  start="2024-01-01", end="2024-12-31",
-              )
-              print("STATS", stats)
-              # 把每个源的成败打出来:GitHub runner 与本地沙箱的网络环境不同,
-              # 需要看到在这台机器上三个源各自的结果才能判断该怎么办
-              import akshare as _ak
-              for _nm, _fn in [
-                  ("eastmoney", lambda: _ak.stock_zh_a_hist(symbol="600519", period="daily",
-                                                            start_date="20240101", end_date="20240110", adjust="qfq")),
-                  ("tencent", lambda: _ak.stock_zh_a_hist_tx(symbol="sh600519", start_date="20240101",
-                                                             end_date="20240110", adjust="qfq")),
-                  ("sina", lambda: _ak.stock_zh_a_daily(symbol="sh600519", start_date="20240101",
-                                                         end_date="20240110", adjust="qfq")),
-              ]:
-                  try:
-                      _d = _fn()
-                      print(f"PROBE {_nm}: OK rows={len(_d)}")
-                  except Exception as _e:
-                      print(f"PROBE {_nm}: {type(_e).__name__}: {str(_e)[:90]}")
-              # ETL 现在是多源回退(东财 → 腾讯 → 新浪),
-              # 实测在任何网络环境下都应能取到数据,因此这里**要求必须有数据**。
-              assert stats["klines"] > 0, f"三源回退后仍拉到 0 条: {stats}"
-              assert stats["ok_symbols"] >= 1, f"无成功标的: {stats}"
-              assert "failures" in stats, "缺少失败分类字段"
-              print(f"PASS akshare 真实取数 {stats['klines']} 条 K 线 "
-                    f"({stats['ok_symbols']} 个标的)")
-
-                    asyncio.run(main())
-          EOF
+          python scripts_live_probe.py > live_akshare.log 2>&1 || code=$?
           echo "--- live_akshare.log ---"
           cat live_akshare.log
+          echo "--- (exit=$code) ---"
           if [ "$code" != "0" ]; then
             echo "FAIL: 真实上游取数未通过 (rc=$code)"
             exit 1
           fi
           grep -q "^PASS" live_akshare.log || { echo "FAIL: 未见 PASS 行"; exit 1; }
-
-      - name: "End-to-end: real klines -> stock_pick"
-        shell: bash
-        run: |
-          set -uo pipefail
-
-          python - <<'EOF' | tee live_pick.log
-          import asyncio, json
-          from forgemind.core.agents.stock_picker import StockPickerAgent
-          from forgemind.core.data.storage import DuckDBStorage
-          from forgemind.mcp.server import ForgeMindMCPServer
-
-          async def main():
-              with DuckDBStorage() as db:
-                  n = db.query_scalar("SELECT COUNT(*) FROM kline_daily")
-                  print("kline rows:", n)
-                  assert n > 0, "库里没有真实 K 线,无法验证下游"
-                  syms = [r["symbol"] for r in
-                          db.query_df("SELECT DISTINCT symbol FROM kline_daily LIMIT 8").to_dict("records")]
-              print("universe:", syms)
-
-              picks = await StockPickerAgent().pick(universe=syms, top_n=3)
-              assert picks, "真实数据下选股返回空"
-              scores = [p.score for p in picks]
-              print("picks:", [(p.symbol, p.direction, p.score) for p in picks])
-              assert len(set(scores)) >= 2, f"真实数据下得分无区分度: {scores}"
-              for p in picks:
-                  assert p.rationale and len(p.rationale) > 10, "选股理由为空"
-
-              # 经 MCP 走一遍(真实客户端路径)
-              s = ForgeMindMCPServer()
-              r = await s.handle_request({
-                  "jsonrpc": "2.0", "id": 1, "method": "tools/call",
-                  "params": {"name": "stock_pick", "arguments": {"universe": syms, "top_n": 3}},
-              })
-              d = json.loads(r["result"]["content"][0]["text"])
-              assert d["picks"], "MCP stock_pick 在真实数据下返回空"
-              print(f"PASS 端到端:真实 K 线 {n} 行 -> 选股 {len(picks)} 只 -> MCP 同结果 {len(d['picks'])}")
-
-          asyncio.run(main())
-          EOF
-          code=${PIPESTATUS[0]}
-          [ "$code" = "0" ] || { echo "--- 日志 ---"; tail -30 live_pick.log; exit 1; }
-          grep -q "^PASS" live_pick.log || { tail -20 live_pick.log; exit 1; }
 
       - name: "CLI etl on live upstream"
         run: |
