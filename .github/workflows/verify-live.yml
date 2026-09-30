@@ -45,7 +45,7 @@ jobs:
         shell: bash
         run: |
           set -uo pipefail
-          python - <<'EOF' | tee live_akshare.log
+          python - <<'EOF' > live_akshare.log 2>&1
           import asyncio, sys
           from forgemind.core.data.akshare_etl import AKShareETL
 
@@ -82,13 +82,14 @@ jobs:
 
                     asyncio.run(main())
           EOF
-          code=${PIPESTATUS[0]}
+          code=$?
+          echo "--- live_akshare.log ---"
+          cat live_akshare.log
           if [ "$code" != "0" ]; then
-            echo "--- 日志 ---"; tail -30 live_akshare.log
-            echo "FAIL: 真实上游取数未通过(代码 rc=$code)"
+            echo "FAIL: 真实上游取数未通过 (rc=$code)"
             exit 1
           fi
-          grep -q "^PASS" live_akshare.log || { tail -20 live_akshare.log; exit 1; }
+          grep -q "^PASS" live_akshare.log || { echo "FAIL: 未见 PASS 行"; exit 1; }
 
       - name: "End-to-end: real klines -> stock_pick"
         shell: bash
