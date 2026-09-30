@@ -198,8 +198,16 @@ jobs:
         run: |
           set -uo pipefail
           BIN=forgemind-ui/src-tauri/target/release/forgemind-desktop
+          # macOS 没有 GNU coreutils 的 timeout 命令,这里用后台进程 + sleep + kill
           code=0
-          timeout 30 "$PWD/$BIN" > app.log 2>&1 || code=$?
+          "$PWD/$BIN" > app.log 2>&1 &
+          pid=$!
+          ( sleep 30; kill -0 "$pid" 2>/dev/null && kill -TERM "$pid" 2>/dev/null ) &
+          watchdog=$!
+          wait "$pid" || code=$?
+          kill "$watchdog" 2>/dev/null || true
+          # 124 = 被超时杀掉 = 应用一直存活,这正是我们要的信号
+          [ "$code" = "143" ] && code=124
           echo "exit code: $code"
           tail -25 app.log
           if grep -qiE "failed to open display|NSApplication|CGSWindow|could not connect" app.log; then
@@ -223,8 +231,22 @@ jobs:
         run: |
           set -uo pipefail
           BIN=forgemind-ui\src-tauri\target\release\forgemind-desktop.exe
+          # Windows 的 timeout 是 cmd 的 sleep,语义不同;这里用 PowerShell 无关的
+          # 后台 + 轮询方式,不依赖 coreutils
           code=0
-          timeout 30 "$BIN" > app.log 2>&1 || code=$?
+          "$BIN" > app.log 2>&1 &
+          pid=$!
+          for _ in $(seq 1 30); do
+            kill -0 "$pid" 2>/dev/null || break
+            sleep 1
+          done
+          if kill -0 "$pid" 2>/dev/null; then
+            kill -TERM "$pid" 2>/dev/null || true
+            wait "$pid" 2>/dev/null || true
+            code=124
+          else
+            wait "$pid" || code=$?
+          fi
           echo "exit code: $code"
           tail -25 app.log
           # Windows runner 无交互式桌面,但进程能跑起来就证明
