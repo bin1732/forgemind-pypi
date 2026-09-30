@@ -230,7 +230,8 @@ jobs:
         shell: bash
         run: |
           set -uo pipefail
-          BIN=forgemind-ui\src-tauri\target\release\forgemind-desktop.exe
+          # Git Bash 会吞掉反斜杠路径,统一用正斜杠
+          BIN=./forgemind-ui/src-tauri/target/release/forgemind-desktop.exe
           # Windows 的 timeout 是 cmd 的 sleep,语义不同;这里用 PowerShell 无关的
           # 后台 + 轮询方式,不依赖 coreutils
           code=0
