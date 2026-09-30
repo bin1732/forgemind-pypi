@@ -111,10 +111,46 @@ jobs:
         with:
           workspaces: forgemind-ui/src-tauri
 
+      - name: Assert lockfile matches package.json
+        working-directory: forgemind-ui
+        run: |
+          set -euo pipefail
+          # 曾出现 package.json 写 next=15.0.3 而 lockfile 是 15.5.26 的情况:
+          # 两份文件在不同的副本里各改了一半。CI 照 package.json 解析,
+          # 撞上 React 19 的 peer 冲突(ERESOLVE),报错信息完全看不出根因。
+          node -e '
+            const pkg = require("./package.json");
+            const lock = require("./package-lock.json");
+            const want = pkg.dependencies;
+            const got = {};
+            for (const [k, v] of Object.entries(lock.packages)) {
+              if (k.includes("node_modules/") && v && v.version) {
+                got[k.split("node_modules/").pop()] = v.version;
+              }
+            }
+            let bad = 0;
+            for (const [n, range] of Object.entries(want)) {
+              const v = got[n];
+              if (!v) continue;
+              if (range.startsWith("^")) {
+                const major = range.slice(1).split(".")[0];
+                if (!v.startsWith(major + ".")) {
+                  console.log("MISMATCH " + n + ": package.json " + range + " vs lock " + v);
+                  bad++;
+                }
+              } else if (v !== range) {
+                console.log("MISMATCH " + n + ": package.json " + range + " vs lock " + v);
+                bad++;
+              }
+            }
+            if (bad) { console.error(bad + " 个依赖在 package.json 与 lockfile 间不一致"); process.exit(1); }
+            console.log("package.json 与 lockfile 一致");
+          '
+
       - name: Install web deps
         working-directory: forgemind-ui
         run: |
-          npm install --no-audit --no-fund --registry=https://registry.npmjs.org
+          npm ci --no-audit --no-fund --registry=https://registry.npmjs.org
           npx tsc --noEmit
           npm test --silent
 
