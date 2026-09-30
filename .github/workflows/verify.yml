@@ -45,6 +45,26 @@ jobs:
           "$GITHUB_WORKSPACE/.v/bin/pip" install -q "$GITHUB_WORKSPACE"/dist/*.whl
           "$GITHUB_WORKSPACE/.v/bin/python" -c "import forgemind; print('import ok', forgemind.__version__)"
 
+      - name: Sync the canonical verification script from private source
+        shell: bash
+        env:
+          PRIVATE_REPO_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN }}
+        run: |
+          set -euo pipefail
+          # scripts/verify.py 是唯一的验证真源,CI 直接取用,
+          # 避免"本地一套、CI 一套"两套标准各说各话
+          mkdir -p src-scripts
+          curl -sSL -H "Authorization: Bearer $PRIVATE_REPO_TOKEN" \
+            "https://raw.githubusercontent.com/bin1732/forgemind/main/scripts/verify.py" \
+            -o src-scripts/verify.py
+          test -s src-scripts/verify.py || { echo "拉取 verify.py 失败"; exit 1; }
+          echo "verify.py $(wc -c < src-scripts/verify.py) bytes"
+
+      - name: Assert verify.py itself is lint-clean
+        run: |
+          pip install -q ruff
+          ruff check --isolated --select E9,F63,F7,F82 "$GITHUB_WORKSPACE/src-scripts/verify.py"
+
       - name: Smoke - all CLI subcommands
         run: |
           set -euo pipefail
