@@ -159,6 +159,81 @@ jobs:
         working-directory: forgemind-ui
         run: npx next build
 
+      - name: Download the RELEASED binary (what users actually get)
+        shell: bash
+        run: |
+          set -uo pipefail
+          # 这一步刻意下载**已发布**的二进制,而不是本地 cargo build 出来的。
+          # 二者可能不同:发布物可能陈旧、被 CDN 缓存、或与当前源码不一致 ——
+          # 而用户拿到的永远是发布物。本地构建通过 ≠ 用户能跑。
+          if [ "${{ runner.os }}" = "Windows" ]; then
+            NAME="forgemind-windows-x64.exe"
+          elif [ "${{ runner.os }}" = "macOS" ]; then
+            NAME="forgemind-macos"
+          else
+            NAME="forgemind-linux"
+          fi
+          mkdir -p released
+          code=0
+          curl -sSL --retry 3 --max-time 1800 \
+            -o "released/$NAME" \
+            "https://github.com/bin1732/forgemind-pypi/releases/download/continuous/$NAME" || code=$?
+          if [ "$code" != "0" ] || [ ! -s "released/$NAME" ]; then
+            echo "FAIL: 无法下载发布物 $NAME (curl=$code)"
+            exit 1
+          fi
+          ls -lh "released/$NAME"
+          file "released/$NAME" 2>/dev/null || true
+
+      - name: Run the RELEASED binary (Linux / Xvfb)
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          set -uo pipefail
+          BIN=released/forgemind-linux
+          chmod +x "$BIN"
+          code=0
+          timeout 30 xvfb-run -a --server-args="-screen 0 1280x900x24" \
+            "$PWD/$BIN" info > rel_info.log 2>&1 || code=$?
+          cat rel_info.log
+          if [ "$code" -ne 0 ] && [ "$code" -ne 124 ]; then
+            echo "FAIL: 发布物 info 退出码 $code"
+            exit 1
+          fi
+          grep -q "ForgeMind Config" rel_info.log || { echo "FAIL: 发布物无正常输出"; exit 1; }
+          echo "PASS 发布物(info)可在真实用户环境运行"
+
+      - name: Run the RELEASED binary (macOS)
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          set -uo pipefail
+          BIN=released/forgemind-macos
+          chmod +x "$BIN"
+          code=0
+          timeout 30 "$PWD/$BIN" info > rel_info.log 2>&1 || code=$?
+          cat rel_info.log
+          if [ "$code" -ne 0 ] && [ "$code" -ne 124 ]; then
+            echo "FAIL: 发布物 info 退出码 $code"; exit 1
+          fi
+          grep -q "ForgeMind Config" rel_info.log || { echo "FAIL: 发布物无正常输出"; exit 1; }
+          echo "PASS 发布物(macOS info)可运行"
+
+      - name: Run the RELEASED binary (Windows)
+        if: runner.os == 'Windows'
+        shell: bash
+        run: |
+          set -uo pipefail
+          BIN=released/forgemind-windows-x64.exe
+          code=0
+          "./$BIN" info > rel_info.log 2>&1 || code=$?
+          cat rel_info.log
+          if [ "$code" -ne 0 ] && [ "$code" -ne 124 ]; then
+            echo "FAIL: 发布物 info 退出码 $code"; exit 1
+          fi
+          grep -q "ForgeMind Config" rel_info.log || { echo "FAIL: 发布物无正常输出"; exit 1; }
+          echo "PASS 发布物(Windows info)可运行"
+
       - name: cargo build (desktop binary)
         working-directory: forgemind-ui/src-tauri
         run: cargo build --release --message-format=short
