@@ -185,56 +185,74 @@ jobs:
           ls -lh "released/$NAME"
           file "released/$NAME" 2>/dev/null || true
 
-      - name: Run the RELEASED binary (Linux / Xvfb)
+      - name: Run the RELEASED binary - all subcommands (Linux / Xvfb)
         if: runner.os == 'Linux'
         shell: bash
         run: |
           set -uo pipefail
           BIN=released/forgemind-linux
           chmod +x "$BIN"
-          # 不用 GNU timeout:macOS/Windows 没有它(本轮已因此踩坑两次)。
-          # `forgemind info` 本身会立即退出,直接调用即可。
-          code=0
-          xvfb-run -a --server-args="-screen 0 1280x900x24" \
-            "$PWD/$BIN" info > rel_info.log 2>&1 || code=$?
-          cat rel_info.log
-          if [ "$code" -ne 0 ] && [ "$code" -ne 124 ]; then
-            echo "FAIL: 发布物 info 退出码 $code"
-            exit 1
-          fi
-          grep -q "ForgeMind Config" rel_info.log || { echo "FAIL: 发布物无正常输出"; exit 1; }
-          echo "PASS 发布物(info)可在真实用户环境运行"
+          RC=0
+          # 不用 GNU timeout:macOS/Windows 没有它。子命令本身会退出,
+          # 卡死保护交给 step 自身的超时。
+          run() {
+            local label="$1"; shift
+            if xvfb-run -a --server-args="-screen 0 1280x900x24" \
+                 "$PWD/$BIN" "$@" > "rel_$label.log" 2>&1; then
+              echo "  PASS 发布物 $label"
+            else
+              echo "  FAIL 发布物 $label (exit $?)"; tail -5 "rel_$label.log"; RC=1
+            fi
+          }
+          run info        info
+          run signal      signal
+          run router-demo router-demo
+          run backtest    backtest --start 2024-01-01 --end 2024-12-31
+          run agent       agent --symbol 600519.SH --cash 100000
+          run pick        pick --symbol 600519.SH
+          echo "--- backtest 实际输出 ---"
+          grep -E "Total Return|Sharpe|Trades" rel_backtest.log || true
+          [ "$RC" = 0 ] || exit 1
+          grep -q "ForgeMind Config" rel_info.log || { echo "FAIL: info 无正常输出"; exit 1; }
+          grep -q "Total Return" rel_backtest.log || { echo "FAIL: backtest 无指标输出"; exit 1; }
+          echo "PASS 发布物(Linux)全部子命令可运行"
 
-      - name: Run the RELEASED binary (macOS)
+      - name: Run the RELEASED binary - key subcommands (macOS)
         if: runner.os == 'macOS'
         shell: bash
         run: |
           set -uo pipefail
           BIN=released/forgemind-macos
           chmod +x "$BIN"
-          code=0
-          "$PWD/$BIN" info > rel_info.log 2>&1 || code=$?
-          cat rel_info.log
-          if [ "$code" -ne 0 ] && [ "$code" -ne 124 ]; then
-            echo "FAIL: 发布物 info 退出码 $code"; exit 1
-          fi
-          grep -q "ForgeMind Config" rel_info.log || { echo "FAIL: 发布物无正常输出"; exit 1; }
-          echo "PASS 发布物(macOS info)可运行"
+          for sub in "info" "signal" "router-demo" \
+                     "backtest --start 2024-01-01 --end 2024-12-31"; do
+            # shellcheck disable=SC2086
+            if "./$BIN" $sub > rel.log 2>&1; then
+              echo "  PASS 发布物 $sub"
+            else
+              echo "  FAIL 发布物 $sub"; tail -5 rel.log; exit 1
+            fi
+          done
+          grep -q "ForgeMind Config" rel.log || { echo "FAIL: 无正常输出"; exit 1; }
+          echo "PASS 发布物(macOS)关键子命令可运行"
 
-      - name: Run the RELEASED binary (Windows)
+      - name: Run the RELEASED binary - key subcommands (Windows)
         if: runner.os == 'Windows'
         shell: bash
         run: |
           set -uo pipefail
           BIN=released/forgemind-windows-x64.exe
-          code=0
-          "./$BIN" info > rel_info.log 2>&1 || code=$?
-          cat rel_info.log
-          if [ "$code" -ne 0 ] && [ "$code" -ne 124 ]; then
-            echo "FAIL: 发布物 info 退出码 $code"; exit 1
-          fi
-          grep -q "ForgeMind Config" rel_info.log || { echo "FAIL: 发布物无正常输出"; exit 1; }
-          echo "PASS 发布物(Windows info)可运行"
+          for sub in "info" "signal" "router-demo" \
+                     "backtest --start 2024-01-01 --end 2024-12-31"; do
+            # shellcheck disable=SC2086
+            if "./$BIN" $sub > rel.log 2>&1; then
+              echo "  PASS 发布物 $sub"
+            else
+              echo "  FAIL 发布物 $sub"; tail -5 rel.log; exit 1
+            fi
+          done
+          grep -q "ForgeMind Config" rel.log || { echo "FAIL: 无正常输出"; exit 1; }
+          echo "PASS 发布物(Windows)关键子命令可运行"
 
       - name: cargo build (desktop binary)
         working-directory: forgemind-ui/src-tauri
