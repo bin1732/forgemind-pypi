@@ -224,17 +224,23 @@ jobs:
           set -uo pipefail
           BIN=released/forgemind-macos
           chmod +x "$BIN"
+          RC=0
           for sub in "info" "signal" "router-demo" \
                      "backtest --start 2024-01-01 --end 2024-12-31"; do
+            # 每个子进程写自己的日志:共用一个文件会被后一个覆盖,
+            # 导致对错误的日志做断言(曾因此误判 PASS 为 FAIL)
+            tag=$(echo "$sub" | tr ' /=-' '____' | cut -c1-24)
             # shellcheck disable=SC2086
-            if "./$BIN" $sub > rel.log 2>&1; then
+            if "./$BIN" $sub > "rel_$tag.log" 2>&1; then
               echo "  PASS 发布物 $sub"
             else
-              echo "  FAIL 发布物 $sub"; tail -5 rel.log; exit 1
+              echo "  FAIL 发布物 $sub"; tail -5 "rel_$tag.log"; RC=1
             fi
           done
-          grep -q "ForgeMind Config" rel.log || { echo "FAIL: 无正常输出"; exit 1; }
-          echo "PASS 发布物(macOS)关键子命令可运行"
+          grep -q "ForgeMind Config" rel_info.log || { echo "FAIL: info 无正常输出"; exit 1; }
+          grep -q "Total Return" rel_backtest___start_2024_01.log \
+            || { echo "FAIL: backtest 无指标输出"; exit 1; }
+          exit "$RC"
 
       - name: Run the RELEASED binary - key subcommands (Windows)
         if: runner.os == 'Windows'
@@ -242,17 +248,20 @@ jobs:
         run: |
           set -uo pipefail
           BIN=released/forgemind-windows-x64.exe
+          RC=0
           for sub in "info" "signal" "router-demo" \
                      "backtest --start 2024-01-01 --end 2024-12-31"; do
+            # 每个子进程写自己的日志:共用一个文件会被后一个覆盖
+            tag=$(echo "$sub" | tr ' /=-' '____' | cut -c1-24)
             # shellcheck disable=SC2086
-            if "./$BIN" $sub > rel.log 2>&1; then
+            if "./$BIN" $sub > "rel_$tag.log" 2>&1; then
               echo "  PASS 发布物 $sub"
             else
-              echo "  FAIL 发布物 $sub"; tail -5 rel.log; exit 1
+              echo "  FAIL 发布物 $sub"; tail -5 "rel_$tag.log"; RC=1
             fi
           done
-          grep -q "ForgeMind Config" rel.log || { echo "FAIL: 无正常输出"; exit 1; }
-          echo "PASS 发布物(Windows)关键子命令可运行"
+          grep -q "ForgeMind Config" rel_info.log || { echo "FAIL: info 无正常输出"; exit 1; }
+          exit "$RC"
 
       - name: cargo build (desktop binary)
         working-directory: forgemind-ui/src-tauri
