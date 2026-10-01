@@ -192,8 +192,10 @@ jobs:
           set -uo pipefail
           BIN=released/forgemind-linux
           chmod +x "$BIN"
+          # 不用 GNU timeout:macOS/Windows 没有它(本轮已因此踩坑两次)。
+          # `forgemind info` 本身会立即退出,直接调用即可。
           code=0
-          timeout 30 xvfb-run -a --server-args="-screen 0 1280x900x24" \
+          xvfb-run -a --server-args="-screen 0 1280x900x24" \
             "$PWD/$BIN" info > rel_info.log 2>&1 || code=$?
           cat rel_info.log
           if [ "$code" -ne 0 ] && [ "$code" -ne 124 ]; then
@@ -211,7 +213,7 @@ jobs:
           BIN=released/forgemind-macos
           chmod +x "$BIN"
           code=0
-          timeout 30 "$PWD/$BIN" info > rel_info.log 2>&1 || code=$?
+          "$PWD/$BIN" info > rel_info.log 2>&1 || code=$?
           cat rel_info.log
           if [ "$code" -ne 0 ] && [ "$code" -ne 124 ]; then
             echo "FAIL: 发布物 info 退出码 $code"; exit 1
