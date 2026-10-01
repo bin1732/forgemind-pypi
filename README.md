@@ -38,14 +38,25 @@
 
 ```bash
 # 从 GitHub Pages 索引安装
-# 注意 index-url 指向 /pypi/simple/,**不要**再带 /forgemind/ ——
+#
+# 必须是 --extra-index-url,不是 --index-url:
+#   --index-url 会**替换**默认源,于是 fastapi / duckdb 这些依赖也去
+#   我们的索引里找,结果全部 "No matching distribution found"。
+#   --extra-index-url 是在默认源(PyPI)旁边**追加**我们的索引,依赖照常
+#   从 PyPI 解析,forgemind 本体从我们的索引拿。
+#
+# 同理,地址是 /pypi/simple/,**不要**再带 /forgemind/ ——
 # pip 会自动拼接项目名,写成 .../simple/forgemind/ 时它实际请求
-# .../simple/forgemind/forgemind/ 得到 404,报 "No matching distribution found"。
-pip install --index-url https://bin1732.github.io/forgemind-pypi/pypi/simple/ forgemind
+# .../simple/forgemind/forgemind/ 得到 404。
+pip install --extra-index-url https://bin1732.github.io/forgemind-pypi/pypi/simple/ forgemind
+
+# 需要 A 股数据源(forgemind etl)时,加 [cn] extra:
+pip install --extra-index-url https://bin1732.github.io/forgemind-pypi/pypi/simple/ "forgemind[cn]"
 ```
 
-> 验证方式:以上命令在全新 venv 中实测通过。也可直接装文件:
-> `pip install forgemind-2026.9.3-py3-none-any.whl`
+> 验证方式:以上两条命令在全新 venv 中实测通过 —— `--extra-index-url` 形式
+> 能同时解析 forgemind 本体与全部依赖,`forgemind[cn]` 额外装上 akshare。
+> 也可直接装文件:`pip install forgemind-2026.9.3-py3-none-any.whl`
 
 或直接下载单文件二进制(Linux / macOS / Windows,见 Releases)。
 
@@ -89,6 +100,7 @@ state = await run_decision(symbol="600519.SH", portfolio=PortfolioContext(...))
 Or via CLI:
 
 ```bash
+# etl / pick 需要 A 股数据源,先确保装了 [cn] extra(akshare)
 forgemind etl --symbols 600519,000001 --start 2024-01-01
 forgemind pick --top-n 5
 forgemind backtest --strategy ma_cross
@@ -150,7 +162,7 @@ ForgeMind outputs trading signals — it does **not** connect to brokers. Use th
 
 ```bash
 pytest tests/ -v
-# 40 test files · 450+ tests · ~6 min
+# 41 test files · 450+ tests · ~6 min
 ```
 
 ---
