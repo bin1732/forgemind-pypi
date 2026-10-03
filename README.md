@@ -25,7 +25,7 @@
 
 | | |
 |---|---|
-| **166 Alpha Factors** | Alpha158 (149) · Alpha101 (17) · Barra 风险模型 · IC 监控 |
+| **169 Alpha Factors** | Alpha158 (152) · Alpha101 (11) · Barra 风险模型 · IC 监控 |
 | **Stock Screening Agent** | Multi-factor scoring + AI rationale generation |
 | **Backtest Engine** | Event-driven · Walk-Forward optimizer · Monte Carlo · 3 种滑点模型 |
 | **AI Decision Agent** | LangGraph 6-node pipeline · 9 LLM providers · 人工审批 gating |
@@ -122,7 +122,7 @@ forgemind agent --symbol 600519.SH
 │  Stock Picker │  AI Decision  │  Backtest Engine       │
 │  Agent        │  (LangGraph)  │  (Vectorized)         │
 ├───────────────┴───────────────┴───────────────────────┤
-│  166 Alpha Factors (Alpha158 + Alpha101) · IC · Barra  │
+│  169 Alpha Factors (Alpha158 + Alpha101) · IC · Barra  │
 ├─────────────────────────────────────────────────────────┤
 │  AKShare ETL → DuckDB / ClickHouse                    │
 └─────────────────────────────────────────────────────────┘
@@ -162,7 +162,7 @@ ForgeMind outputs trading signals — it does **not** connect to brokers. Use th
 
 ```bash
 pytest tests/ -v
-# 50 test files · 450+ tests · ~6 min
+# 51 test files · 450+ tests · ~6 min
 ```
 
 ---
