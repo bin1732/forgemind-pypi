@@ -162,7 +162,7 @@ ForgeMind outputs trading signals — it does **not** connect to brokers. Use th
 
 ```bash
 pytest tests/ -v
-# 55 test files · 450+ tests · ~6 min
+# 56 test files · 450+ tests · ~6 min
 ```
 
 ---
