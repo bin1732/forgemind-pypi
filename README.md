@@ -29,7 +29,7 @@
 | **Stock Screening Agent** | Multi-factor scoring + AI rationale generation |
 | **Backtest Engine** | Event-driven · Walk-Forward optimizer · Monte Carlo · 3 种滑点模型 |
 | **AI Decision Agent** | LangGraph 6-node pipeline · 9 LLM providers · 人工审批 gating |
-| **Desktop App** | Tauri 2.x · Next.js 15 frontend · MCP protocol (Claude Desktop / Cursor) |
+| **Desktop App** | Tauri 2.x · Next.js 15 frontend · MCP protocol (Claude Desktop / Cursor) — 需本机已装 Python 3.11+ 与本包(桌面端启动 Python sidecar,未捆绑解释器) |
 | **Free Data** | AKShare · A-shares · US · DuckDB local storage |
 
 ---
