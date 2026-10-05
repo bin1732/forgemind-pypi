@@ -203,7 +203,20 @@ jobs:
           fi
           # release 资产 URL 不变时会被 CDN 缓存,必须破坏缓存才能验到新版
           URL="https://github.com/bin1732/forgemind-pypi/releases/download/continuous/${NAME}?cb=${GITHUB_RUN_ID}"
-          curl -sSL --retry 3 -o "$NAME" "$URL" || { echo "FAIL 下载失败"; exit 1; }
+          # ship.yml 为绕开"同名上传 422"会先删旧资产再上传同名资产,
+          # 那个空窗期里下载会拿到 404 —— 而这里的 404 是**暂时性**的。
+          # curl --retry 只重试 5xx/超时,遇 404 直接放弃;没有 --fail 时,
+          # 404 的响应体("Not Found",9 字节)还会被当成内容写进文件,
+          # 要到后面的大小检查才暴露。所以显式轮询 + --fail。
+          ok=0
+          for i in 1 2 3 4 5 6 7 8; do
+            if curl -sSLf --max-time 1800 -o "$NAME" "$URL" && [ -s "$NAME" ]; then
+              ok=1; break
+            fi
+            echo "  尝试 $i/8 失败(资产可能正被 ship 替换),15s 后重试"
+            sleep 15
+          done
+          if [ "$ok" != "1" ]; then echo "FAIL 下载失败(重试已耗尽)"; exit 1; fi
           SIZE=$(wc -c < "$NAME")
           echo "downloaded $NAME ($SIZE bytes)"
           if [ "$SIZE" -lt 1000000 ]; then
