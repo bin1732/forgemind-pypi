@@ -8,5 +8,5 @@
     "forgemind-windows-x64.exe"
   ],
   "source_repo": "bin1732/forgemind",
-  "install": "pip install --extra-index-url https://bin1732.github.io/forgemind-pypi/pypi/simple/forgemind/ forgemind"
+  "install": "pip install --extra-index-url https://bin1732.github.io/forgemind-pypi/pypi/simple/ forgemind"
 }
