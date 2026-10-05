@@ -175,9 +175,21 @@ jobs:
           fi
           mkdir -p released
           code=0
-          curl -sSL --retry 3 --max-time 1800 \
-            -o "released/$NAME" \
-            "https://github.com/bin1732/forgemind-pypi/releases/download/continuous/$NAME" || code=$?
+          # ship.yml 为绕开"同名上传 422"会先删旧资产再上传同名资产,
+          # 空窗期里下载会拿到 404 —— 而 404 在这里是**暂时性**的。
+          # curl --retry 只重试 5xx/超时;没有 --fail 时 404 的响应体
+          # ("Not Found",9 字节)会被当成内容写进文件。所以显式轮询 + --fail。
+          ok=0
+          for i in 1 2 3 4 5 6 7 8; do
+            if curl -sSLf --max-time 1800 -o "released/$NAME" \
+                "https://github.com/bin1732/forgemind-pypi/releases/download/continuous/$NAME" \
+               && [ -s "released/$NAME" ]; then
+              ok=1; break
+            fi
+            echo "  尝试 $i/8 失败(资产可能正被 ship 替换),15s 后重试"
+            sleep 15
+          done
+          if [ "$ok" != "1" ]; then code=1; fi
           if [ "$code" != "0" ] || [ ! -s "released/$NAME" ]; then
             echo "FAIL: 无法下载发布物 $NAME (curl=$code)"
             exit 1
