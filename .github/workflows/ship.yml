@@ -192,9 +192,21 @@ jobs:
               if not f.is_file() or f.suffix not in ('.whl', '.gz'):
                   continue
               blob = f.read_bytes()
-              rp = f'releases/builds/source/{f.name}'
+              # 每次构建写到**带 build 标识的新路径**,再让索引指向它。
+              #
+              # 原先是"先覆盖同名文件、再更新索引":这两步之间文件已是新版、
+              # 索引却还声明旧 hash,正好落进这个窗口的用户会拿到
+              #     THESE PACKAGES DO NOT MATCH THE HASHES
+              # 我自己装的时候就撞上一次,全新 venv 直接装失败。
+              #
+              # 改成三步后不存在不一致窗口:
+              #   ① 新文件落到新路径(旧路径仍在,旧索引仍有效)
+              #   ② 索引指向新路径 + 它的真实 hash
+              #   ③ 删除旧路径(已经没人引用了)
+              build_id = __import__('os').environ.get('GITHUB_RUN_ID', 'local')
+              rp = f'releases/builds/{build_id}/{f.name}'
               stx, ex = call('GET', f'{API}/contents/{rp}')
-              d = {'message': f'Build: {f.name}',
+              d = {'message': f'Build {build_id}: {f.name}',
                    'content': base64.b64encode(blob).decode(), 'branch': 'main'}
               if stx == 200 and ex:
                   d['sha'] = ex['sha']
@@ -210,10 +222,10 @@ jobs:
                   if sti == 200 and exi:
                       di['sha'] = exi['sha']
                   code, _ = call('PUT', f'{API}/contents/pypi/simple/forgemind/index.html', di)
-                  print(f'  [{code}] pypi index -> {sha[:16]}')
+                  print(f'  [{code}] pypi index -> {sha[:16]} (path {rp})')
 
           mf = {'version': 'latest', 'assets': sorted(uploaded), 'source_repo': 'bin1732/forgemind',
-                'install': 'pip install --extra-index-url https://bin1732.github.io/forgemind-pypi/pypi/simple/forgemind/ forgemind'}
+                'install': 'pip install --extra-index-url https://bin1732.github.io/forgemind-pypi/pypi/simple/ forgemind'}
           stm, exm = call('GET', f'{API}/contents/releases/builds/manifest.json')
           dm = {'message': 'Manifest', 'content': base64.b64encode(json.dumps(mf, indent=2).encode()).decode(), 'branch': 'main'}
           if stm == 200 and exm:
