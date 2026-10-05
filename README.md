@@ -63,11 +63,59 @@ pip install --extra-index-url https://bin1732.github.io/forgemind-pypi/pypi/simp
 启动本地 API 服务:
 
 ```bash
-forgemind mcp            # MCP server(stdio,可接 Claude Desktop / Cursor)
 python -m forgemind.api.main --port 8000
 ```
 
 **Requirements:** Python 3.11+ · AKShare (free data) · Optional: OpenAI / Anthropic API key
+
+---
+
+## 🔌 接入 MCP 客户端(Claude Desktop / Cursor / Claude Code)
+
+`forgemind mcp` 以 stdio 方式提供 9 个 MCP 工具。客户端需要一个**绝对路径**
+的命令 —— MCP 客户端不会用你当前 shell 的 PATH。
+
+**1. 确认 `forgemind` 在哪**
+
+```bash
+which forgemind     # macOS/Linux
+where forgemind     # Windows
+```
+
+**2. 写进客户端配置**
+
+`claude_desktop_config.json`(macOS:
+`~/Library/Application Support/Claude/`;Windows:
+`%APPDATA%\Claude\`):
+
+```json
+{
+  "mcpServers": {
+    "forgemind": {
+      "command": "/abs/path/to/forgemind",
+      "args": ["mcp"],
+      "env": { "PYTHONUNBUFFERED": "1" }
+    }
+  }
+}
+```
+
+Cursor / Claude Code 等把 `mcpServers` 放在各自配置里,结构相同。
+
+**3. 验证连上了**
+
+客户端里问一句"列一下 forgemind 有哪些工具",或直接手动握手:
+
+```bash
+echo '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"probe","version":"1"}}}' \
+  | forgemind mcp
+```
+
+应回 `{"jsonrpc":"2.0","id":1,"result":{"serverInfo":{"name":"forgemind",...}}}`
+
+> **用真实数据**:客户端里的 `get_kline` / `stock_pick` / `check_ic_decay`
+> 读的是本地 DuckDB,得先跑过一次 `forgemind etl`,否则会如实返回
+> "本地没有行情数据"。
 
 ---
 
