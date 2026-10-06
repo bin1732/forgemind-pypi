@@ -220,7 +220,7 @@ jobs:
           run signal      signal
           run router-demo router-demo
           run backtest    backtest --start 2024-01-01 --end 2024-12-31
-          run agent       agent --symbol 600519.SH --cash 100000
+          run agent       agent --yes --symbol 600519.SH --cash 100000
           run pick        pick --symbol 600519.SH
           echo "--- backtest 实际输出 ---"
           grep -E "Total Return|Sharpe|Trades" rel_backtest.log || true
