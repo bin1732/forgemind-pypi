@@ -30,7 +30,7 @@
 | **Backtest Engine** | Event-driven · Walk-Forward optimizer · Monte Carlo · 3 种滑点模型 |
 | **AI Decision Agent** | LangGraph 6-node pipeline · 9 LLM providers · 人工审批 gating |
 | **Desktop App** | Tauri 2.x · Next.js 15 frontend · MCP protocol (Claude Desktop / Cursor) — 需本机已装 Python 3.11+ 与本包(桌面端启动 Python sidecar,未捆绑解释器) |
-| **Free Data** | AKShare · A-shares · US · DuckDB local storage |
+| **Free Data** | AKShare · A-shares + CN macro · DuckDB · *(US 需配置 FORGEMIND_US_TOKEN,见 `forgemind info`)* |
 
 ---
 
@@ -210,7 +210,7 @@ ForgeMind outputs trading signals — it does **not** connect to brokers. Use th
 
 ```bash
 pytest tests/ -v
-# 72 test files · 450+ tests · ~6 min
+# 73 test files · 450+ tests · ~6 min
 ```
 
 ---
