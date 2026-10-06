@@ -77,8 +77,12 @@ jobs:
           done
           "$V/forgemind" backtest --start 2024-01-01 --end 2024-12-31 | grep -q "Total Return" \
             && echo "PASS backtest" || { echo "FAIL backtest"; exit 1; }
-          "$V/forgemind" agent --symbol 600519.SH --cash 100000 --position-qty 5 --position-price 1600 2>/dev/null \
-            | grep -q "snapshot saved" && echo "PASS agent(+snapshot)" || { echo "FAIL agent"; exit 1; }
+          # forgemind agent 现在是两步: prepare + 人工审批。
+          # 非交互式 CI 用 --yes 自动批准;无 --yes 时会拒绝自动审批,
+          # 那样才是正确的 gating 行为。
+          out=$("$V/forgemind" agent --yes --symbol 600519.SH --cash 100000 --position-qty 5 --position-price 1600 2>/dev/null || true)
+          echo "$out" | grep -q "snapshot saved" && echo "PASS agent(+snapshot)" \
+            || { echo "FAIL agent: output=$out"; exit 1; }
 
       - name: Smoke - 12 strategies produce results
         shell: bash
