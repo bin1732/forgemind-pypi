@@ -254,7 +254,7 @@ jobs:
           run signal          signal
           run router-demo     router-demo
           run backtest        backtest --start 2024-01-01 --end 2024-12-31
-          run agent           agent --symbol 600519.SH --cash 100000 --position-qty 5 --position-price 1600
+          run agent           agent --yes --symbol 600519.SH --cash 100000 --position-qty 5 --position-price 1600
           run mcp             mcp
           run pick            pick --symbol 600519.SH
           # etl 需要联网拉行情,失败是预期内;只要求它不要崩溃到无法退出
