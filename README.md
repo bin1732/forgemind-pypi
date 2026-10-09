@@ -27,12 +27,14 @@
 |---|---|
 | **169 Alpha Factors** | Alpha158 (152) · Alpha101 (11) · Barra 风险模型 · IC 监控 |
 | **Stock Screening Agent** | Multi-factor scoring + AI rationale generation |
-| **Backtest Engine** | Event-driven · Walk-Forward optimizer · Monte Carlo · 3 种滑点模型 |
+| **Backtest Engine** (`forgemind backtest`) | Event-driven 事件驱动 · 3 种滑点模型(fixed / linear / sqrt) · 30+ 策略 |
 | **AI Decision Agent** | LangGraph 6-node pipeline · 9 LLM providers · 人工审批 gating |
 | **Desktop App** | Tauri 2.x · Next.js 15 frontend · MCP protocol (Claude Desktop / Cursor) — 需本机已装 Python 3.11+ 与本包(桌面端启动 Python sidecar,未捆绑解释器) |
 | **Free Data** | AKShare · A-shares + CN macro · DuckDB · *(US 需配置 FORGEMIND_US_TOKEN,见 `forgemind info`)* |
 
 ---
+
+
 
 ## 📦 Install
 
@@ -54,7 +56,7 @@ pip install --extra-index-url https://bin1732.github.io/forgemind-pypi/pypi/simp
 pip install --extra-index-url https://bin1732.github.io/forgemind-pypi/pypi/simple/ "forgemind[cn]"
 ```
 
-> 验证方式:以上两条命令在全新 venv 中实测通过 —— `--extra-index-url` 形式
+> 验证方式:以上两条命令在全新 venv 中已验证通过 —— `--extra-index-url` 形式
 > 能同时解析 forgemind 本体与全部依赖,`forgemind[cn]` 额外装上 akshare。
 > 也可直接装文件:`pip install forgemind-2026.9.3-py3-none-any.whl`
 
@@ -68,7 +70,13 @@ python -m forgemind.api.main --port 8000
 
 **Requirements:** Python 3.11+ · AKShare (free data) · Optional: OpenAI / Anthropic API key
 
+**Optional services:** ClickHouse / PostgreSQL / Redis / NATS 是多租户生产环境的可选项,本地单机跑 DuckDB 即可。`/api/v1/health/services` 会报这些 service 的连接状态 —— **未连接不影响** `forgemind etl / pick / backtest / agent / mcp` 任何子命令。
+
 ---
+
+## 🔬 Research Pipeline(API / Tauri 桌面端)
+
+`forgemind backtest` 跑的是事件驱动回测。完整研究流水线(**Walk-Forward Optimization · Monte Carlo 稳健性 · 多因子 IC 评估 · LightGBM 训练**)在 `POST /api/v1/pipeline/run`(Tauri 桌面端专用)与 `forgemind.core.pipeline.EndToEndPipeline` Python SDK 中提供;CLI 子命令未单独暴露。
 
 ## 🔌 接入 MCP 客户端(Claude Desktop / Cursor / Claude Code)
 
@@ -210,7 +218,7 @@ ForgeMind outputs trading signals — it does **not** connect to brokers. Use th
 
 ```bash
 pytest tests/ -v
-# 76 test files · 450+ tests · ~6 min
+# 75 test files · 450+ tests · ~6 min
 ```
 
 ---
