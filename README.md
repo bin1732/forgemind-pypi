@@ -78,6 +78,15 @@ python -m forgemind.api.main --port 8000
 
 `forgemind backtest` 跑的是事件驱动回测。完整研究流水线(**Walk-Forward Optimization · Monte Carlo 稳健性 · 多因子 IC 评估 · LightGBM 训练**)在 `POST /api/v1/pipeline/run`(Tauri 桌面端专用)与 `forgemind.core.pipeline.EndToEndPipeline` Python SDK 中提供;CLI 子命令未单独暴露。
 
+装好之后可以直接跑一次研究流程,结果来自真实数据:
+
+```bash
+python scripts/research_demo.py --symbols 600519,000001 --start 2024-01-01
+```
+
+它会依次完成取数、因子 IC 评估、选股与回测,并打印可分析的结果。
+加 `--json` 可以拿到结构化输出。
+
 ## 🔌 接入 MCP 客户端(Claude Desktop / Cursor / Claude Code)
 
 `forgemind mcp` 以 stdio 方式提供 9 个 MCP 工具。客户端需要一个**绝对路径**
