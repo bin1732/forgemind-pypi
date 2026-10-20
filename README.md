@@ -214,18 +214,41 @@ ForgeMind outputs trading signals — it does **not** connect to brokers. Use th
 
 ---
 
-## 🧪 Tests
+## 🧪 Verify Your Install
+
+装完之后先确认包本身可用:
 
 ```bash
-pytest tests/ -v
-# 75 test files · 450+ tests · ~6 min
+forgemind info                      # 版本、数据源、连接状态
+forgemind backtest --list-strategies # 可用策略清单
+forgemind mcp                       # 以标准输入输出的方式启动 MCP 服务
+```
+
+发布出去的每一个构件都经过下面这些检查,全部在可复现的流水线里完成:
+
+| 检查 | 内容 |
+| --- | --- |
+| 构件构建 | 从源码构建 wheel 与源码包,校验安装后能导入 |
+| 命令行冒烟 | 逐个执行全部子命令,确认退出码与输出 |
+| 接口校验 | 真实起服务,逐个请求接口,校验参数校验与错误响应 |
+| 真实取数 | 拉真实行情并落库,确认多源回退可用 |
+| 桌面端 | 下载发布出来的三个平台二进制并实跑,确认能启动 |
+
+桌面端构件从 [Releases](https://github.com/bin1732/forgemind-pypi/releases) 下载。
+运行中的探测脚本在 `scripts/live_probe.py`,对着已安装的包执行:
+
+```bash
+python scripts/live_probe.py
 ```
 
 ---
 
 ## 🤝 Contributing
 
-PRs welcome. Please run `pre-commit run --all-files` before submitting.
+本仓库是发布与验证仓,收录安装说明、下载索引、验证脚本与发布流水线。
+面向使用者的改动(文档、验证、发布流程)欢迎提 PR,流程见
+[CONTRIBUTING.md](.github/CONTRIBUTING.md)。包的源码不在本仓库,
+功能与缺陷讨论请在 [Issues](https://github.com/bin1732/forgemind-pypi/issues) 发起。
 
 ---
 

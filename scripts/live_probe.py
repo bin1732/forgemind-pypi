@@ -37,9 +37,9 @@ async def main():
     probe_providers()
     stats = await AKShareETL().run(symbols=SYMBOLS, start=START, end=END)
     print("STATS", stats)
-    assert stats["klines"] > 0, f"multi-source fallback still got 0 rows: {stats}"
-    assert stats["ok_symbols"] >= 1, f"no symbol succeeded: {stats}"
-    assert "failures" in stats, "missing failure breakdown"
+    assert stats["klines"] > 0, f"多源回退未取到任何行: {stats}"
+    assert stats["ok_symbols"] >= 1, f"没有标的取数成功: {stats}"
+    assert "failures" in stats, "缺少按原因归类的失败明细"
     print(f"PASS akshare real fetch {stats['klines']} klines "
           f"from {stats['ok_symbols']} symbol(s)")
 
@@ -52,12 +52,12 @@ async def main():
         syms = [r["symbol"] for r in db.query_df(
             "SELECT DISTINCT symbol FROM kline_daily").to_dict("records")]
     print(f"DB rows={rows} symbols={syms}")
-    assert rows > 0, "no rows landed in duckdb"
+    assert rows > 0, "数据未落进 DuckDB"
 
     picks = await StockPickerAgent().pick(universe=syms, top_n=2)
     print("PICKS", [(p.symbol, p.direction, p.score) for p in picks])
-    assert picks, "stock_pick returned nothing on real data"
-    assert all(p.rationale for p in picks), "a pick has an empty rationale"
+    assert picks, "选股在真实数据上没有返回结果"
+    assert all(p.rationale for p in picks), "存在没有给出理由的选股结果"
     print(f"PASS end-to-end real data: {rows} rows -> {len(picks)} picks")
 
 

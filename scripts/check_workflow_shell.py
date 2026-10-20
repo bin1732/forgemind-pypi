@@ -5,8 +5,7 @@
 """检查 workflow:凡是用到 bash 专有语法的 step,必须声明 shell: bash
 
 Windows runner 默认是 PowerShell,不认 set -euo pipefail / [[ ]] / PIPESTATUS
-这类语法。这个坑在本次改动里踩了三次(每次都等到 CI 十分钟后才暴露),
-所以固化成本地检查,纳入 lint。
+这类语法。显式声明 shell 让同一份脚本在各类 runner 上行为一致。
 
     python scripts/check_workflow_shell.py
 """
