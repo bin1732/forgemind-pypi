@@ -19,3 +19,6 @@ data/
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
+
+# 内部触发文件(仅私人仓使用)
+.test_trigger

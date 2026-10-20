@@ -192,17 +192,12 @@ jobs:
               if not f.is_file() or f.suffix not in ('.whl', '.gz'):
                   continue
               blob = f.read_bytes()
-              # 每次构建写到**带 build 标识的新路径**,再让索引指向它。
+              # 每次构建写到带 build 标识的新路径,再让索引指向它。
               #
-              # 原先是"先覆盖同名文件、再更新索引":这两步之间文件已是新版、
-              # 索引却还声明旧 hash,正好落进这个窗口的用户会拿到
-              #     THESE PACKAGES DO NOT MATCH THE HASHES
-              # 我自己装的时候就撞上一次,全新 venv 直接装失败。
-              #
-              # 改成三步后不存在不一致窗口:
-              #   ① 新文件落到新路径(旧路径仍在,旧索引仍有效)
-              #   ② 索引指向新路径 + 它的真实 hash
-              #   ③ 删除旧路径(已经没人引用了)
+              # 分三步执行,顺序保证任何时刻索引声明的 hash 都与文件内容一致:
+              #   1. 新文件落到新路径(旧路径仍在,旧索引仍然有效)
+              #   2. 索引指向新路径及其真实 hash
+              #   3. 删除旧路径(此时已无引用方)
               build_id = __import__('os').environ.get('GITHUB_RUN_ID', 'local')
               rp = f'releases/builds/{build_id}/{f.name}'
               stx, ex = call('GET', f'{API}/contents/{rp}')
@@ -223,6 +218,38 @@ jobs:
                       di['sha'] = exi['sha']
                   code, _ = call('PUT', f'{API}/contents/pypi/simple/forgemind/index.html', di)
                   print(f'  [{code}] pypi index -> {sha[:16]} (path {rp})')
+
+          # 3) 清理历史构建目录
+          # 只保留当前 build 目录;更早的 build 目录全部删除,避免仓库随
+          # 每次运行无限增长,也避免 simple index 指向的文件被误删。
+          def list_dir(path):
+              st, data = call('GET', f'{API}/contents/{path}')
+              return data if st == 200 and isinstance(data, list) else []
+
+          def remove_path(path, sha=None):
+              payload = {'message': f'Remove stale build artifact: {path}', 'branch': 'main'}
+              if sha:
+                  payload['sha'] = sha
+              code, _ = call('DELETE', f'{API}/contents/{path}', payload)
+              print(f'  [{code}] rm {path}')
+
+          def purge_dir(path, keep_prefix=None):
+              for entry in list_dir(path):
+                  name = entry.get('name', '')
+                  full = f"{path}/{name}"
+                  if keep_prefix and full.startswith(keep_prefix):
+                      continue
+                  if entry.get('type') == 'dir':
+                      purge_dir(full)
+                      remove_path(full, entry.get('sha'))
+                  else:
+                      remove_path(full, entry.get('sha'))
+
+          purge_dir('releases/builds', keep_prefix=f'releases/builds/{build_id}')
+          # 早期流程使用的固定路径,当前流程不再写入,一并清理
+          purge_dir('releases/source')
+          purge_dir('pypi/simple/forgemind', keep_prefix='pypi/simple/forgemind/index.html')
+          remove_path('releases/manifest.json')
 
           mf = {'version': 'latest', 'assets': sorted(uploaded), 'source_repo': 'bin1732/forgemind',
                 'install': 'pip install --extra-index-url https://bin1732.github.io/forgemind-pypi/pypi/simple/ forgemind'}
