@@ -249,10 +249,10 @@ jobs:
           # 早期流程使用的固定路径,当前流程不再写入,一并清理
           purge_dir('releases/source')
           purge_dir('pypi/simple/forgemind', keep_prefix='pypi/simple/forgemind/index.html')
-          remove_path('releases/manifest.json')
 
           mf = {'version': 'latest', 'assets': sorted(uploaded), 'source_repo': 'bin1732/forgemind',
                 'install': 'pip install --extra-index-url https://bin1732.github.io/forgemind-pypi/pypi/simple/ forgemind'}
+          # 清单就地更新,不先删后写:少一次提交,历史里不留删除痕迹
           stm, exm = call('GET', f'{API}/contents/releases/builds/manifest.json')
           dm = {'message': 'Manifest', 'content': base64.b64encode(json.dumps(mf, indent=2).encode()).decode(), 'branch': 'main'}
           if stm == 200 and exm:
