@@ -184,6 +184,12 @@ jobs:
             echo "$R" | grep -qi "$leak" && { echo "FAIL 泄露 $leak"; exit 1; } || echo "PASS 无泄露 $leak"
           done
 
+      - name: Real user journey
+        run: |
+          # 从公开索引页出发:下载、校验、安装、跑命令、握 MCP 协议。
+          # 流水线各环节都绿不代表用户装得上。
+          python scripts/verify_user_journey.py
+
   verify-binaries:
     strategy:
       fail-fast: false

@@ -242,12 +242,20 @@ forgemind mcp                       # 以标准输入输出的方式启动 MCP �
 | 接口校验 | 真实起服务,逐个请求接口,校验参数校验与错误响应 |
 | 真实取数 | 拉真实行情并落库,确认多源回退可用 |
 | 桌面端 | 下载发布出来的三个平台二进制并实跑,确认能启动 |
+| 用户旅程 | 从公开索引页出发:下载、核对校验值、装进干净环境、跑命令、握 MCP 协议 |
 
 桌面端构件从 [Releases](https://github.com/bin1732/forgemind-pypi/releases) 下载。
 运行中的探测脚本在 `scripts/live_probe.py`,对着已安装的包执行:
 
 ```bash
 python scripts/live_probe.py
+```
+
+用户旅程的验证脚本在 `scripts/verify_user_journey.py`,它不碰本地源码,
+只从公开索引页取构件,自己装、自己跑:
+
+```bash
+python scripts/verify_user_journey.py
 ```
 
 ---
