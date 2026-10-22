@@ -12,6 +12,11 @@
 
 这个检查按解析后的内容判断,不按文件里的原始缩进判断。带缩进的终止符
 与折行的引号标量都会被指出来。
+
+另外用严格解析器读一遍工作流:同一层里出现重复键时,宽松解析器只保留
+最后一个,严格解析器会报错。GitHub 的解析器不接受重复键,工作流会整个
+不被执行 —— 那种情况下流水线里看不到任何作业,失败信息也只在工作流
+页面上,不专门查就会漏掉。
 """
 
 from __future__ import annotations
@@ -23,6 +28,38 @@ from pathlib import Path
 import yaml
 
 HEREDOC_START = re.compile(r"<<-?\s*['\"]?([A-Za-z_][A-Za-z0-9_]*)['\"]?")
+
+
+class StrictLoader(yaml.SafeLoader):
+    """同一层里出现重复键就报错的解析器。"""
+
+
+def _no_duplicate_keys(loader, node, deep=False):
+    mapping = {}
+    for key_node, value_node in node.value:
+        key = loader.construct_object(key_node, deep=deep)
+        if key in mapping:
+            raise yaml.constructor.ConstructorError(
+                None, None, f"重复的键: {key}", key_node.start_mark
+            )
+        mapping[key] = loader.construct_object(value_node, deep=deep)
+    return mapping
+
+
+StrictLoader.add_constructor(
+    yaml.resolver.BaseResolver.DEFAULT_MAPPING_TAG, _no_duplicate_keys
+)
+
+
+def check_strict_parse(path: Path) -> str | None:
+    """工作流有重复键时返回问题说明,否则返回 None。"""
+    try:
+        yaml.load(path.read_text(encoding="utf-8"), Loader=StrictLoader)
+    except yaml.YAMLError as exc:
+        mark = getattr(exc, "problem_mark", None)
+        where = f"(第 {mark.line + 1} 行)" if mark is not None else ""
+        return f"{path.name}: 解析失败{where} {exc.problem or exc}"
+    return None
 
 
 def check_run(name: str, run: str) -> list[str]:
@@ -61,6 +98,10 @@ def main() -> int:
 
     problems: list[str] = []
     for path in sorted(root.glob("*.yml")):
+        strict_problem = check_strict_parse(path)
+        if strict_problem:
+            problems.append(strict_problem)
+            continue
         data = yaml.safe_load(path.read_text(encoding="utf-8"))
         if not isinstance(data, dict):
             problems.append(f"{path.name}: 内容不是映射")
