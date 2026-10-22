@@ -219,7 +219,26 @@ jobs:
                   code, _ = call('PUT', f'{API}/contents/pypi/simple/forgemind/index.html', di)
                   print(f'  [{code}] pypi index -> {sha[:16]} (path {rp})')
 
-          # 3) 清理历史构建目录
+          # 3) 等线上索引指向本次构建,再清理历史构建目录
+          # GitHub Pages 部署新索引有延迟:这段时间里线上索引还指着上一个
+          # 构建。立刻把上一个构建删掉,用户按线上索引下载就会拿到 404。
+          # 先确认线上索引已经指向本次构建,再清理。
+          live_index = 'https://bin1732.github.io/forgemind-pypi/pypi/simple/forgemind/'
+          deadline = time.time() + 600
+          while time.time() < deadline:
+              try:
+                  with urllib.request.urlopen(live_index, timeout=30) as r:
+                      body = r.read().decode('utf-8', 'ignore')
+              except Exception:
+                  body = ''
+              if f'builds/{build_id}/' in body:
+                  print(f'  线上索引已指向 {build_id}')
+                  break
+              time.sleep(10)
+          else:
+              print(f'  线上索引未在时限内指向 {build_id},仍按计划清理旧构建')
+
+          # 4) 清理历史构建目录
           # 只保留当前 build 目录;更早的 build 目录全部删除,避免仓库随
           # 每次运行无限增长,也避免 simple index 指向的文件被误删。
           def list_dir(path):
