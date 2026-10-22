@@ -126,12 +126,16 @@ def main() -> int:
                 exe = venv / "bin" / "forgemind"
                 # 离线环境里装不了依赖,把当前解释器的依赖路径挂上。
                 # 有网络时 pip 会自己把依赖装齐,这条不影响结果。
-                import site
                 import sysconfig
                 purelib = sysconfig.get_paths()["purelib"]
-                env = {**os.environ, "PYTHONPATH": purelib}
+                venv_site = sysconfig.get_path(
+                    "purelib", vars={"base": str(venv), "platbase": str(venv)}
+                )
+                # 自己装好的那份必须排在借用路径前面。借用路径里可能有同名的
+                # 旧副本,排在前面会让验证跑到旧代码上,结论就不作数了。
+                env = {**os.environ}
                 env["PYTHONPATH"] = os.pathsep.join(
-                    [p for p in (os.environ.get("PYTHONPATH", ""), purelib) if p]
+                    [p for p in (venv_site, os.environ.get("PYTHONPATH", ""), purelib) if p]
                 )
                 for label, argv, expect in (
                     ("版本", ["--help"], "backtest"),
