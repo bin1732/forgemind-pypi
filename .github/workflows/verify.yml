@@ -199,6 +199,42 @@ jobs:
         run: |
           cd public-repo
           python scripts/verify_user_journey.py
+  # 构件、清单、索引与私人仓文档里声明的内容必须对得上。
+  # 这一层没人守的话,旧构建会一直留在仓库里,文档里的声明也会悄悄过期。
+  verify-assets:
+    name: 构件与声明对账
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: 检出公开仓最新 main
+        uses: actions/checkout@v4
+        with:
+          path: public-repo
+          ref: main
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: 取私人仓自检文档
+        env:
+          PRIVATE_REPO_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p src && cd src
+          git init -q
+          git remote add origin "https://x-access-token:${PRIVATE_REPO_TOKEN}@github.com/bin1732/forgemind.git"
+          git fetch -q --depth 1 origin main
+          git checkout -q FETCH_HEAD
+      - name: 核对构件、清单、索引与文档声明
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd public-repo
+          python scripts/check_published_assets.py \
+            --doc "$GITHUB_WORKSPACE/src/docs/AUDIT_3_DIMENSIONS.md"
   verify-binaries:
     strategy:
       fail-fast: false

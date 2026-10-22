@@ -1,0 +1,205 @@
+# Copyright (c) 2026 灵感引擎工坊 (bin1732)
+# SPDX-License-Identifier: Apache-2.0
+
+"""核对发布出来的构件与清单、索引、文档三者一致。
+
+真实用户旅程验的是"线上索引指向的 wheel 能不能装" —— 那一层已经有人
+守着了。这里补的是另外几环,它们断了不会有任何报错,只会留下一个
+没人知道的过期说法:
+
+1. 仓库里只留当前 build 目录 —— 旧的还在,用户按旧索引就能拿到旧构件
+2. 索引页声明的校验值与仓库里那个文件一致
+3. 清单列的资产与实际发布的一致
+4. 私人仓自检文档里声明的资产字节数与真实发布资产一致
+   (给 --doc 时才查,需要能读 Release)
+
+用法:
+    python scripts/check_published_assets.py
+    python scripts/check_published_assets.py --doc /path/to/AUDIT_3_DIMENSIONS.md
+"""
+
+from __future__ import annotations
+
+import argparse
+import hashlib
+import json
+import os
+import re
+import subprocess
+import sys
+import urllib.error
+import urllib.parse
+import urllib.request
+from pathlib import Path
+
+REPO = Path(__file__).resolve().parent.parent
+
+# 索引页里的一条链接
+INDEX_LINK = re.compile(r'href="([^"#]+)(?:#sha256=([0-9a-f]{64}))?"')
+# 文档里出现的反引号内容(资产名以反引号包裹)
+DOC_NAME = re.compile(r"`([^`]+)`")
+# 围栏代码块:三个反引号,正则配对时会把整段代码当成一个名字,
+# 行内代码的配对会跟着错位 —— 先剥掉
+CODE_FENCE = re.compile(r"```.*?```", re.DOTALL)
+# 算作资产的命名形态
+ASSET_SUFFIXES = (".whl", ".tar.gz", ".exe")
+
+
+def is_asset(name: str) -> bool:
+    """清单里的资产名。"""
+    return name.endswith(ASSET_SUFFIXES) or name in (
+        "forgemind-linux", "forgemind-macos")
+
+
+def release_assets(token: str | None) -> dict[str, int] | None:
+    """读 continuous release 上的资产与字节数。读不到就返回 None。"""
+    if not token:
+        return None
+    url = "https://api.github.com/repos/bin1732/forgemind-pypi/releases/tags/continuous"
+    req = urllib.request.Request(url, headers={
+        "Authorization": f"Bearer {token}",
+        "Accept": "application/vnd.github+json",
+        "User-Agent": "forgemind-assets",
+    })
+    try:
+        with urllib.request.urlopen(req, timeout=60) as resp:
+            data = json.load(resp)
+    except Exception:
+        return None
+    return {a["name"]: a["size"] for a in data.get("assets", [])}
+
+
+def token_from_env_or_remote() -> str | None:
+    """能读 Release 的凭据:环境变量优先,其次取 git remote。"""
+    for key in ("GITHUB_TOKEN", "GH_PAT"):
+        value = os.environ.get(key)
+        if value:
+            return value
+    try:
+        url = subprocess.run(["git", "remote", "get-url", "origin"], cwd=REPO,
+                             capture_output=True, text=True, timeout=30).stdout.strip()
+    except Exception:
+        return None
+    if not url:
+        return None
+    return urllib.parse.urlsplit(url).password
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description="核对发布构件与清单、索引、文档")
+    parser.add_argument("--repo", type=Path, default=REPO, help="公开仓根目录")
+    parser.add_argument("--doc", type=Path, default=None,
+                        help="私人仓自检文档路径(给了就核对里面的字节数)")
+    parser.add_argument("--skip-online", action="store_true",
+                        help="不查 Release,只核对本地")
+    args = parser.parse_args()
+
+    repo = args.repo.resolve()
+    problems: list[str] = []
+
+    # 1) 只留当前 build 目录
+    builds_dir = repo / "releases" / "builds"
+    build_dirs = sorted(p for p in builds_dir.iterdir() if p.is_dir()) \
+        if builds_dir.is_dir() else []
+    if len(build_dirs) != 1:
+        problems.append(
+            f"releases/builds 下应只有当前构建目录,实际 {len(build_dirs)} 个: "
+            f"{[p.name for p in build_dirs]}")
+    build = build_dirs[0] if build_dirs else None
+
+    # 2) 索引声明的校验值与仓库里那个文件一致
+    index_path = repo / "pypi" / "simple" / "forgemind" / "index.html"
+    if not index_path.is_file():
+        problems.append(f"找不到索引页: {index_path}")
+    else:
+        page = index_path.read_text(encoding="utf-8")
+        match = INDEX_LINK.search(page)
+        if not match:
+            problems.append("索引页里没有可下载的链接")
+        else:
+            href, declared = match.group(1), match.group(2)
+            if not declared:
+                problems.append("索引页里的链接没有声明校验值")
+            else:
+                rel = href.split("/main/", 1)[-1]
+                local = repo / rel
+                if not local.is_file():
+                    problems.append(f"索引指向的文件不在仓库里: {rel}")
+                else:
+                    actual = hashlib.sha256(local.read_bytes()).hexdigest()
+                    if actual != declared:
+                        problems.append(
+                            f"索引声明的校验值与 {rel} 不一致: "
+                            f"声明 {declared},实际 {actual}")
+
+    # 3) 清单与实际文件一致
+    manifest_path = repo / "releases" / "builds" / "manifest.json"
+    manifest_assets: set[str] = set()
+    manifest_sizes: dict[str, int] = {}
+    if not manifest_path.is_file():
+        problems.append(f"找不到清单: {manifest_path}")
+    else:
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        manifest_assets = set(manifest.get("assets", []))
+        manifest_sizes = dict(manifest.get("sizes", {}))
+        if not manifest_sizes:
+            problems.append("清单里没有 sizes 字段,清单是旧的")
+        if build is not None:
+            local = {p.name for p in build.iterdir() if p.is_file()}
+            missing = local - manifest_assets
+            if missing:
+                problems.append(f"清单里没有这些已发布的文件: {sorted(missing)}")
+            for name in sorted(local & set(manifest_sizes)):
+                actual = (build / name).stat().st_size
+                if actual != manifest_sizes[name]:
+                    problems.append(
+                        f"清单记的 {name} 是 {manifest_sizes[name]} 字节,"
+                        f"实际 {actual} 字节")
+
+    # 4) 文档里列的资产与清单一致;清单的字节数与线上发布资产一致
+    if args.doc is not None:
+        doc = args.doc.resolve()
+        if not doc.is_file():
+            problems.append(f"找不到文档: {doc}")
+        else:
+            text = CODE_FENCE.sub(" ", doc.read_text(encoding="utf-8"))
+            listed = {name for name in DOC_NAME.findall(text) if is_asset(name)}
+            if not listed:
+                problems.append("文档里没有找到列出资产的表格")
+            else:
+                unknown = listed - manifest_assets
+                if unknown:
+                    problems.append(
+                        f"文档列了清单里没有的资产: {sorted(unknown)}")
+                absent = manifest_assets - listed
+                if absent:
+                    problems.append(
+                        f"清单里的资产没在文档里列出: {sorted(absent)}")
+
+    if not args.skip_online:
+        token = token_from_env_or_remote()
+        actual = release_assets(token)
+        if actual is None:
+            problems.append(
+                "读不到 continuous release 的资产(缺凭据或网络不可达),"
+                "清单里的字节数未与线上核对")
+        else:
+            for name, size in manifest_sizes.items():
+                if name not in actual:
+                    problems.append(f"清单里的 {name} 不在 release 上")
+                elif actual[name] != size:
+                    problems.append(
+                        f"{name} 清单记 {size} 字节,线上实际 {actual[name]} 字节")
+
+    if problems:
+        print("发布构件与声明对不上:")
+        for item in problems:
+            print(" -", item)
+        return 1
+
+    print("发布构件与清单、索引、声明全部一致")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

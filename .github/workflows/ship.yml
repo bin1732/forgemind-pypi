@@ -174,6 +174,7 @@ jobs:
               time.sleep(1)
 
           uploaded = []
+          asset_sizes = {}
           for f in sorted(pathlib.Path('artifacts').rglob('*')):
               if not f.is_file() or f.name == 'manifest.json':
                   continue
@@ -186,6 +187,7 @@ jobs:
               print(f'  [asset {code}] {name} ({size // 1024 // 1024}MB)')
               if code in (200, 201):
                   uploaded.append(name)
+                  asset_sizes[name] = size
 
           # 2) wheel/sdist 走 Contents,并同步刷新 PyPI 索引
           for f in sorted(pathlib.Path('artifacts').rglob('*')):
@@ -269,7 +271,11 @@ jobs:
           purge_dir('releases/source')
           purge_dir('pypi/simple/forgemind', keep_prefix='pypi/simple/forgemind/index.html')
 
-          mf = {'version': 'latest', 'assets': sorted(uploaded), 'source_repo': 'bin1732/forgemind',
+          # 清单是"发布了什么、多大"的机器可读真源。字节数写在这里,
+          # 文档与检查都对着它核对,不用在文档里硬编码会漂移的数字。
+          mf = {'version': 'latest', 'assets': sorted(uploaded),
+                'sizes': {k: asset_sizes[k] for k in sorted(asset_sizes)},
+                'source_repo': 'bin1732/forgemind',
                 'install': 'pip install --extra-index-url https://bin1732.github.io/forgemind-pypi/pypi/simple/ forgemind'}
           # 清单就地更新,不先删后写:少一次提交,历史里不留删除痕迹
           stm, exm = call('GET', f'{API}/contents/releases/builds/manifest.json')
