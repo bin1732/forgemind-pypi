@@ -115,7 +115,18 @@ def main() -> int:
             print(f"  ✗ 建虚拟环境失败")
         else:
             pip = venv / "bin" / "pip"
-            result = _run([str(pip), "install", "--no-deps", "--no-index", "-q", str(wheel)])
+            # 按真实用户的方式装:连依赖一起装。装不上(离线环境)再退回
+            # --no-deps,依赖从当前解释器借。
+            result = _run([
+                str(pip), "install", "-q",
+                "--retries", "1", "--timeout", "15", str(wheel),
+            ])
+            borrowed = False
+            if result.returncode != 0:
+                result = _run([
+                    str(pip), "install", "--no-deps", "--no-index", "-q", str(wheel),
+                ])
+                borrowed = True
             if result.returncode != 0:
                 problems.append(f"安装失败: {result.stderr[-200:]}")
                 print("  ✗ 安装失败")
@@ -124,19 +135,19 @@ def main() -> int:
 
                 # 5. 命令真的能跑
                 exe = venv / "bin" / "forgemind"
-                # 离线环境里装不了依赖,把当前解释器的依赖路径挂上。
-                # 有网络时 pip 会自己把依赖装齐,这条不影响结果。
                 import sysconfig
                 purelib = sysconfig.get_paths()["purelib"]
                 venv_site = sysconfig.get_path(
                     "purelib", vars={"base": str(venv), "platbase": str(venv)}
                 )
-                # 自己装好的那份必须排在借用路径前面。借用路径里可能有同名的
-                # 旧副本,排在前面会让验证跑到旧代码上,结论就不作数了。
                 env = {**os.environ}
-                env["PYTHONPATH"] = os.pathsep.join(
-                    [p for p in (venv_site, os.environ.get("PYTHONPATH", ""), purelib) if p]
-                )
+                if borrowed:
+                    # 离线环境里装不了依赖,把当前解释器的依赖路径挂上。
+                    # 自己装好的那份必须排在借用路径前面。借用路径里可能有同名的
+                    # 旧副本,排在前面会让验证跑到旧代码上,结论就不作数了。
+                    env["PYTHONPATH"] = os.pathsep.join(
+                        [p for p in (venv_site, os.environ.get("PYTHONPATH", ""), purelib) if p]
+                    )
                 for label, argv, expect in (
                     ("版本", ["--help"], "backtest"),
                     ("配置", ["info"], "ForgeMind Config"),
