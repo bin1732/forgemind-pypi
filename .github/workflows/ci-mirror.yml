@@ -625,6 +625,9 @@ jobs:
     # 而且没人会察觉 —— 所以这一步自己也要被机器盯着。
     - name: 核对镜像是否覆盖私人仓的门禁
       run: python scripts/check_ci_mirror.py --private src
+    # 公开仓的 README 也写着因子数、策略数这些活数字,同样要对着源码核
+    - name: 核对公开仓 README 的活数字
+      run: python src/scripts/check_readme_claims.py README.md --code src
     - name: 核对测的就是发的那个提交
       shell: bash
       run: |
