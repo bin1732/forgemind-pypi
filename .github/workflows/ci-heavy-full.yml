@@ -1,0 +1,70 @@
+name: heavy-full
+
+# 重并发档的**完整规模**,单独一条流水线。
+#
+# 它要占满整台机器的内存与 CPU:抽样那一档(一百多个用例)可以和别的
+# 作业并发,完整规模(一千八百多个)不行 —— 同一时间再跑常规档与抽样档,
+# 机器被抢满,用例开始超时,跑出来的结果也不再代表"完整规模在正常机器
+# 上的表现"。
+#
+# 所以它自己一条流水线,定时与手动触发。
+
+on:
+  workflow_dispatch:
+  schedule:
+  - cron: '41 3 * * *'
+
+permissions:
+  contents: read
+
+jobs:
+  heavy-full:
+    name: 重并发测试 (完整规模)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: src
+    steps:
+    - name: 检出公开仓
+      uses: actions/checkout@v4
+      with:
+        ref: main
+    - name: 读出构件来源提交
+      id: source
+      uses: ./.github/actions/resolve-source
+    - name: 取私人仓源码
+      working-directory: .
+      shell: bash
+      env:
+        PRIVATE_REPO_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN }}
+        SOURCE_COMMIT: ${{ steps.source.outputs.commit }}
+      run: |
+        set -euo pipefail
+        mkdir -p src && cd src
+        git init -q
+        git remote add origin "https://x-access-token:${PRIVATE_REPO_TOKEN}@github.com/bin1732/forgemind.git"
+        # 完整历史:私人仓的 git 历史用例要翻到一千多条之前的那条提交,
+        # 浅克隆的历史不够。
+        git fetch -q origin "$SOURCE_COMMIT"
+        git checkout -q FETCH_HEAD
+        git branch -f main FETCH_HEAD
+        echo "private source @ $(git rev-parse --short HEAD)"
+    - uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
+    - name: Install dependencies
+      run: |
+        pip install --break-system-packages --no-cache-dir --prefer-binary -r requirements-ci.txt 2>&1 | tee /tmp/pip-all.log || true
+        pip install --break-system-packages --no-cache-dir --prefer-binary --no-deps -e . 2>&1 | tee -a /tmp/pip-all.log || true
+    - name: Heavy concurrency tests (full scale)
+      env:
+        # 关掉按文件分组的抽样。这个值是**除数**:抽样时每个文件留
+        # len//ratio 个,至少一个 —— 10 是"留十分之一",1 才是"全留"。
+        FORGEMIND_HEAVY_SAMPLE_RATIO: "1"
+      run: |
+        # 单用例 timeout 3600s:完整规模里有跑十几分钟的用例,
+        # 900s 的上限会误杀它们。
+        python -m pytest tests/ \
+          -m heavy \
+          --tb=short -q \
+          --timeout=3600
