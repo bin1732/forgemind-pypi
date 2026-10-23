@@ -402,6 +402,75 @@ jobs:
           --tb=short -q \
           --timeout=900
 
+  # 全量测试跑在**发布出去的那个 wheel**上。
+  #
+  # 别的作业验的是源码树,用户装到的是 wheel,这是两句话。加上这一档,
+  # 连这句话都不用说了:测的就是用户拿到的那份字节。
+  #
+  # 而且必须是**发布出去的那一个**,不是这里重新构建的:构建时间与构建
+  # 环境都可能不同,重新构建出来的字节未必是用户拿到的那份。
+  mirror-wheel-suite:
+    name: 镜像 · 全量测试跑在发布出去的 wheel 上
+    needs: resolve-source
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: src
+    steps:
+    - name: 检出公开仓
+      uses: actions/checkout@v4
+      with:
+        ref: main
+    - name: 取私人仓源码
+      working-directory: .
+      shell: bash
+      env:
+        PRIVATE_REPO_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN }}
+        SOURCE_COMMIT: ${{ needs.resolve-source.outputs.commit }}
+      run: |
+        set -euo pipefail
+        mkdir -p src && cd src
+        git init -q
+        git remote add origin "https://x-access-token:${PRIVATE_REPO_TOKEN}@github.com/bin1732/forgemind.git"
+        # 完整历史:这一档跑的是常规档全量用例,其中有私人仓的 git 历史
+        # 用例,要翻到一千多条之前的那条提交,浅克隆的历史不够。
+        git fetch -q origin "$SOURCE_COMMIT"
+        git checkout -q FETCH_HEAD
+        git branch -f main FETCH_HEAD
+    - uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
+    - name: Install dependencies
+      run: |
+        pip install --break-system-packages --no-cache-dir --prefer-binary -r requirements-ci.txt 2>&1 | tee /tmp/pip-all.log || true
+        pip install --break-system-packages --no-cache-dir --prefer-binary --no-deps -e . 2>&1 | tee -a /tmp/pip-all.log || true
+    - name: 下载发布出去的那一个 wheel
+      working-directory: .
+      run: |
+        set -euo pipefail
+        mkdir -p "$GITHUB_WORKSPACE/dist"
+        url=$(python3 -c "import re;t=open('pypi/simple/forgemind/index.html',encoding='utf-8').read();print(re.search(r'href=\"([^\"]+)\"',t).group(1))")
+        sha=$(python3 -c "import re;t=open('pypi/simple/forgemind/index.html',encoding='utf-8').read();print(re.search(r'sha256=([0-9a-f]{64})',t).group(1))")
+        echo "下载 $url"
+        curl -sSL --retry 5 --retry-delay 5 -o "$GITHUB_WORKSPACE/dist/forgemind.whl" "$url"
+        echo "$sha  $GITHUB_WORKSPACE/dist/forgemind.whl" | sha256sum -c -
+    - name: 装进干净环境
+      run: |
+        set -euo pipefail
+        python -m venv "$GITHUB_WORKSPACE/v"
+        "$GITHUB_WORKSPACE/v/bin/pip" install -q --upgrade pip
+        # 连依赖一起装,跟真实用户一样
+        "$GITHUB_WORKSPACE/v/bin/pip" install -q "$GITHUB_WORKSPACE/dist/forgemind.whl"
+        "$GITHUB_WORKSPACE/v/bin/pip" install -q pytest pytest-asyncio pytest-timeout
+    - name: 全量测试跑在这个环境上
+      run: |
+        # PYTHONSAFEPATH:不让 `python -m` 把当前目录塞进 sys.path。
+        # 塞进去的话 import forgemind 命中的是源码树,不是装出来的轮子 ——
+        # 那测的就还是源码,这一档白跑。
+        PYTHONSAFEPATH=1 "$GITHUB_WORKSPACE/v/bin/python" -m pytest tests/ \
+          -k "not Benchmark and not test_phase11_mega" \
+          -m "not heavy" --tb=short -q --timeout=300
+
   mirror-ui:
     name: 镜像 · UI 测试 (Next.js + Jest)
     needs: resolve-source
@@ -528,6 +597,10 @@ jobs:
     # 而且没人会察觉 —— 所以这一步自己也要被机器盯着。
     - name: 核对镜像是否覆盖私人仓的门禁
       run: python scripts/check_ci_mirror.py --private src
+    # README 承诺的每一道关卡都要真有一条作业在跑。删掉一个作业而
+    # 表格还在,读者会以为那道关卡仍然在跑。
+    - name: 核对 README 承诺的关卡
+      run: python scripts/check_readme_gates.py README.md
     - name: 核对测的就是发的那个提交
       shell: bash
       run: |
