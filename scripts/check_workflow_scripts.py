@@ -17,6 +17,10 @@
 最后一个,严格解析器会报错。GitHub 的解析器不接受重复键,工作流会整个
 不被执行 —— 那种情况下流水线里看不到任何作业,失败信息也只在工作流
 页面上,不专门查就会漏掉。
+
+还要按 GitHub 的 schema 核对字段:步骤上多写一个 `working-directory`
+或 `shell`(它们只对 run 步骤有意义),同样是解析期被拒,工作流整体
+不执行。
 """
 
 from __future__ import annotations
@@ -60,6 +64,48 @@ def check_strict_parse(path: Path) -> str | None:
         where = f"(第 {mark.line + 1} 行)" if mark is not None else ""
         return f"{path.name}: 解析失败{where} {exc.problem or exc}"
     return None
+
+
+def check_step_schema(name: str, job_name: str, job: dict) -> list[str]:
+    """按 GitHub 的工作流 schema 核对作业与步骤的字段。
+
+    这些错在**解析期**就被拒:整个工作流不会执行,流水线里一个作业都
+    看不到,失败信息只留在工作流页面上。已踩过的:
+    `uses:` 步骤上写了 `working-directory` —— 它只对 `run:` 步骤有意义。
+    """
+    problems: list[str] = []
+    label = f"{name}:{job_name}"
+
+    has_uses = bool(job.get("uses"))
+    if not has_uses and not job.get("runs-on"):
+        problems.append(f"{label}: 作业既没有 runs-on 也没有 uses")
+    if has_uses and (job.get("steps") or job.get("runs-on")):
+        problems.append(f"{label}: 复用工作流的作业不能带 steps 或 runs-on")
+
+    for step in job.get("steps") or []:
+        if not isinstance(step, dict):
+            continue
+        title = step.get("name") or step.get("uses") or "?"
+        where = f"{label}:{title}"
+        run = step.get("run")
+        uses = step.get("uses")
+        if run is None and uses is None:
+            problems.append(f"{where}: 步骤既没有 run 也没有 uses")
+            continue
+        if run is not None and uses is not None:
+            problems.append(f"{where}: 步骤不能同时有 run 和 uses")
+            continue
+        if uses is not None:
+            # 只对 run 步骤有意义的字段,写在 uses 步骤上会被 GitHub 拒
+            for key in ("working-directory", "shell"):
+                if key in step:
+                    problems.append(
+                        f"{where}: uses 步骤上不能有 {key}"
+                        f"(它只对 run 步骤有意义,会让整个工作流不被执行)")
+        else:
+            if "with" in step:
+                problems.append(f"{where}: run 步骤上不能有 with")
+    return problems
 
 
 def check_run(name: str, run: str) -> list[str]:
@@ -107,6 +153,9 @@ def main() -> int:
             problems.append(f"{path.name}: 内容不是映射")
             continue
         for job_name, job in (data.get("jobs") or {}).items():
+            if not isinstance(job, dict):
+                continue
+            problems.extend(check_step_schema(path.name, job_name, job))
             for step in job.get("steps") or []:
                 run = step.get("run")
                 if not isinstance(run, str) or not run.strip():

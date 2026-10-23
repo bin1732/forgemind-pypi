@@ -333,7 +333,6 @@ jobs:
         working-directory: public-repo
     steps:
     - name: 检出公开仓
-      working-directory: .
       uses: actions/checkout@v4
       with:
         path: public-repo
