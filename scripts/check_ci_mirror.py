@@ -151,6 +151,50 @@ def check_history_depth(workflow: dict) -> list[str]:
     return problems
 
 
+def _installs_deps(commands: set[str]) -> bool:
+    """这个作业是否装了项目的依赖。"""
+    return any("requirements-ci.txt" in c and c.startswith("pip install")
+               for c in commands)
+
+
+def _job_commands(job: dict) -> set[str]:
+    out: set[str] = set()
+    for step in (job.get("steps") or []):
+        run = step.get("run")
+        if isinstance(run, str):
+            out.update(normalize(run))
+    return out
+
+
+def check_dep_placement(private_workflows: dict, mirror_workflows: dict) -> list[str]:
+    """私人仓里"装了依赖"的作业中的检查,镜像里也必须落在装了依赖的作业里。
+
+    有两类检查会真的导入项目(因子库、pytest 采集),它们在没装依赖的
+    作业里只会报 "No module named 'numpy'"。光比对命令覆盖查不出这个 ——
+    命令在镜像里出现了,但落在了错误的作业里。
+    """
+    problems: list[str] = []
+    mirror_jobs = [(name, _job_commands(job)) for name, job
+                   in mirror_workflows.get("jobs", {}).items()]
+    for wf_name, wf in private_workflows.items():
+        for pj_name, pj in (wf.get("jobs") or {}).items():
+            pcmds = _job_commands(pj)
+            if not _installs_deps(pcmds):
+                continue
+            checks = {c for c in pcmds
+                      if not c.startswith("pip install")
+                      and "requirements-ci.txt" not in c}
+            for cmd in sorted(checks):
+                if not any(cmd in mcmds for _, mcmds in mirror_jobs):
+                    continue
+                if not any(cmd in mcmds and _installs_deps(mcmds)
+                           for _, mcmds in mirror_jobs):
+                    problems.append(
+                        f"{wf_name}:{pj_name} 的检查在镜像里没有落在装了依赖的"
+                        f"作业中: {cmd[:90]}")
+    return problems
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="核对镜像工作流覆盖了私人仓的门禁")
     parser.add_argument("--private", type=Path, required=True,
@@ -211,6 +255,9 @@ def main() -> int:
     # 镜像自己的硬性要求
     problems.extend(check_no_shallow_fetch(mirror))
     problems.extend(check_history_depth(mirror))
+    # 装了依赖的作业里的检查,镜像里也得落在装了依赖的作业里
+    private_wfs = {name: load(private_wf_dir / name) for name in GATE_WORKFLOWS}
+    problems.extend(check_dep_placement(private_wfs, mirror))
 
     print("=" * 78)
     print("不镜像的工作流(附理由):")
