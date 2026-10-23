@@ -201,6 +201,10 @@ jobs:
                   python scripts/check_workspace_state.py
                   # 工作流脚本的写法检查
                   python scripts/check_workflow_scripts.py
+                  # 自检文档里声明的数字。用例数要真跑 pytest 采集才知道
+                  # (参数化会让函数数量失真),所以这一步只能放在依赖齐全
+                  # 的作业里,不能放在只装了静态检查工具的作业里。
+                  python scripts/check_audit_claims.py docs/AUDIT_3_DIMENSIONS.md
     - name: Core imports check
       run: |
                 python scripts/check_core_imports.py
@@ -373,26 +377,13 @@ jobs:
       uses: actions/github-script@v7
       with:
         script: |
-          const { data } = await github.rest.actions.listWorkflowRuns({
+          const { data } = await github.rest.actions.listJobs({
             owner: context.repo.owner,
             repo: context.repo.repo,
-            per_page: 30,
+            run_id: context.run.id,
           });
-          const wanted = ['mirror-lint', 'mirror-security', 'mirror-tests',
-                          'mirror-heavy', 'mirror-ui'];
-          const lines = [];
-          for (const job of wanted) {
-            const run = data.workflow_runs.find((r) => r.name === 'mirror');
-            if (!run) { lines.push(`| ${job} | not-started |`); continue; }
-            const { data: jobs } = await github.rest.actions.listJobs({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              run_id: run.id,
-            });
-            const hit = jobs.jobs.find((j) => j.name.includes(job));
-            const state = hit ? (hit.conclusion || hit.status) : 'not-started';
-            lines.push(`| ${job} | ${state} |`);
-          }
+          const lines = data.jobs.map(
+            (j) => `| ${j.name} | ${j.conclusion || j.status} |`);
           const body = [
             '### 镜像校验结论',
             '',
