@@ -21,6 +21,10 @@ jobs:
   live-akshare:
     runs-on: ubuntu-latest
     steps:
+      - name: 检出公开仓
+        uses: actions/checkout@v4
+        with:
+          ref: main
       - name: 读出构件来源提交
         id: source
         uses: ./.github/actions/resolve-source

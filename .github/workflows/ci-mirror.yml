@@ -36,7 +36,6 @@ jobs:
     - name: 检出公开仓
       uses: actions/checkout@v4
       with:
-        path: public-repo
         ref: main
     - name: 从清单读出来源提交
       id: source
@@ -492,14 +491,10 @@ jobs:
     name: 镜像 · 完整性对账
     needs: resolve-source
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: public-repo
     steps:
     - name: 检出公开仓
       uses: actions/checkout@v4
       with:
-        path: public-repo
         ref: main
     - uses: actions/setup-python@v5
       with:
@@ -539,13 +534,13 @@ jobs:
     # 镜像漏掉任何一条检查,"公开仓全绿 ⇒ 私人仓全绿"就不成立,
     # 而且没人会察觉 —— 所以这一步自己也要被机器盯着。
     - name: 核对镜像是否覆盖私人仓的门禁
-      run: python scripts/check_ci_mirror.py --private ../src
+      run: python scripts/check_ci_mirror.py --private src
     - name: 核对测的就是发的那个提交
       shell: bash
       run: |
         set -euo pipefail
         want=$(python3 -c "import json;print(json.load(open('releases/builds/manifest.json')).get('source_commit',''))")
-        got=$(git -C ../src rev-parse HEAD)
+        got=$(git -C src rev-parse HEAD)
         if [ -z "$want" ]; then
           echo "清单里没有 source_commit,无法核对来源" >&2
           exit 1

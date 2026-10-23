@@ -18,6 +18,10 @@ jobs:
   verify-wheel:
     runs-on: ubuntu-latest
     steps:
+      - name: 检出公开仓
+        uses: actions/checkout@v4
+        with:
+          ref: main
       - name: 读出构件来源提交
         id: source
         uses: ./.github/actions/resolve-source
@@ -214,11 +218,14 @@ jobs:
       - name: 检出公开仓最新 main
         uses: actions/checkout@v4
         with:
-          path: public-repo
           ref: main
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
+      - name: 检出公开仓
+        uses: actions/checkout@v4
+        with:
+          ref: main
       - name: 读出构件来源提交
         id: source
         uses: ./.github/actions/resolve-source
@@ -240,7 +247,6 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          cd public-repo
           python scripts/check_published_assets.py \
             --doc "$GITHUB_WORKSPACE/src/docs/AUDIT_3_DIMENSIONS.md"
   verify-binaries:
