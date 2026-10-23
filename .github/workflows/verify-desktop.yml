@@ -58,18 +58,18 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
         with:
-          workspaces: forgemind-ui/src-tauri
+          workspaces: src/forgemind-ui/src-tauri
 
       - name: cargo check
-        working-directory: forgemind-ui/src-tauri
+        working-directory: src/forgemind-ui/src-tauri
         run: cargo check --message-format=short
 
       - name: cargo test (unit tests of the command logic)
-        working-directory: forgemind-ui/src-tauri
+        working-directory: src/forgemind-ui/src-tauri
         run: cargo test --lib --message-format=short
 
       - name: Show test results
-        working-directory: forgemind-ui/src-tauri
+        working-directory: src/forgemind-ui/src-tauri
         run: |
           grep -E "^test result|running [0-9]+ test" -A 1 || true
 
@@ -133,10 +133,10 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
         with:
-          workspaces: forgemind-ui/src-tauri
+          workspaces: src/forgemind-ui/src-tauri
 
       - name: Assert lockfile matches package.json
-        working-directory: forgemind-ui
+        working-directory: src/forgemind-ui
         shell: bash
         run: |
           set -euo pipefail
@@ -173,14 +173,14 @@ jobs:
           '
 
       - name: Install web deps
-        working-directory: forgemind-ui
+        working-directory: src/forgemind-ui
         run: |
           npm ci --no-audit --no-fund --registry=https://registry.npmjs.org
           npx tsc --noEmit
           npm test --silent
 
       - name: Build Next.js
-        working-directory: forgemind-ui
+        working-directory: src/forgemind-ui
         run: npx next build
 
       - name: Download the RELEASED binary (what users actually get)
@@ -300,11 +300,11 @@ jobs:
           exit "$RC"
 
       - name: cargo build (desktop binary)
-        working-directory: forgemind-ui/src-tauri
+        working-directory: src/forgemind-ui/src-tauri
         run: cargo build --release --message-format=short
 
       - name: Show artifact
-        working-directory: forgemind-ui/src-tauri
+        working-directory: src/forgemind-ui/src-tauri
         shell: bash
         run: |
           ls -lh target/release/forgemind-desktop* 2>/dev/null || true
@@ -314,7 +314,7 @@ jobs:
         shell: bash
         run: |
           set -uo pipefail
-          BIN=forgemind-ui/src-tauri/target/release/forgemind-desktop
+          BIN=src/forgemind-ui/src-tauri/target/release/forgemind-desktop
           # GitHub 默认 shell 已带 -e,timeout 返回 124(存活超时)会终止脚本,
           # 必须用 || code=$? 吃掉
           code=0
@@ -337,7 +337,7 @@ jobs:
         shell: bash
         run: |
           set -uo pipefail
-          BIN=forgemind-ui/src-tauri/target/release/forgemind-desktop
+          BIN=src/forgemind-ui/src-tauri/target/release/forgemind-desktop
           # macOS 没有 GNU coreutils 的 timeout 命令,这里用后台进程 + sleep + kill
           code=0
           "$PWD/$BIN" > app.log 2>&1 &
@@ -371,7 +371,7 @@ jobs:
         run: |
           set -uo pipefail
           # Git Bash 会吞掉反斜杠路径,统一用正斜杠
-          BIN=./forgemind-ui/src-tauri/target/release/forgemind-desktop.exe
+          BIN=./src/forgemind-ui/src-tauri/target/release/forgemind-desktop.exe
           # Windows 的 timeout 是 cmd 的 sleep,语义不同;这里用 PowerShell 无关的
           # 后台 + 轮询方式,不依赖 coreutils
           code=0
@@ -402,7 +402,7 @@ jobs:
         with:
           name: forgemind-desktop-${{ matrix.name }}
           path: |
-            forgemind-ui/src-tauri/target/release/forgemind-desktop
-            forgemind-ui/src-tauri/target/release/forgemind-desktop.exe
+            src/forgemind-ui/src-tauri/target/release/forgemind-desktop
+            src/forgemind-ui/src-tauri/target/release/forgemind-desktop.exe
           if-no-files-found: error
           retention-days: 7
