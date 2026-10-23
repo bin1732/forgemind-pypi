@@ -42,9 +42,19 @@ jobs:
         mkdir -p src && cd src
         git init -q
         git remote add origin "https://x-access-token:${PRIVATE_REPO_TOKEN}@github.com/bin1732/forgemind.git"
-        git fetch -q --depth 1 origin main
+        # 完整历史,不是浅克隆。私人仓的 CI 用 checkout 的 fetch-depth: 0,
+        # 它的 git 历史用例就是靠这个前提跑通的;浅克隆只剩一个 commit,
+        # git log 与 git diff HEAD~1 全部失效,那些用例会红。
+        git fetch -q origin main
         git checkout -q FETCH_HEAD
         echo "private source @ $(git rev-parse --short HEAD)"
+        # 把这个前提变成显式断言,而不是指望某一步恰好拉全了
+        n=$(git rev-list --count HEAD)
+        if [ "$n" -lt 10 ]; then
+          echo "私人仓历史只有 $n 条,浅克隆会让 git 历史用例失效" >&2
+          exit 1
+        fi
+        echo "history commits: $n"
     - uses: actions/setup-python@v5
       with:
         python-version: '3.11'
@@ -104,9 +114,19 @@ jobs:
         mkdir -p src && cd src
         git init -q
         git remote add origin "https://x-access-token:${PRIVATE_REPO_TOKEN}@github.com/bin1732/forgemind.git"
-        git fetch -q --depth 1 origin main
+        # 完整历史,不是浅克隆。私人仓的 CI 用 checkout 的 fetch-depth: 0,
+        # 它的 git 历史用例就是靠这个前提跑通的;浅克隆只剩一个 commit,
+        # git log 与 git diff HEAD~1 全部失效,那些用例会红。
+        git fetch -q origin main
         git checkout -q FETCH_HEAD
         echo "private source @ $(git rev-parse --short HEAD)"
+        # 把这个前提变成显式断言,而不是指望某一步恰好拉全了
+        n=$(git rev-list --count HEAD)
+        if [ "$n" -lt 10 ]; then
+          echo "私人仓历史只有 $n 条,浅克隆会让 git 历史用例失效" >&2
+          exit 1
+        fi
+        echo "history commits: $n"
     - uses: actions/setup-python@v5
       with:
         python-version: '3.11'
@@ -163,9 +183,19 @@ jobs:
         mkdir -p src && cd src
         git init -q
         git remote add origin "https://x-access-token:${PRIVATE_REPO_TOKEN}@github.com/bin1732/forgemind.git"
-        git fetch -q --depth 1 origin main
+        # 完整历史,不是浅克隆。私人仓的 CI 用 checkout 的 fetch-depth: 0,
+        # 它的 git 历史用例就是靠这个前提跑通的;浅克隆只剩一个 commit,
+        # git log 与 git diff HEAD~1 全部失效,那些用例会红。
+        git fetch -q origin main
         git checkout -q FETCH_HEAD
         echo "private source @ $(git rev-parse --short HEAD)"
+        # 把这个前提变成显式断言,而不是指望某一步恰好拉全了
+        n=$(git rev-list --count HEAD)
+        if [ "$n" -lt 10 ]; then
+          echo "私人仓历史只有 $n 条,浅克隆会让 git 历史用例失效" >&2
+          exit 1
+        fi
+        echo "history commits: $n"
     - uses: actions/setup-python@v5
       with:
         python-version: '3.11'
@@ -260,9 +290,19 @@ jobs:
         mkdir -p src && cd src
         git init -q
         git remote add origin "https://x-access-token:${PRIVATE_REPO_TOKEN}@github.com/bin1732/forgemind.git"
-        git fetch -q --depth 1 origin main
+        # 完整历史,不是浅克隆。私人仓的 CI 用 checkout 的 fetch-depth: 0,
+        # 它的 git 历史用例就是靠这个前提跑通的;浅克隆只剩一个 commit,
+        # git log 与 git diff HEAD~1 全部失效,那些用例会红。
+        git fetch -q origin main
         git checkout -q FETCH_HEAD
         echo "private source @ $(git rev-parse --short HEAD)"
+        # 把这个前提变成显式断言,而不是指望某一步恰好拉全了
+        n=$(git rev-list --count HEAD)
+        if [ "$n" -lt 10 ]; then
+          echo "私人仓历史只有 $n 条,浅克隆会让 git 历史用例失效" >&2
+          exit 1
+        fi
+        echo "history commits: $n"
     - uses: actions/setup-python@v5
       with:
         python-version: '3.11'
@@ -296,9 +336,19 @@ jobs:
         mkdir -p src && cd src
         git init -q
         git remote add origin "https://x-access-token:${PRIVATE_REPO_TOKEN}@github.com/bin1732/forgemind.git"
-        git fetch -q --depth 1 origin main
+        # 完整历史,不是浅克隆。私人仓的 CI 用 checkout 的 fetch-depth: 0,
+        # 它的 git 历史用例就是靠这个前提跑通的;浅克隆只剩一个 commit,
+        # git log 与 git diff HEAD~1 全部失效,那些用例会红。
+        git fetch -q origin main
         git checkout -q FETCH_HEAD
         echo "private source @ $(git rev-parse --short HEAD)"
+        # 把这个前提变成显式断言,而不是指望某一步恰好拉全了
+        n=$(git rev-list --count HEAD)
+        if [ "$n" -lt 10 ]; then
+          echo "私人仓历史只有 $n 条,浅克隆会让 git 历史用例失效" >&2
+          exit 1
+        fi
+        echo "history commits: $n"
     - uses: actions/setup-node@v4
       with:
         node-version: '20'
@@ -356,9 +406,19 @@ jobs:
         mkdir -p src && cd src
         git init -q
         git remote add origin "https://x-access-token:${PRIVATE_REPO_TOKEN}@github.com/bin1732/forgemind.git"
-        git fetch -q --depth 1 origin main
+        # 完整历史,不是浅克隆。私人仓的 CI 用 checkout 的 fetch-depth: 0,
+        # 它的 git 历史用例就是靠这个前提跑通的;浅克隆只剩一个 commit,
+        # git log 与 git diff HEAD~1 全部失效,那些用例会红。
+        git fetch -q origin main
         git checkout -q FETCH_HEAD
         echo "private source @ $(git rev-parse --short HEAD)"
+        # 把这个前提变成显式断言,而不是指望某一步恰好拉全了
+        n=$(git rev-list --count HEAD)
+        if [ "$n" -lt 10 ]; then
+          echo "私人仓历史只有 $n 条,浅克隆会让 git 历史用例失效" >&2
+          exit 1
+        fi
+        echo "history commits: $n"
     # 镜像漏掉任何一条检查,"公开仓全绿 ⇒ 私人仓全绿"就不成立,
     # 而且没人会察觉 —— 所以这一步自己也要被机器盯着。
     - name: 核对镜像是否覆盖私人仓的门禁

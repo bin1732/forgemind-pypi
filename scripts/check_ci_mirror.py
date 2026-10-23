@@ -22,6 +22,7 @@
 from __future__ import annotations
 
 import argparse
+import re
 import sys
 from pathlib import Path
 
@@ -100,6 +101,26 @@ def load(path: Path) -> dict:
     return yaml.safe_load(path.read_text(encoding="utf-8")) or {}
 
 
+def check_no_shallow_fetch(workflow: dict) -> list[str]:
+    """镜像必须拿到完整历史。
+
+    私人仓的 CI 用 checkout 的 fetch-depth: 0,它的 git 历史用例就靠这个
+    前提跑通 —— 浅克隆只剩一个 commit,`git log` 与 `git diff HEAD~1` 全部
+    失效,那些用例会红,而这种失败看起来像是用例本身坏了。
+    """
+    problems: list[str] = []
+    for job_name, job in (workflow.get("jobs") or {}).items():
+        for step in (job.get("steps") or []):
+            run = step.get("run")
+            if not isinstance(run, str) or "git fetch" not in run:
+                continue
+            if re.search(r"--depth[= ]", run):
+                problems.append(
+                    f"{job_name}: 取源码用了浅克隆(--depth),"
+                    f"私人仓的 git 历史用例会失效")
+    return problems
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="核对镜像工作流覆盖了私人仓的门禁")
     parser.add_argument("--private", type=Path, required=True,
@@ -156,6 +177,9 @@ def main() -> int:
             continue
         problems.append(
             f"私人仓的工作流 {path.name} 既没被镜像,也没在排除清单里写明理由")
+
+    # 镜像自己的硬性要求
+    problems.extend(check_no_shallow_fetch(mirror))
 
     print("=" * 78)
     print("不镜像的工作流(附理由):")
