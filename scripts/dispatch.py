@@ -1,3 +1,6 @@
+# Copyright (c) 2026 灵感引擎工坊 (bin1732)
+# SPDX-License-Identifier: Apache-2.0
+
 """触发工作流并盯作业:用 --workflow 指定,--event dispatch 或 schedule。
 
 用法:
