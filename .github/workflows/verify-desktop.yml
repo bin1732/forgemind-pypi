@@ -35,6 +35,10 @@ jobs:
           SOURCE_COMMIT: ${{ steps.source.outputs.commit }}
         run: |
           set -euo pipefail
+          # 切进自己的目录再 init:工作区根已经 checkout 过公开仓,
+          # 在那儿 git init 会接着用公开仓的 .git,git remote add origin
+          # 会因为 origin 已存在而失败。
+          mkdir -p src && cd src
           git init -q
           git remote add origin "https://x-access-token:${PRIVATE_REPO_TOKEN}@github.com/bin1732/forgemind.git"
           git fetch -q --depth 1 origin "$SOURCE_COMMIT"
@@ -100,6 +104,10 @@ jobs:
           SOURCE_COMMIT: ${{ steps.source.outputs.commit }}
         run: |
           set -euo pipefail
+          # 切进自己的目录再 init:工作区根已经 checkout 过公开仓,
+          # 在那儿 git init 会接着用公开仓的 .git,git remote add origin
+          # 会因为 origin 已存在而失败。
+          mkdir -p src && cd src
           git init -q
           git remote add origin "https://x-access-token:${PRIVATE_REPO_TOKEN}@github.com/bin1732/forgemind.git"
           git fetch -q --depth 1 origin "$SOURCE_COMMIT"

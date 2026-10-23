@@ -21,6 +21,10 @@
 还要按 GitHub 的 schema 核对字段:步骤上多写一个 `working-directory`
 或 `shell`(它们只对 run 步骤有意义),同样是解析期被拒,工作流整体
 不执行。
+
+取源码的步骤还要先切进自己的目录再 `git init`:工作区根常常已经
+checkout 过本仓,在那儿 init 会串到本仓的 .git,`git remote add origin`
+随即因为 origin 已存在而失败。
 """
 
 from __future__ import annotations
@@ -64,6 +68,25 @@ def check_strict_parse(path: Path) -> str | None:
         where = f"(第 {mark.line + 1} 行)" if mark is not None else ""
         return f"{path.name}: 解析失败{where} {exc.problem or exc}"
     return None
+
+
+def check_git_init_isolation(name: str, job_name: str, job: dict) -> list[str]:
+    """取源码的步骤要先切进自己的目录再 git init。
+
+    工作区根常常已经 checkout 过本仓。在那儿 git init 会接着用本仓的
+    .git,后面的 `git remote add origin` 会因为 origin 已存在而失败 ——
+    报错只说 "remote origin already exists",与"取源码"毫无关联,极难定位。
+    """
+    problems: list[str] = []
+    for step in job.get("steps") or []:
+        run = step.get("run")
+        if not isinstance(run, str) or "git init" not in run:
+            continue
+        if "mkdir -p" not in run or "cd " not in run:
+            problems.append(
+                f"{name}:{job_name}: 取源码前没有切进自己的目录,"
+                f"工作区根若已 checkout 过本仓,git init 会串到本仓的 .git")
+    return problems
 
 
 def check_step_schema(name: str, job_name: str, job: dict) -> list[str]:
@@ -156,6 +179,7 @@ def main() -> int:
             if not isinstance(job, dict):
                 continue
             problems.extend(check_step_schema(path.name, job_name, job))
+            problems.extend(check_git_init_isolation(path.name, job_name, job))
             for step in job.get("steps") or []:
                 run = step.get("run")
                 if not isinstance(run, str) or not run.strip():
