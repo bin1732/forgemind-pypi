@@ -123,6 +123,34 @@ def check_no_shallow_fetch(workflow: dict) -> list[str]:
     return problems
 
 
+def check_history_depth(workflow: dict) -> list[str]:
+    """跑私人仓全量测试的作业必须拿到完整历史。
+
+    私人仓的 git 历史用例要翻到一千多条之前的提交才找得到
+    "docs(audit): 终版三维度自检报告" 那一条。浅克隆的历史不够,那些用例会
+    红 —— 而这种失败看起来像是用例本身坏了,极难定位。
+
+    其余作业(静态检查、界面检查)不跑那些用例,浅历史够用。
+    """
+    problems: list[str] = []
+    for job_name, job in (workflow.get("jobs") or {}).items():
+        runs = [s.get("run") for s in (job.get("steps") or [])
+                if isinstance(s.get("run"), str)]
+        if not any("pytest tests/" in r for r in runs):
+            continue
+        # 只跑重并发档的作业不碰 git 历史用例(那个文件不是重并发档),
+        # 浅历史对它够用。
+        if any("-m heavy" in r for r in runs):
+            continue
+        for run in runs:
+            if "git fetch" in run and re.search(r"--depth[= ]", run):
+                problems.append(
+                    f"{job_name}: 跑私人仓全量测试的作业取了浅历史,"
+                    f"git 历史用例会失效")
+                break
+    return problems
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="核对镜像工作流覆盖了私人仓的门禁")
     parser.add_argument("--private", type=Path, required=True,
@@ -182,6 +210,7 @@ def main() -> int:
 
     # 镜像自己的硬性要求
     problems.extend(check_no_shallow_fetch(mirror))
+    problems.extend(check_history_depth(mirror))
 
     print("=" * 78)
     print("不镜像的工作流(附理由):")

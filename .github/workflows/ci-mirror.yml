@@ -74,7 +74,9 @@ jobs:
           echo "私人仓历史只有 $n 条,浅克隆会让 git 历史用例失效" >&2
           exit 1
         fi
-        if ! git log --oneline --grep=audit -1 | grep -qi audit; then
+        # git 的 --grep 匹配整条消息(含正文),拿标题再 grep 一遍口径不同,
+        # 会把"git 明明找到了"判成"没找到"。这里看 git 自己有没有匹配到。
+        if [ -z "$(git log --oneline --grep=audit -1)" ]; then
           echo "历史里没有 audit 命名的提交,取源码深度不够" >&2
           exit 1
         fi
@@ -154,7 +156,9 @@ jobs:
           echo "私人仓历史只有 $n 条,浅克隆会让 git 历史用例失效" >&2
           exit 1
         fi
-        if ! git log --oneline --grep=audit -1 | grep -qi audit; then
+        # git 的 --grep 匹配整条消息(含正文),拿标题再 grep 一遍口径不同,
+        # 会把"git 明明找到了"判成"没找到"。这里看 git 自己有没有匹配到。
+        if [ -z "$(git log --oneline --grep=audit -1)" ]; then
           echo "历史里没有 audit 命名的提交,取源码深度不够" >&2
           exit 1
         fi
@@ -219,9 +223,10 @@ jobs:
         git remote add origin "https://x-access-token:${PRIVATE_REPO_TOKEN}@github.com/bin1732/forgemind.git"
         # 取构件用的那个提交,不是"当前的 main" —— 两者可能不是一回事,
         # 测的不是发布的那个就等于白测。
-        # 深度 200 够私人仓的 git 历史用例:最近一个 audit 命名的提交在
-        # 173 个提交之前,再往前的老提交用例会自己跳过。
-        git fetch -q --depth 200 origin "$SOURCE_COMMIT"
+        # 这个作业跑全量测试,历史要完整:私人仓的 git 历史用例要翻到
+        # 一千多条之前的 "docs(audit): 终版三维度自检报告" 那一条,
+        # 浅克隆的历史不够,那些用例会红 —— 而这种失败看起来像用例坏了。
+        git fetch -q origin "$SOURCE_COMMIT"
         git checkout -q FETCH_HEAD
         echo "private source @ $(git rev-parse --short HEAD)"
         # 把 git 历史用例依赖的前提变成显式断言。深度不够时那些用例会
@@ -231,7 +236,9 @@ jobs:
           echo "私人仓历史只有 $n 条,浅克隆会让 git 历史用例失效" >&2
           exit 1
         fi
-        if ! git log --oneline --grep=audit -1 | grep -qi audit; then
+        # git 的 --grep 匹配整条消息(含正文),拿标题再 grep 一遍口径不同,
+        # 会把"git 明明找到了"判成"没找到"。这里看 git 自己有没有匹配到。
+        if [ -z "$(git log --oneline --grep=audit -1)" ]; then
           echo "历史里没有 audit 命名的提交,取源码深度不够" >&2
           exit 1
         fi
@@ -346,7 +353,9 @@ jobs:
           echo "私人仓历史只有 $n 条,浅克隆会让 git 历史用例失效" >&2
           exit 1
         fi
-        if ! git log --oneline --grep=audit -1 | grep -qi audit; then
+        # git 的 --grep 匹配整条消息(含正文),拿标题再 grep 一遍口径不同,
+        # 会把"git 明明找到了"判成"没找到"。这里看 git 自己有没有匹配到。
+        if [ -z "$(git log --oneline --grep=audit -1)" ]; then
           echo "历史里没有 audit 命名的提交,取源码深度不够" >&2
           exit 1
         fi
@@ -452,7 +461,9 @@ jobs:
           echo "私人仓历史只有 $n 条,浅克隆会让 git 历史用例失效" >&2
           exit 1
         fi
-        if ! git log --oneline --grep=audit -1 | grep -qi audit; then
+        # git 的 --grep 匹配整条消息(含正文),拿标题再 grep 一遍口径不同,
+        # 会把"git 明明找到了"判成"没找到"。这里看 git 自己有没有匹配到。
+        if [ -z "$(git log --oneline --grep=audit -1)" ]; then
           echo "历史里没有 audit 命名的提交,取源码深度不够" >&2
           exit 1
         fi
@@ -526,7 +537,9 @@ jobs:
           echo "私人仓历史只有 $n 条,浅克隆会让 git 历史用例失效" >&2
           exit 1
         fi
-        if ! git log --oneline --grep=audit -1 | grep -qi audit; then
+        # git 的 --grep 匹配整条消息(含正文),拿标题再 grep 一遍口径不同,
+        # 会把"git 明明找到了"判成"没找到"。这里看 git 自己有没有匹配到。
+        if [ -z "$(git log --oneline --grep=audit -1)" ]; then
           echo "历史里没有 audit 命名的提交,取源码深度不够" >&2
           exit 1
         fi
