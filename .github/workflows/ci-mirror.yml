@@ -368,6 +368,58 @@ jobs:
           --tb=short -q \
           --timeout=900
 
+  # 重并发档的**完整规模**。
+  #
+  # 常规档在流水线里按文件分组抽样(每个文件留一个代表),所以流水线上
+  # 跑的是一百多个用例,不是全部;完整规模一千八百多个至今没有在任何
+  # 机器上完整跑过一次 —— 内存不够的机器会被 OOM 杀掉,内存够的机器
+  # 又没人专门安排它跑。
+  #
+  # 这一档只在定时与手动触发时跑:它很慢,但它是"规模就是设计意图"
+  # 那句话唯一的兑现方式。
+  mirror-heavy-full:
+    name: 镜像 · 重并发测试 (完整规模)
+    needs: resolve-source
+    runs-on: ubuntu-latest
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    defaults:
+      run:
+        working-directory: src
+    steps:
+    - name: 取私人仓源码
+      working-directory: .
+      shell: bash
+      env:
+        PRIVATE_REPO_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN }}
+        SOURCE_COMMIT: ${{ needs.resolve-source.outputs.commit }}
+      run: |
+        set -euo pipefail
+        mkdir -p src && cd src
+        git init -q
+        git remote add origin "https://x-access-token:${PRIVATE_REPO_TOKEN}@github.com/bin1732/forgemind.git"
+        git fetch -q --depth 200 origin "$SOURCE_COMMIT"
+        git checkout -q FETCH_HEAD
+        echo "private source @ $(git rev-parse --short HEAD)"
+    - uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
+    - name: Install dependencies
+      run: |
+        pip install --break-system-packages --no-cache-dir --prefer-binary -r requirements-ci.txt 2>&1 | tee /tmp/pip-all.log || true
+        pip install --break-system-packages --no-cache-dir --prefer-binary --no-deps -e . 2>&1 | tee -a /tmp/pip-all.log || true
+    - name: Heavy concurrency tests (full scale)
+      env:
+        # 关掉按文件分组的抽样。完整规模就是完整规模 ——
+        # 抽样是流水线机器跑不完时的妥协,不是这一档的目的。
+        FORGEMIND_HEAVY_SAMPLE_RATIO: "1000"
+      run: |
+        # 单用例 timeout 3600s:完整规模里有跑十几分钟的用例,
+        # 900s 的上限会误杀它们。
+        python -m pytest tests/ \
+          -m heavy \
+          --tb=short -q \
+          --timeout=3600
+
   mirror-ui:
     name: 镜像 · UI 测试 (Next.js + Jest)
     needs: resolve-source
