@@ -102,11 +102,13 @@ def load(path: Path) -> dict:
 
 
 def check_no_shallow_fetch(workflow: dict) -> list[str]:
-    """镜像必须拿到完整历史。
+    """镜像必须拿到足够深的历史。
 
     私人仓的 CI 用 checkout 的 fetch-depth: 0,它的 git 历史用例就靠这个
-    前提跑通 —— 浅克隆只剩一个 commit,`git log` 与 `git diff HEAD~1` 全部
+    前提跑通 —— 只剩一个 commit 时,`git log` 与 `git diff HEAD~1` 全部
     失效,那些用例会红,而这种失败看起来像是用例本身坏了。
+
+    depth=1 是最浅的一种,必然不够;更深的深度可以。
     """
     problems: list[str] = []
     for job_name, job in (workflow.get("jobs") or {}).items():
@@ -114,9 +116,9 @@ def check_no_shallow_fetch(workflow: dict) -> list[str]:
             run = step.get("run")
             if not isinstance(run, str) or "git fetch" not in run:
                 continue
-            if re.search(r"--depth[= ]", run):
+            if re.search(r"--depth[= ]1(?![0-9])", run):
                 problems.append(
-                    f"{job_name}: 取源码用了浅克隆(--depth),"
+                    f"{job_name}: 取源码用了 --depth 1(只剩一个提交),"
                     f"私人仓的 git 历史用例会失效")
     return problems
 

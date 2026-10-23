@@ -25,8 +25,35 @@ permissions:
   contents: read
 
 jobs:
+  # 构件的来源提交写在公开仓的清单里。镜像测的必须是它 —— 否则"测过的"
+  # 与"发出去的"可能不是同一份代码,全绿也就没有意义了。
+  resolve-source:
+    name: 镜像 · 定位构件来源提交
+    runs-on: ubuntu-latest
+    outputs:
+      commit: ${{ steps.resolve.outputs.commit }}
+    steps:
+    - name: 检出公开仓
+      uses: actions/checkout@v4
+      with:
+        path: public-repo
+        ref: main
+    - name: 从清单读出来源提交
+      id: resolve
+      shell: bash
+      run: |
+        set -euo pipefail
+        sha=$(python3 -c "import json;print(json.load(open('public-repo/releases/builds/manifest.json')).get('source_commit',''))")
+        if [ -z "$sha" ]; then
+          echo "清单里没有 source_commit —— 构件没记来源提交,测的就无法与发布的对上" >&2
+          exit 1
+        fi
+        echo "构件来源提交: $sha"
+        echo "commit=$sha" >> "$GITHUB_OUTPUT"
+
   mirror-lint:
     name: 镜像 · 代码质量
+    needs: resolve-source
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -37,21 +64,28 @@ jobs:
       shell: bash
       env:
         PRIVATE_REPO_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN }}
+        SOURCE_COMMIT: ${{ needs.resolve-source.outputs.commit }}
       run: |
         set -euo pipefail
         mkdir -p src && cd src
         git init -q
         git remote add origin "https://x-access-token:${PRIVATE_REPO_TOKEN}@github.com/bin1732/forgemind.git"
-        # 完整历史,不是浅克隆。私人仓的 CI 用 checkout 的 fetch-depth: 0,
-        # 它的 git 历史用例就是靠这个前提跑通的;浅克隆只剩一个 commit,
-        # git log 与 git diff HEAD~1 全部失效,那些用例会红。
-        git fetch -q origin main
+        # 取构件用的那个提交,不是"当前的 main" —— 两者可能不是一回事,
+        # 测的不是发布的那个就等于白测。
+        # 深度 200 够私人仓的 git 历史用例:最近一个 audit 命名的提交在
+        # 173 个提交之前,再往前的老提交用例会自己跳过。
+        git fetch -q --depth 200 origin "$SOURCE_COMMIT"
         git checkout -q FETCH_HEAD
         echo "private source @ $(git rev-parse --short HEAD)"
-        # 把这个前提变成显式断言,而不是指望某一步恰好拉全了
+        # 把 git 历史用例依赖的前提变成显式断言。深度不够时那些用例会
+        # 以"断言失败"的样子红掉,看不出是取源码太浅。
         n=$(git rev-list --count HEAD)
         if [ "$n" -lt 10 ]; then
           echo "私人仓历史只有 $n 条,浅克隆会让 git 历史用例失效" >&2
+          exit 1
+        fi
+        if ! git log --oneline --grep=audit -1 | grep -qi audit; then
+          echo "历史里没有 audit 命名的提交,取源码深度不够" >&2
           exit 1
         fi
         echo "history commits: $n"
@@ -99,6 +133,7 @@ jobs:
 
   mirror-security:
     name: 镜像 · 安全扫描
+    needs: resolve-source
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -109,21 +144,28 @@ jobs:
       shell: bash
       env:
         PRIVATE_REPO_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN }}
+        SOURCE_COMMIT: ${{ needs.resolve-source.outputs.commit }}
       run: |
         set -euo pipefail
         mkdir -p src && cd src
         git init -q
         git remote add origin "https://x-access-token:${PRIVATE_REPO_TOKEN}@github.com/bin1732/forgemind.git"
-        # 完整历史,不是浅克隆。私人仓的 CI 用 checkout 的 fetch-depth: 0,
-        # 它的 git 历史用例就是靠这个前提跑通的;浅克隆只剩一个 commit,
-        # git log 与 git diff HEAD~1 全部失效,那些用例会红。
-        git fetch -q origin main
+        # 取构件用的那个提交,不是"当前的 main" —— 两者可能不是一回事,
+        # 测的不是发布的那个就等于白测。
+        # 深度 200 够私人仓的 git 历史用例:最近一个 audit 命名的提交在
+        # 173 个提交之前,再往前的老提交用例会自己跳过。
+        git fetch -q --depth 200 origin "$SOURCE_COMMIT"
         git checkout -q FETCH_HEAD
         echo "private source @ $(git rev-parse --short HEAD)"
-        # 把这个前提变成显式断言,而不是指望某一步恰好拉全了
+        # 把 git 历史用例依赖的前提变成显式断言。深度不够时那些用例会
+        # 以"断言失败"的样子红掉,看不出是取源码太浅。
         n=$(git rev-list --count HEAD)
         if [ "$n" -lt 10 ]; then
           echo "私人仓历史只有 $n 条,浅克隆会让 git 历史用例失效" >&2
+          exit 1
+        fi
+        if ! git log --oneline --grep=audit -1 | grep -qi audit; then
+          echo "历史里没有 audit 命名的提交,取源码深度不够" >&2
           exit 1
         fi
         echo "history commits: $n"
@@ -168,6 +210,7 @@ jobs:
 
   mirror-tests:
     name: 镜像 · Python 测试 (常规)
+    needs: resolve-source
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -178,21 +221,28 @@ jobs:
       shell: bash
       env:
         PRIVATE_REPO_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN }}
+        SOURCE_COMMIT: ${{ needs.resolve-source.outputs.commit }}
       run: |
         set -euo pipefail
         mkdir -p src && cd src
         git init -q
         git remote add origin "https://x-access-token:${PRIVATE_REPO_TOKEN}@github.com/bin1732/forgemind.git"
-        # 完整历史,不是浅克隆。私人仓的 CI 用 checkout 的 fetch-depth: 0,
-        # 它的 git 历史用例就是靠这个前提跑通的;浅克隆只剩一个 commit,
-        # git log 与 git diff HEAD~1 全部失效,那些用例会红。
-        git fetch -q origin main
+        # 取构件用的那个提交,不是"当前的 main" —— 两者可能不是一回事,
+        # 测的不是发布的那个就等于白测。
+        # 深度 200 够私人仓的 git 历史用例:最近一个 audit 命名的提交在
+        # 173 个提交之前,再往前的老提交用例会自己跳过。
+        git fetch -q --depth 200 origin "$SOURCE_COMMIT"
         git checkout -q FETCH_HEAD
         echo "private source @ $(git rev-parse --short HEAD)"
-        # 把这个前提变成显式断言,而不是指望某一步恰好拉全了
+        # 把 git 历史用例依赖的前提变成显式断言。深度不够时那些用例会
+        # 以"断言失败"的样子红掉,看不出是取源码太浅。
         n=$(git rev-list --count HEAD)
         if [ "$n" -lt 10 ]; then
           echo "私人仓历史只有 $n 条,浅克隆会让 git 历史用例失效" >&2
+          exit 1
+        fi
+        if ! git log --oneline --grep=audit -1 | grep -qi audit; then
+          echo "历史里没有 audit 命名的提交,取源码深度不够" >&2
           exit 1
         fi
         echo "history commits: $n"
@@ -274,6 +324,7 @@ jobs:
 
   mirror-heavy:
     name: 镜像 · 重并发测试 (heavy)
+    needs: resolve-source
     runs-on: ubuntu-latest
     if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
     defaults:
@@ -285,21 +336,28 @@ jobs:
       shell: bash
       env:
         PRIVATE_REPO_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN }}
+        SOURCE_COMMIT: ${{ needs.resolve-source.outputs.commit }}
       run: |
         set -euo pipefail
         mkdir -p src && cd src
         git init -q
         git remote add origin "https://x-access-token:${PRIVATE_REPO_TOKEN}@github.com/bin1732/forgemind.git"
-        # 完整历史,不是浅克隆。私人仓的 CI 用 checkout 的 fetch-depth: 0,
-        # 它的 git 历史用例就是靠这个前提跑通的;浅克隆只剩一个 commit,
-        # git log 与 git diff HEAD~1 全部失效,那些用例会红。
-        git fetch -q origin main
+        # 取构件用的那个提交,不是"当前的 main" —— 两者可能不是一回事,
+        # 测的不是发布的那个就等于白测。
+        # 深度 200 够私人仓的 git 历史用例:最近一个 audit 命名的提交在
+        # 173 个提交之前,再往前的老提交用例会自己跳过。
+        git fetch -q --depth 200 origin "$SOURCE_COMMIT"
         git checkout -q FETCH_HEAD
         echo "private source @ $(git rev-parse --short HEAD)"
-        # 把这个前提变成显式断言,而不是指望某一步恰好拉全了
+        # 把 git 历史用例依赖的前提变成显式断言。深度不够时那些用例会
+        # 以"断言失败"的样子红掉,看不出是取源码太浅。
         n=$(git rev-list --count HEAD)
         if [ "$n" -lt 10 ]; then
           echo "私人仓历史只有 $n 条,浅克隆会让 git 历史用例失效" >&2
+          exit 1
+        fi
+        if ! git log --oneline --grep=audit -1 | grep -qi audit; then
+          echo "历史里没有 audit 命名的提交,取源码深度不够" >&2
           exit 1
         fi
         echo "history commits: $n"
@@ -321,6 +379,7 @@ jobs:
 
   mirror-ui:
     name: 镜像 · UI 测试 (Next.js + Jest)
+    needs: resolve-source
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -331,21 +390,28 @@ jobs:
       shell: bash
       env:
         PRIVATE_REPO_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN }}
+        SOURCE_COMMIT: ${{ needs.resolve-source.outputs.commit }}
       run: |
         set -euo pipefail
         mkdir -p src && cd src
         git init -q
         git remote add origin "https://x-access-token:${PRIVATE_REPO_TOKEN}@github.com/bin1732/forgemind.git"
-        # 完整历史,不是浅克隆。私人仓的 CI 用 checkout 的 fetch-depth: 0,
-        # 它的 git 历史用例就是靠这个前提跑通的;浅克隆只剩一个 commit,
-        # git log 与 git diff HEAD~1 全部失效,那些用例会红。
-        git fetch -q origin main
+        # 取构件用的那个提交,不是"当前的 main" —— 两者可能不是一回事,
+        # 测的不是发布的那个就等于白测。
+        # 深度 200 够私人仓的 git 历史用例:最近一个 audit 命名的提交在
+        # 173 个提交之前,再往前的老提交用例会自己跳过。
+        git fetch -q --depth 200 origin "$SOURCE_COMMIT"
         git checkout -q FETCH_HEAD
         echo "private source @ $(git rev-parse --short HEAD)"
-        # 把这个前提变成显式断言,而不是指望某一步恰好拉全了
+        # 把 git 历史用例依赖的前提变成显式断言。深度不够时那些用例会
+        # 以"断言失败"的样子红掉,看不出是取源码太浅。
         n=$(git rev-list --count HEAD)
         if [ "$n" -lt 10 ]; then
           echo "私人仓历史只有 $n 条,浅克隆会让 git 历史用例失效" >&2
+          exit 1
+        fi
+        if ! git log --oneline --grep=audit -1 | grep -qi audit; then
+          echo "历史里没有 audit 命名的提交,取源码深度不够" >&2
           exit 1
         fi
         echo "history commits: $n"
@@ -381,6 +447,7 @@ jobs:
 
   mirror-audit:
     name: 镜像 · 完整性对账
+    needs: resolve-source
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -401,21 +468,28 @@ jobs:
       shell: bash
       env:
         PRIVATE_REPO_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN }}
+        SOURCE_COMMIT: ${{ needs.resolve-source.outputs.commit }}
       run: |
         set -euo pipefail
         mkdir -p src && cd src
         git init -q
         git remote add origin "https://x-access-token:${PRIVATE_REPO_TOKEN}@github.com/bin1732/forgemind.git"
-        # 完整历史,不是浅克隆。私人仓的 CI 用 checkout 的 fetch-depth: 0,
-        # 它的 git 历史用例就是靠这个前提跑通的;浅克隆只剩一个 commit,
-        # git log 与 git diff HEAD~1 全部失效,那些用例会红。
-        git fetch -q origin main
+        # 取构件用的那个提交,不是"当前的 main" —— 两者可能不是一回事,
+        # 测的不是发布的那个就等于白测。
+        # 深度 200 够私人仓的 git 历史用例:最近一个 audit 命名的提交在
+        # 173 个提交之前,再往前的老提交用例会自己跳过。
+        git fetch -q --depth 200 origin "$SOURCE_COMMIT"
         git checkout -q FETCH_HEAD
         echo "private source @ $(git rev-parse --short HEAD)"
-        # 把这个前提变成显式断言,而不是指望某一步恰好拉全了
+        # 把 git 历史用例依赖的前提变成显式断言。深度不够时那些用例会
+        # 以"断言失败"的样子红掉,看不出是取源码太浅。
         n=$(git rev-list --count HEAD)
         if [ "$n" -lt 10 ]; then
           echo "私人仓历史只有 $n 条,浅克隆会让 git 历史用例失效" >&2
+          exit 1
+        fi
+        if ! git log --oneline --grep=audit -1 | grep -qi audit; then
+          echo "历史里没有 audit 命名的提交,取源码深度不够" >&2
           exit 1
         fi
         echo "history commits: $n"
@@ -423,6 +497,30 @@ jobs:
     # 而且没人会察觉 —— 所以这一步自己也要被机器盯着。
     - name: 核对镜像是否覆盖私人仓的门禁
       run: python scripts/check_ci_mirror.py --private ../src
+    - name: 核对测的就是发的那个提交
+      shell: bash
+      run: |
+        set -euo pipefail
+        want=$(python3 -c "import json;print(json.load(open('releases/builds/manifest.json')).get('source_commit',''))")
+        got=$(git -C ../src rev-parse HEAD)
+        if [ -z "$want" ]; then
+          echo "清单里没有 source_commit,无法核对来源" >&2
+          exit 1
+        fi
+        if [ "$want" != "$got" ]; then
+          echo "测的提交与构件来源不一致: 测的是 $got,构件是 $want" >&2
+          exit 1
+        fi
+        {
+          echo "### 构件来源"
+          echo ""
+          echo "| 项 | 值 |"
+          echo "| --- | --- |"
+          echo "| 构件来源提交 | \`$got\` |"
+          echo "| 本次镜像实测提交 | \`$got\` |"
+          echo "| 私人仓门禁 | 镜像 4 条工作流,逐条命令核对 |"
+        } >> "$GITHUB_STEP_SUMMARY"
+        echo "测的就是发的那个提交: $got"
 
   mirror-status:
     name: 镜像 · 汇总校验结论

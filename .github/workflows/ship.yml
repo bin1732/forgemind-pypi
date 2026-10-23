@@ -14,20 +14,45 @@ permissions:
   contents: write
 
 jobs:
+  # 先把"这次发布用哪个提交"定下来,后面所有构建都钉在它上面。
+  # 三个构建各自 fetch main 的话,main 一动就可能拿到不同的提交 ——
+  # wheel 与三个二进制来自不同代码,这种不一致没有任何检查会发现。
+  resolve-source:
+    runs-on: ubuntu-latest
+    outputs:
+      commit: ${{ steps.resolve.outputs.commit }}
+    steps:
+      - name: Resolve source commit
+        id: resolve
+        shell: bash
+        env:
+          PRIVATE_REPO_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN }}
+        run: |
+          set -euo pipefail
+          mkdir -p probe && cd probe
+          git init -q
+          git remote add origin "https://x-access-token:${PRIVATE_REPO_TOKEN}@github.com/bin1732/forgemind.git"
+          git fetch -q --depth 1 origin main
+          git checkout -q FETCH_HEAD
+          echo "commit=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+          echo "源码提交 @ $(git rev-parse --short HEAD)"
+
   build-wheel:
+    needs: resolve-source
     runs-on: ubuntu-latest
     steps:
       - name: Fetch private source
         shell: bash
         env:
           PRIVATE_REPO_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN }}
+          SOURCE_COMMIT: ${{ needs.resolve-source.outputs.commit }}
         run: |
           set -euo pipefail
           mkdir -p here
           cd here
           git init -q
           git remote add origin "https://x-access-token:${PRIVATE_REPO_TOKEN}@github.com/bin1732/forgemind.git"
-          git fetch -q --depth 1 origin main
+          git fetch -q --depth 1 origin "$SOURCE_COMMIT"
           git checkout -q FETCH_HEAD
           echo "源码 @ $(git rev-parse --short HEAD)"
           ls | head
@@ -48,6 +73,7 @@ jobs:
           path: here/dist/
 
   build-standalone:
+    needs: resolve-source
     strategy:
       fail-fast: false
       matrix:
@@ -64,13 +90,14 @@ jobs:
         shell: bash
         env:
           PRIVATE_REPO_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN }}
+          SOURCE_COMMIT: ${{ needs.resolve-source.outputs.commit }}
         run: |
           set -euo pipefail
           mkdir -p here
           cd here
           git init -q
           git remote add origin "https://x-access-token:${PRIVATE_REPO_TOKEN}@github.com/bin1732/forgemind.git"
-          git fetch -q --depth 1 origin main
+          git fetch -q --depth 1 origin "$SOURCE_COMMIT"
           git checkout -q FETCH_HEAD
           echo "源码 @ $(git rev-parse --short HEAD)"
           ls | head
@@ -116,8 +143,12 @@ jobs:
           path: here/out/
 
   ship:
-    needs: [build-wheel, build-standalone]
+    needs: [resolve-source, build-wheel, build-standalone]
     runs-on: ubuntu-latest
+    env:
+      # 构件的来源提交。写进清单,镜像才有可能去测同一个提交 ——
+      # 否则"测过的"与"发出去的"可能不是一回事。
+      SOURCE_COMMIT: ${{ needs.resolve-source.outputs.commit }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
@@ -271,11 +302,14 @@ jobs:
           purge_dir('releases/source')
           purge_dir('pypi/simple/forgemind', keep_prefix='pypi/simple/forgemind/index.html')
 
-          # 清单是"发布了什么、多大"的机器可读真源。字节数写在这里,
-          # 文档与检查都对着它核对,不用在文档里硬编码会漂移的数字。
+          # 清单是"发布了什么、多大、从哪个提交来"的机器可读真源。
+          # 字节数写在这里,文档与检查都对着它核对,不用在文档里硬编码
+          # 会漂移的数字;来源提交也一样 —— 它是"测的"与"发的"能对上的
+          # 唯一凭据。
           mf = {'version': 'latest', 'assets': sorted(uploaded),
                 'sizes': {k: asset_sizes[k] for k in sorted(asset_sizes)},
                 'source_repo': 'bin1732/forgemind',
+                'source_commit': __import__('os').environ.get('SOURCE_COMMIT', ''),
                 'install': 'pip install --extra-index-url https://bin1732.github.io/forgemind-pypi/pypi/simple/ forgemind'}
           # 清单就地更新,不先删后写:少一次提交,历史里不留删除痕迹
           stm, exm = call('GET', f'{API}/contents/releases/builds/manifest.json')

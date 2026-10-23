@@ -144,6 +144,9 @@ def main() -> int:
         manifest_sizes = dict(manifest.get("sizes", {}))
         if not manifest_sizes:
             problems.append("清单里没有 sizes 字段,清单是旧的")
+        if not (manifest.get("source_commit") or "").strip():
+            # 没有来源提交,镜像就没法保证"测的就是发的那个"
+            problems.append("清单里没有 source_commit,构件没记来源提交")
         if build is not None:
             local = {p.name for p in build.iterdir() if p.is_file()}
             missing = local - manifest_assets
