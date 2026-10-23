@@ -103,6 +103,11 @@ jobs:
                 # 复盘措辞、构建产物、诊断产物、过期副本与许可证头。
                 # 工作区应当是干净的,所以先提交再检查。
                 python scripts/check_repo_cleanliness.py .
+    - name: README 的活数字核对
+      run: |
+                # 因子数、策略数、测试规模都会随代码变。文档里的旧值
+                # 没人守着就会一直错下去,这里把它们钉在真实值上。
+                python scripts/check_readme_claims.py README.md
     - name: 自检文档与测试对账
       run: |
                 # 自检文档里每条结论都点名了对应的回归测试。
