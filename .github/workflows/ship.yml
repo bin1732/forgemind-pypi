@@ -274,6 +274,40 @@ jobs:
           # 4) 清理历史构建目录
           # 只保留当前 build 目录;更早的 build 目录全部删除,避免仓库随
           # 每次运行无限增长,也避免 simple index 指向的文件被误删。
+          #
+          # 但有两类目录**绝不能删**:
+          #   线上索引正在指向的那个 —— 删了用户按索引下载就是 404
+          #   比本次更新的那些 —— 两次发布并发时,别的作业刚写好的构建目录
+          #   会被先跑完的那次删掉,而线上索引已经指向它
+          def live_build_id():
+              try:
+                  with urllib.request.urlopen(live_index, timeout=30) as r:
+                      body = r.read().decode('utf-8', 'ignore')
+              except Exception:
+                  return ''
+              marker = 'builds/'
+              if marker in body:
+                  return body.split(marker, 1)[1].split('/', 1)[0]
+              return ''
+
+          def build_num(name):
+              try:
+                  return int(name)
+              except (TypeError, ValueError):
+                  return -1
+
+          live_id = live_build_id()
+          my_num = build_num(build_id)
+
+          def keep_build(name):
+              if name == build_id or name == live_id:
+                  return True
+              # 比本次更新的构建:多半是并发发布留下的,不能删
+              return my_num >= 0 and build_num(name) >= my_num
+
+          print(f'  保留构建目录: 本次 {build_id}'
+                f' / 线上索引指向 {live_id or "(未知)"}')
+
           def list_dir(path):
               st, data = call('GET', f'{API}/contents/{path}')
               return data if st == 200 and isinstance(data, list) else []
@@ -285,11 +319,13 @@ jobs:
               code, _ = call('DELETE', f'{API}/contents/{path}', payload)
               print(f'  [{code}] rm {path}')
 
-          def purge_dir(path, keep_prefix=None):
+          def purge_dir(path, keep_prefix=None, keep_names=()):
               for entry in list_dir(path):
                   name = entry.get('name', '')
                   full = f"{path}/{name}"
                   if keep_prefix and full.startswith(keep_prefix):
+                      continue
+                  if name in keep_names:
                       continue
                   if entry.get('type') == 'dir':
                       purge_dir(full)
@@ -297,7 +333,8 @@ jobs:
                   else:
                       remove_path(full, entry.get('sha'))
 
-          purge_dir('releases/builds', keep_prefix=f'releases/builds/{build_id}')
+          purge_dir('releases/builds', keep_prefix=f'releases/builds/{build_id}',
+                    keep_names={live_id} if live_id else ())
           # 早期流程使用的固定路径,当前流程不再写入,一并清理
           purge_dir('releases/source')
           purge_dir('pypi/simple/forgemind', keep_prefix='pypi/simple/forgemind/index.html')
