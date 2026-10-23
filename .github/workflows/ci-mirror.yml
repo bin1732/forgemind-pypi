@@ -439,14 +439,28 @@ jobs:
         script: |
           // workflow_run 触发时 context.run 是 undefined(事件载荷里没有
           // run 对象),当前 run 的 id 只能从环境变量拿。
-          const runId = process.env.GITHUB_RUN_ID;
-          const { data } = await github.rest.actions.listJobs({
-            owner: context.repo.owner,
-            repo: context.repo.repo,
-            run_id: runId,
-          });
-          const lines = data.jobs.map(
-            (j) => `| ${j.name} | ${j.conclusion || j.status} |`);
+          // Octokit 里没有 listJobs,按 run 列作业要走
+          // listJobsForWorkflowRun,它同时要 workflow_id —— 从
+          // GITHUB_WORKFLOW_REF 里取文件名的后半段,文件改名也不会失效。
+          const runId = Number(process.env.GITHUB_RUN_ID);
+          const ref = process.env.GITHUB_WORKFLOW_REF || '';
+          const workflowId = (ref.split('/.github/workflows/')[1] || '').split('@')[0]
+            || 'ci-mirror.yml';
+          let lines;
+          try {
+            const { data } = await github.rest.actions.listJobsForWorkflowRun({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              workflow_id: workflowId,
+              run_id: runId,
+            });
+            lines = data.jobs.map(
+              (j) => `| ${j.name} | ${j.conclusion || j.status} |`);
+          } catch (err) {
+            // 这个作业只是把结论写进运行摘要,取不到就把原因写进去,
+            // 不该让整个作业标红 —— 它本来就不参与门禁。
+            lines = [`| 取作业结论失败 | ${err.message} |`];
+          }
           const body = [
             '### 镜像校验结论',
             '',
