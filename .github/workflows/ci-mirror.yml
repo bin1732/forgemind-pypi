@@ -31,7 +31,7 @@ jobs:
     name: 镜像 · 定位构件来源提交
     runs-on: ubuntu-latest
     outputs:
-      commit: ${{ steps.resolve.outputs.commit }}
+      commit: ${{ steps.source.outputs.commit }}
     steps:
     - name: 检出公开仓
       uses: actions/checkout@v4
@@ -39,17 +39,8 @@ jobs:
         path: public-repo
         ref: main
     - name: 从清单读出来源提交
-      id: resolve
-      shell: bash
-      run: |
-        set -euo pipefail
-        sha=$(python3 -c "import json;print(json.load(open('public-repo/releases/builds/manifest.json')).get('source_commit',''))")
-        if [ -z "$sha" ]; then
-          echo "清单里没有 source_commit —— 构件没记来源提交,测的就无法与发布的对上" >&2
-          exit 1
-        fi
-        echo "构件来源提交: $sha"
-        echo "commit=$sha" >> "$GITHUB_OUTPUT"
+      id: source
+      uses: ./.github/actions/resolve-source
 
   mirror-lint:
     name: 镜像 · 代码质量

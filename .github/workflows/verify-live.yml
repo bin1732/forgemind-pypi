@@ -21,15 +21,19 @@ jobs:
   live-akshare:
     runs-on: ubuntu-latest
     steps:
+      - name: 读出构件来源提交
+        id: source
+        uses: ./.github/actions/resolve-source
       - name: "Fetch private source"
         env:
           PRIVATE_REPO_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN }}
+          SOURCE_COMMIT: ${{ steps.source.outputs.commit }}
         shell: bash
         run: |
           set -euo pipefail
           git init -q
           git remote add origin "https://x-access-token:${PRIVATE_REPO_TOKEN}@github.com/bin1732/forgemind.git"
-          git fetch -q --depth 1 origin main
+          git fetch -q --depth 1 origin "$SOURCE_COMMIT"
           git checkout -q FETCH_HEAD
 
       - uses: actions/setup-python@v5

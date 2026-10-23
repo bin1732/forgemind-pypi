@@ -1,0 +1,37 @@
+name: 读出构件来源提交
+description: 从公开仓的清单里读出这次构件的来源提交,供取源码时钉住
+
+# 构件的来源提交写在公开仓的清单里(由 ship 写入)。所有要取私人仓源码的
+# 作业都该钉在它上面:
+#
+# - 钉在"当前的 main"上,测的可能不是发出去的那一份
+# - 三个构建各自 fetch main,main 一动就可能拿到不同的提交
+#
+# 这里只负责读,不负责取。读不到就报错 —— 悄悄退回 main 等于放弃这个保证。
+
+outputs:
+  commit:
+    description: 构件的来源提交
+    value: ${{ steps.read.outputs.commit }}
+
+runs:
+  using: composite
+  steps:
+    - name: 从清单读出来源提交
+      id: read
+      shell: bash
+      env:
+        GH_TOKEN: ${{ github.token }}
+        REPO: ${{ github.repository }}
+      run: |
+        set -euo pipefail
+        sha=$(curl -sS -H "Authorization: Bearer $GH_TOKEN" \
+          -H "Accept: application/vnd.github+json" \
+          "https://api.github.com/repos/$REPO/contents/releases/builds/manifest.json" \
+          | python3 -c "import json,sys,base64;d=json.load(sys.stdin);print(json.loads(base64.b64decode(d['content'])).get('source_commit',''))")
+        if [ -z "$sha" ]; then
+          echo "清单里没有 source_commit —— 构件没记来源提交" >&2
+          exit 1
+        fi
+        echo "构件来源提交: $sha"
+        echo "commit=$sha" >> "$GITHUB_OUTPUT"
