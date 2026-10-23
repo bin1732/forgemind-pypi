@@ -66,6 +66,9 @@ jobs:
         # 173 个提交之前,再往前的老提交用例会自己跳过。
         git fetch -q --depth 200 origin "$SOURCE_COMMIT"
         git checkout -q FETCH_HEAD
+        # 按 SHA 取源不会建 origin/main 引用,仓库里就没有 main 分支了,
+        # 而私人仓的 git 历史用例要它 —— 补一个本地 main 指向同一个提交。
+        git branch -f main FETCH_HEAD
         echo "private source @ $(git rev-parse --short HEAD)"
         # 把 git 历史用例依赖的前提变成显式断言。深度不够时那些用例会
         # 以"断言失败"的样子红掉,看不出是取源码太浅。
@@ -148,6 +151,9 @@ jobs:
         # 173 个提交之前,再往前的老提交用例会自己跳过。
         git fetch -q --depth 200 origin "$SOURCE_COMMIT"
         git checkout -q FETCH_HEAD
+        # 按 SHA 取源不会建 origin/main 引用,仓库里就没有 main 分支了,
+        # 而私人仓的 git 历史用例要它 —— 补一个本地 main 指向同一个提交。
+        git branch -f main FETCH_HEAD
         echo "private source @ $(git rev-parse --short HEAD)"
         # 把 git 历史用例依赖的前提变成显式断言。深度不够时那些用例会
         # 以"断言失败"的样子红掉,看不出是取源码太浅。
@@ -228,6 +234,9 @@ jobs:
         # 浅克隆的历史不够,那些用例会红 —— 而这种失败看起来像用例坏了。
         git fetch -q origin "$SOURCE_COMMIT"
         git checkout -q FETCH_HEAD
+        # 按 SHA 取源不会建 origin/main 引用,仓库里就没有 main 分支了,
+        # 而私人仓的 git 历史用例要它 —— 补一个本地 main 指向同一个提交。
+        git branch -f main FETCH_HEAD
         echo "private source @ $(git rev-parse --short HEAD)"
         # 把 git 历史用例依赖的前提变成显式断言。深度不够时那些用例会
         # 以"断言失败"的样子红掉,看不出是取源码太浅。
@@ -345,6 +354,9 @@ jobs:
         # 173 个提交之前,再往前的老提交用例会自己跳过。
         git fetch -q --depth 200 origin "$SOURCE_COMMIT"
         git checkout -q FETCH_HEAD
+        # 按 SHA 取源不会建 origin/main 引用,仓库里就没有 main 分支了,
+        # 而私人仓的 git 历史用例要它 —— 补一个本地 main 指向同一个提交。
+        git branch -f main FETCH_HEAD
         echo "private source @ $(git rev-parse --short HEAD)"
         # 把 git 历史用例依赖的前提变成显式断言。深度不够时那些用例会
         # 以"断言失败"的样子红掉,看不出是取源码太浅。
@@ -407,6 +419,9 @@ jobs:
         git remote add origin "https://x-access-token:${PRIVATE_REPO_TOKEN}@github.com/bin1732/forgemind.git"
         git fetch -q --depth 200 origin "$SOURCE_COMMIT"
         git checkout -q FETCH_HEAD
+        # 按 SHA 取源不会建 origin/main 引用,仓库里就没有 main 分支了,
+        # 而私人仓的 git 历史用例要它 —— 补一个本地 main 指向同一个提交。
+        git branch -f main FETCH_HEAD
         echo "private source @ $(git rev-parse --short HEAD)"
     - uses: actions/setup-python@v5
       with:
@@ -419,7 +434,10 @@ jobs:
       env:
         # 关掉按文件分组的抽样。完整规模就是完整规模 ——
         # 抽样是流水线机器跑不完时的妥协,不是这一档的目的。
-        FORGEMIND_HEAVY_SAMPLE_RATIO: "1000"
+        #
+        # 这个值是**除数**:抽样时每个文件留 len//ratio 个,至少一个。
+        # 所以 10 是"留十分之一",而 1 才是"全留"。
+        FORGEMIND_HEAVY_SAMPLE_RATIO: "1"
       run: |
         # 单用例 timeout 3600s:完整规模里有跑十几分钟的用例,
         # 900s 的上限会误杀它们。
@@ -453,6 +471,9 @@ jobs:
         # 173 个提交之前,再往前的老提交用例会自己跳过。
         git fetch -q --depth 200 origin "$SOURCE_COMMIT"
         git checkout -q FETCH_HEAD
+        # 按 SHA 取源不会建 origin/main 引用,仓库里就没有 main 分支了,
+        # 而私人仓的 git 历史用例要它 —— 补一个本地 main 指向同一个提交。
+        git branch -f main FETCH_HEAD
         echo "private source @ $(git rev-parse --short HEAD)"
         # 把 git 历史用例依赖的前提变成显式断言。深度不够时那些用例会
         # 以"断言失败"的样子红掉,看不出是取源码太浅。
@@ -529,6 +550,9 @@ jobs:
         # 173 个提交之前,再往前的老提交用例会自己跳过。
         git fetch -q --depth 200 origin "$SOURCE_COMMIT"
         git checkout -q FETCH_HEAD
+        # 按 SHA 取源不会建 origin/main 引用,仓库里就没有 main 分支了,
+        # 而私人仓的 git 历史用例要它 —— 补一个本地 main 指向同一个提交。
+        git branch -f main FETCH_HEAD
         echo "private source @ $(git rev-parse --short HEAD)"
         # 把 git 历史用例依赖的前提变成显式断言。深度不够时那些用例会
         # 以"断言失败"的样子红掉,看不出是取源码太浅。
