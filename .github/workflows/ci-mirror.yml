@@ -437,10 +437,13 @@ jobs:
       uses: actions/github-script@v7
       with:
         script: |
+          // workflow_run 触发时 context.run 是 undefined(事件载荷里没有
+          // run 对象),当前 run 的 id 只能从环境变量拿。
+          const runId = process.env.GITHUB_RUN_ID;
           const { data } = await github.rest.actions.listJobs({
             owner: context.repo.owner,
             repo: context.repo.repo,
-            run_id: context.run.id,
+            run_id: runId,
           });
           const lines = data.jobs.map(
             (j) => `| ${j.name} | ${j.conclusion || j.status} |`);
