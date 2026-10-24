@@ -596,7 +596,7 @@ jobs:
       with:
         python-version: '3.11'
     - name: 装解析工作流用的库
-      run: pip install pyyaml ruff --break-system-packages -q
+      run: pip install pyyaml ruff codespell --break-system-packages -q
     - name: 取私人仓源码
       working-directory: .
       shell: bash
@@ -651,6 +651,8 @@ jobs:
       run: 'ruff check scripts/ --output-format=github'
     - name: Ruff format check (公开仓脚本)
       run: 'ruff format --check scripts/ --output-format=github'
+    - name: Codespell (公开仓脚本)
+      run: 'codespell scripts/'
     - name: 核对检查器都接进了流水线
       # 检查器写了却没人调用,看起来门禁齐了,实际一道都没生效。
       run: python scripts/check_gates_wired.py --public . --private src
