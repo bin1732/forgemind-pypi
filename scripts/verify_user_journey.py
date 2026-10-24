@@ -58,8 +58,15 @@ def _fetch(url: str, timeout: int = 120) -> bytes:
 
 
 def _run(cmd: list[str], **kwargs) -> subprocess.CompletedProcess:
-    """跑一条命令。"""
-    return subprocess.run(cmd, capture_output=True, text=True, timeout=300, **kwargs)
+    """跑一条命令。命令起不来也算跑过了 —— 返回码非零,理由在异常里。"""
+    try:
+        return subprocess.run(cmd, capture_output=True, text=True, timeout=300, **kwargs)
+    except (OSError, subprocess.SubprocessError) as exc:
+        # 命令不存在、超时这类问题,不该以 traceback 的形式甩给用户 ——
+        # 走查的人要看到的是"这一步没跑成",而不是一屏栈回溯。
+        return subprocess.CompletedProcess(
+            cmd, returncode=127, stdout="", stderr=f"命令无法执行: {exc}"
+        )
 
 
 def main() -> int:
@@ -167,10 +174,32 @@ def main() -> int:
                     env["PYTHONPATH"] = os.pathsep.join(
                         [p for p in (venv_site, os.environ.get("PYTHONPATH", ""), purelib) if p]
                     )
+                # 装出来的那份必须真的被用上。环境是带 --system-site-packages
+                # 建的,系统里若装过 forgemind,import 可能命中系统那份 ——
+                # 那样验的就是旧代码,结论不作数。
+                where = _run(
+                    [
+                        str(venv / "bin" / "python"),
+                        "-c",
+                        "import forgemind; print(forgemind.__file__); "
+                        "print(getattr(forgemind, '__version__', ''))",
+                    ],
+                    env=env,
+                )
+                loaded = where.stdout.strip().splitlines()
+                loaded_path = loaded[0] if loaded else ""
+                loaded_version = loaded[1] if len(loaded) > 1 else ""
+                if not loaded_path.startswith(str(venv)):
+                    problems.append(f"跑起来的不是装出来的那份: {loaded_path or '(没输出)'}")
+                    print(f"  ✗ 用的是: {loaded_path}")
+                else:
+                    print(f"  ✓ 用的是装出来的那份 ({loaded_version})")
+
                 for label, argv, expect in (
-                    ("版本", ["--help"], "backtest"),
+                    ("帮助", ["--help"], "backtest"),
                     ("配置", ["info"], "ForgeMind Config"),
                     ("策略列表", ["backtest", "--list-strategies"], "ma_cross"),
+                    ("版本", ["info"], loaded_version),
                 ):
                     result = _run([str(exe), *argv], env=env)
                     output = result.stdout + result.stderr
