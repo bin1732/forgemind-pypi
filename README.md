@@ -58,7 +58,7 @@ pip install --extra-index-url https://bin1732.github.io/forgemind-pypi/pypi/simp
 
 > 验证方式:以上两条命令在全新 venv 中已验证通过 —— `--extra-index-url` 形式
 > 能同时解析 forgemind 本体与全部依赖,`forgemind[cn]` 额外装上 akshare。
-> 也可直接装文件:`pip install forgemind-2026.9.3-py3-none-any.whl`
+> 也可直接装文件:从上面的下载页取 `forgemind-<版本>-py3-none-any.whl` 再 `pip install` 它。
 
 或直接下载单文件二进制(Linux / macOS / Windows,见 Releases)。
 
