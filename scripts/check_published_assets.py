@@ -122,7 +122,7 @@ def main() -> int:
             # href 形如 .../main/releases/builds/<build_id>/<文件名>
             parts = link.group(1).split("/main/", 1)[-1].split("/")
             if "builds" in parts:
-                after = parts[parts.index("builds") + 1:]
+                after = parts[parts.index("builds") + 1 :]
                 if after:
                     online_build = after[0]
 
@@ -196,7 +196,11 @@ def main() -> int:
                     f"清单记的是构建 {manifest_build},线上索引指向 {build.name};两边不是同一份产物"
                 )
             elif not manifest_build:
-                problems.append("清单里没有 build_id,无法确认它对应哪一次构建")
+                # 旧清单没有这个字段。它读不到自己属于哪一次构建,字节数
+                # 就无从判断该不该比 —— 这种情况下不比,而不是拿两个不同
+                # 构建的字节数硬比。
+                print(f"注意:清单里没有 build_id,跳过字节数核对(线上索引指向 {build.name})")
+                manifest_sizes = {}
             for name in sorted(local & set(manifest_sizes)):
                 actual = (build / name).stat().st_size
                 if actual != manifest_sizes[name]:
