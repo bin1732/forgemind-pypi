@@ -47,8 +47,7 @@ ASSET_SUFFIXES = (".whl", ".tar.gz", ".exe")
 
 def is_asset(name: str) -> bool:
     """清单里的资产名。"""
-    return name.endswith(ASSET_SUFFIXES) or name in (
-        "forgemind-linux", "forgemind-macos")
+    return name.endswith(ASSET_SUFFIXES) or name in ("forgemind-linux", "forgemind-macos")
 
 
 def release_assets(token: str | None) -> dict[str, int] | None:
@@ -56,11 +55,14 @@ def release_assets(token: str | None) -> dict[str, int] | None:
     if not token:
         return None
     url = "https://api.github.com/repos/bin1732/forgemind-pypi/releases/tags/continuous"
-    req = urllib.request.Request(url, headers={
-        "Authorization": f"Bearer {token}",
-        "Accept": "application/vnd.github+json",
-        "User-Agent": "forgemind-assets",
-    })
+    req = urllib.request.Request(
+        url,
+        headers={
+            "Authorization": f"Bearer {token}",
+            "Accept": "application/vnd.github+json",
+            "User-Agent": "forgemind-assets",
+        },
+    )
     try:
         with urllib.request.urlopen(req, timeout=60) as resp:
             data = json.load(resp)
@@ -76,8 +78,13 @@ def token_from_env_or_remote() -> str | None:
         if value:
             return value
     try:
-        url = subprocess.run(["git", "remote", "get-url", "origin"], cwd=REPO,
-                             capture_output=True, text=True, timeout=30).stdout.strip()
+        url = subprocess.run(
+            ["git", "remote", "get-url", "origin"],
+            cwd=REPO,
+            capture_output=True,
+            text=True,
+            timeout=30,
+        ).stdout.strip()
     except Exception:
         return None
     if not url:
@@ -88,10 +95,10 @@ def token_from_env_or_remote() -> str | None:
 def main() -> int:
     parser = argparse.ArgumentParser(description="核对发布构件与清单、索引、文档")
     parser.add_argument("--repo", type=Path, default=REPO, help="公开仓根目录")
-    parser.add_argument("--doc", type=Path, default=None,
-                        help="私人仓自检文档路径(给了就核对里面的字节数)")
-    parser.add_argument("--skip-online", action="store_true",
-                        help="不查 Release,只核对本地")
+    parser.add_argument(
+        "--doc", type=Path, default=None, help="私人仓自检文档路径(给了就核对里面的字节数)"
+    )
+    parser.add_argument("--skip-online", action="store_true", help="不查 Release,只核对本地")
     args = parser.parse_args()
 
     repo = args.repo.resolve()
@@ -99,12 +106,14 @@ def main() -> int:
 
     # 1) 只留当前 build 目录
     builds_dir = repo / "releases" / "builds"
-    build_dirs = sorted(p for p in builds_dir.iterdir() if p.is_dir()) \
-        if builds_dir.is_dir() else []
+    build_dirs = (
+        sorted(p for p in builds_dir.iterdir() if p.is_dir()) if builds_dir.is_dir() else []
+    )
     if len(build_dirs) != 1:
         problems.append(
             f"releases/builds 下应只有当前构建目录,实际 {len(build_dirs)} 个: "
-            f"{[p.name for p in build_dirs]}")
+            f"{[p.name for p in build_dirs]}"
+        )
     build = build_dirs[0] if build_dirs else None
 
     # 2) 索引声明的校验值与仓库里那个文件一致
@@ -129,8 +138,8 @@ def main() -> int:
                     actual = hashlib.sha256(local.read_bytes()).hexdigest()
                     if actual != declared:
                         problems.append(
-                            f"索引声明的校验值与 {rel} 不一致: "
-                            f"声明 {declared},实际 {actual}")
+                            f"索引声明的校验值与 {rel} 不一致: 声明 {declared},实际 {actual}"
+                        )
 
     # 3) 清单与实际文件一致
     manifest_path = repo / "releases" / "builds" / "manifest.json"
@@ -156,8 +165,8 @@ def main() -> int:
                 actual = (build / name).stat().st_size
                 if actual != manifest_sizes[name]:
                     problems.append(
-                        f"清单记的 {name} 是 {manifest_sizes[name]} 字节,"
-                        f"实际 {actual} 字节")
+                        f"清单记的 {name} 是 {manifest_sizes[name]} 字节,实际 {actual} 字节"
+                    )
 
     # 4) 文档里列的资产与清单一致;清单的字节数与线上发布资产一致
     if args.doc is not None:
@@ -172,27 +181,24 @@ def main() -> int:
             else:
                 unknown = listed - manifest_assets
                 if unknown:
-                    problems.append(
-                        f"文档列了清单里没有的资产: {sorted(unknown)}")
+                    problems.append(f"文档列了清单里没有的资产: {sorted(unknown)}")
                 absent = manifest_assets - listed
                 if absent:
-                    problems.append(
-                        f"清单里的资产没在文档里列出: {sorted(absent)}")
+                    problems.append(f"清单里的资产没在文档里列出: {sorted(absent)}")
 
     if not args.skip_online:
         token = token_from_env_or_remote()
         actual = release_assets(token)
         if actual is None:
             problems.append(
-                "读不到 continuous release 的资产(缺凭据或网络不可达),"
-                "清单里的字节数未与线上核对")
+                "读不到 continuous release 的资产(缺凭据或网络不可达),清单里的字节数未与线上核对"
+            )
         else:
             for name, size in manifest_sizes.items():
                 if name not in actual:
                     problems.append(f"清单里的 {name} 不在 release 上")
                 elif actual[name] != size:
-                    problems.append(
-                        f"{name} 清单记 {size} 字节,线上实际 {actual[name]} 字节")
+                    problems.append(f"{name} 清单记 {size} 字节,线上实际 {actual[name]} 字节")
 
     if problems:
         print("发布构件与声明对不上:")

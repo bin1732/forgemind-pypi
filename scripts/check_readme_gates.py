@@ -24,8 +24,8 @@ import yaml
 
 # 表格行: | 检查 | 内容 | `workflow.yml` / 作业名 |
 GATE_ROW = re.compile(
-    r"^\|\s*[^|]+?\s*\|\s*[^|]+?\s*\|\s*`([^`]+\.yml)`\s*/\s*([^|`]+?)\s*\|\s*$",
-    re.M)
+    r"^\|\s*[^|]+?\s*\|\s*[^|]+?\s*\|\s*`([^`]+\.yml)`\s*/\s*([^|`]+?)\s*\|\s*$", re.M
+)
 
 
 def main() -> int:
@@ -48,12 +48,13 @@ def main() -> int:
             problems.append(f"承诺的流水线不存在: {workflow_name}")
             continue
         data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
-        names = [str((job or {}).get("name") or key)
-                 for key, job in (data.get("jobs") or {}).items()]
+        names = [
+            str((job or {}).get("name") or key) for key, job in (data.get("jobs") or {}).items()
+        ]
         if job_name not in names:
             problems.append(
-                f"承诺的作业不存在: {workflow_name} / {job_name}"
-                f"(该流水线现有作业: {names})")
+                f"承诺的作业不存在: {workflow_name} / {job_name}(该流水线现有作业: {names})"
+            )
 
     if problems:
         print(f"{readme.name} 承诺的关卡与实际流水线对不上:")

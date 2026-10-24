@@ -50,10 +50,12 @@ def _called(scripts: list[pathlib.Path], workflows_text: str) -> set[str]:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="核对检查器都接进了流水线")
-    parser.add_argument("--public", type=pathlib.Path, default=pathlib.Path("."),
-                        help="公开仓根目录")
-    parser.add_argument("--private", type=pathlib.Path, default=None,
-                        help="私人仓源码目录(镜像里的 src/)")
+    parser.add_argument(
+        "--public", type=pathlib.Path, default=pathlib.Path("."), help="公开仓根目录"
+    )
+    parser.add_argument(
+        "--private", type=pathlib.Path, default=None, help="私人仓源码目录(镜像里的 src/)"
+    )
     args = parser.parse_args()
 
     public = args.public.resolve()

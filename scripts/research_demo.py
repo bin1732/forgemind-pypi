@@ -15,20 +15,21 @@
 from __future__ import annotations
 
 import argparse
-import asyncio
 import json
 import sys
 
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="ForgeMind 研究示例")
-    parser.add_argument("--symbols", default="600519,000001",
-                        help="逗号分隔的标的代码")
+    parser.add_argument("--symbols", default="600519,000001", help="逗号分隔的标的代码")
     parser.add_argument("--start", default="2024-01-01", help="起始日期")
     parser.add_argument("--end", default="2024-12-31", help="结束日期")
-    parser.add_argument("--data-source", default="akshare",
-                        choices=["akshare", "csv", "mock"],
-                        help="数据来源;akshare 为真实取数")
+    parser.add_argument(
+        "--data-source",
+        default="akshare",
+        choices=["akshare", "csv", "mock"],
+        help="数据来源;akshare 为真实取数",
+    )
     parser.add_argument("--top-n", type=int, default=5, help="选股数量")
     parser.add_argument("--no-wfo", action="store_true", help="跳过滚动前向优化")
     parser.add_argument("--no-mc", action="store_true", help="跳过蒙特卡洛稳健性检验")
@@ -113,8 +114,10 @@ def main() -> int:
     if result.signals:
         print("=== 信号 ===")
         for sig in result.signals[: args.top_n]:
-            print(f"  {sig.get('symbol')} {sig.get('side')} "
-                  f"置信度={sig.get('confidence')} 理由={sig.get('rationale', '')[:60]}")
+            print(
+                f"  {sig.get('symbol')} {sig.get('side')} "
+                f"置信度={sig.get('confidence')} 理由={sig.get('rationale', '')[:60]}"
+            )
     return 0
 
 

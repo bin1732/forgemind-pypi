@@ -27,16 +27,18 @@ from pathlib import Path
 
 DEFAULT_INDEX = "https://bin1732.github.io/forgemind-pypi/pypi/simple/forgemind/"
 LINK = re.compile(r'href="([^"#]+)(?:#sha256=([0-9a-f]{64}))?"')
-MCP_INIT = json.dumps({
-    "jsonrpc": "2.0",
-    "id": 1,
-    "method": "initialize",
-    "params": {
-        "protocolVersion": "2024-11-05",
-        "capabilities": {},
-        "clientInfo": {"name": "journey-probe", "version": "1"},
-    },
-})
+MCP_INIT = json.dumps(
+    {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "initialize",
+        "params": {
+            "protocolVersion": "2024-11-05",
+            "capabilities": {},
+            "clientInfo": {"name": "journey-probe", "version": "1"},
+        },
+    }
+)
 
 
 def _fetch(url: str, timeout: int = 120) -> bytes:
@@ -47,7 +49,8 @@ def _fetch(url: str, timeout: int = 120) -> bytes:
     """
     result = subprocess.run(
         ["curl", "-sL", "--max-time", str(timeout), url],
-        capture_output=True, timeout=timeout + 30,
+        capture_output=True,
+        timeout=timeout + 30,
     )
     if result.returncode != 0:
         raise RuntimeError(f"下载失败: {result.stderr.decode('utf-8', 'replace')[-200:]}")
@@ -112,20 +115,35 @@ def main() -> int:
         result = _run([sys.executable, "-m", "venv", "--system-site-packages", str(venv)])
         if result.returncode != 0:
             problems.append(f"建虚拟环境失败: {result.stderr[-200:]}")
-            print(f"  ✗ 建虚拟环境失败")
+            print("  ✗ 建虚拟环境失败")
         else:
             pip = venv / "bin" / "pip"
             # 按真实用户的方式装:连依赖一起装。装不上(离线环境)再退回
             # --no-deps,依赖从当前解释器借。
-            result = _run([
-                str(pip), "install", "-q",
-                "--retries", "1", "--timeout", "15", str(wheel),
-            ])
+            result = _run(
+                [
+                    str(pip),
+                    "install",
+                    "-q",
+                    "--retries",
+                    "1",
+                    "--timeout",
+                    "15",
+                    str(wheel),
+                ]
+            )
             borrowed = False
             if result.returncode != 0:
-                result = _run([
-                    str(pip), "install", "--no-deps", "--no-index", "-q", str(wheel),
-                ])
+                result = _run(
+                    [
+                        str(pip),
+                        "install",
+                        "--no-deps",
+                        "--no-index",
+                        "-q",
+                        str(wheel),
+                    ]
+                )
                 borrowed = True
             if result.returncode != 0:
                 problems.append(f"安装失败: {result.stderr[-200:]}")
@@ -136,6 +154,7 @@ def main() -> int:
                 # 5. 命令真的能跑
                 exe = venv / "bin" / "forgemind"
                 import sysconfig
+
                 purelib = sysconfig.get_paths()["purelib"]
                 venv_site = sysconfig.get_path(
                     "purelib", vars={"base": str(venv), "platbase": str(venv)}
@@ -174,6 +193,7 @@ def main() -> int:
             print(f"临时目录保留在: {workdir}")
         else:
             import shutil
+
             shutil.rmtree(workdir, ignore_errors=True)
 
     if problems:

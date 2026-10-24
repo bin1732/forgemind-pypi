@@ -54,9 +54,7 @@ def _no_duplicate_keys(loader, node, deep=False):
     return mapping
 
 
-StrictLoader.add_constructor(
-    yaml.resolver.BaseResolver.DEFAULT_MAPPING_TAG, _no_duplicate_keys
-)
+StrictLoader.add_constructor(yaml.resolver.BaseResolver.DEFAULT_MAPPING_TAG, _no_duplicate_keys)
 
 
 def check_strict_parse(path: Path) -> str | None:
@@ -85,7 +83,8 @@ def check_git_init_isolation(name: str, job_name: str, job: dict) -> list[str]:
         if "mkdir -p" not in run or "cd " not in run:
             problems.append(
                 f"{name}:{job_name}: 取源码前没有切进自己的目录,"
-                f"工作区根若已 checkout 过本仓,git init 会串到本仓的 .git")
+                f"工作区根若已 checkout 过本仓,git init 会串到本仓的 .git"
+            )
     return problems
 
 
@@ -124,7 +123,8 @@ def check_step_schema(name: str, job_name: str, job: dict) -> list[str]:
                 if key in step:
                     problems.append(
                         f"{where}: uses 步骤上不能有 {key}"
-                        f"(它只对 run 步骤有意义,会让整个工作流不被执行)")
+                        f"(它只对 run 步骤有意义,会让整个工作流不被执行)"
+                    )
         else:
             if "with" in step:
                 problems.append(f"{where}: run 步骤上不能有 with")
@@ -145,9 +145,7 @@ def check_run(name: str, run: str) -> list[str]:
             if lines[offset].strip() != tag:
                 continue
             if lines[offset] != lines[offset].lstrip():
-                problems.append(
-                    f"{name}: 文档分隔符 {tag} 的终止符带缩进,shell 认不出来"
-                )
+                problems.append(f"{name}: 文档分隔符 {tag} 的终止符带缩进,shell 认不出来")
             break
         else:
             problems.append(f"{name}: 文档分隔符 {tag} 没有终止符")

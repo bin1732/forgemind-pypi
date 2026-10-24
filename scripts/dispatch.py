@@ -8,31 +8,38 @@
     python scripts/dispatch.py ci-mirror.yml schedule
     python scripts/dispatch.py ship.yml dispatch
 """
+
 import json
 import subprocess
 import sys
 import time
+import urllib.error
 import urllib.parse
 import urllib.request
-import urllib.error
 
 REPO = "bin1732/forgemind-pypi"
 API = "https://api.github.com"
 
 
 def token() -> str:
-    url = subprocess.run(["git", "remote", "get-url", "origin"],
-                         cwd="/workspace/forgemind-pypi",
-                         capture_output=True, text=True, check=True).stdout.strip()
+    url = subprocess.run(
+        ["git", "remote", "get-url", "origin"],
+        cwd="/workspace/forgemind-pypi",
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout.strip()
     return urllib.parse.urlsplit(url).password
 
 
 def call(method: str, path: str, tok: str, payload=None):
     url = path if path.startswith("http") else API + path
     data = json.dumps(payload).encode() if payload is not None else None
-    headers = {"Authorization": f"Bearer {tok}",
-               "Accept": "application/vnd.github+json",
-               "User-Agent": "forgemind-dispatch"}
+    headers = {
+        "Authorization": f"Bearer {tok}",
+        "Accept": "application/vnd.github+json",
+        "User-Agent": "forgemind-dispatch",
+    }
     if data:
         headers["Content-Type"] = "application/json"
     req = urllib.request.Request(url, data=data, headers=headers, method=method)
@@ -55,8 +62,9 @@ def main() -> int:
         print("schedule 只能由 cron 命中;这里改用 dispatch,heavy 条件里已含 dispatch")
         event = "dispatch"
 
-    st, body = call("POST", f"/repos/{REPO}/actions/workflows/{wf}/dispatches",
-                    tok, {"ref": "main"})
+    st, body = call(
+        "POST", f"/repos/{REPO}/actions/workflows/{wf}/dispatches", tok, {"ref": "main"}
+    )
     print(f"dispatch {wf} ({event}) -> http={st} {body if st != 204 else ''}")
     if st not in (204, 200, 201):
         return 1

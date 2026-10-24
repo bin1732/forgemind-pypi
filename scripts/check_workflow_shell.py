@@ -9,17 +9,27 @@ Windows runner 默认是 PowerShell,不认 set -euo pipefail / [[ ]] / PIPESTATU
 
     python scripts/check_workflow_shell.py
 """
-import pathlib, re, sys
+
+import pathlib
+import re
+import sys
+
 bad = []
 for wf in sorted(pathlib.Path(".github/workflows").glob("*.yml")):
     text = wf.read_text()
     # 按 step 切块
-    for m in re.finditer(r"^      - (name|uses):.*?(?=^      - (?:name|uses):|\Z)",
-                         text, re.S | re.M):
+    for m in re.finditer(
+        r"^      - (name|uses):.*?(?=^      - (?:name|uses):|\Z)", text, re.S | re.M
+    ):
         blk = m.group(0)
-        if "run: |" not in blk: continue
+        if "run: |" not in blk:
+            continue
         # bash 专有语法
-        uses_bash = bool(re.search(r"set -euo pipefail|\[\[|PIPESTATUS|shopt -s|\$\(\(|&>/dev/null|timeout \d+ ", blk))
+        uses_bash = bool(
+            re.search(
+                r"set -euo pipefail|\[\[|PIPESTATUS|shopt -s|\$\(\(|&>/dev/null|timeout \d+ ", blk
+            )
+        )
         has_shell = "shell: bash" in blk
         if uses_bash and not has_shell:
             name = re.search(r"name: (.+)", blk)
@@ -27,6 +37,7 @@ for wf in sorted(pathlib.Path(".github/workflows").glob("*.yml")):
 print(f"检查 {len(list(pathlib.Path('.github/workflows').glob('*.yml')))} 个 workflow")
 if bad:
     print("以下 step 用了 bash 语法但没声明 shell: bash:")
-    for b in bad: print("  ✗", b)
+    for b in bad:
+        print("  ✗", b)
     sys.exit(1)
 print("✓ 全部 bash 步骤都已声明 shell: bash")

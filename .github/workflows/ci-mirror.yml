@@ -99,9 +99,9 @@ jobs:
     # 源码这两步是拦人的。用项目自己的 ruff 配置(命令行不再覆盖),
     # 配置漂移会让"本地过了"和"流水线过了"不是同一件事。
     - name: Ruff check (lint)
-      run: 'ruff check forgemind/ --output-format=github'
+      run: 'ruff check forgemind/ scripts/ --output-format=github'
     - name: Ruff format check
-      run: 'ruff format --check forgemind/ --output-format=github'
+      run: 'ruff format --check forgemind/ scripts/ --output-format=github'
     # 测试树只报不拦:那批长名测试文件攒着几千条历史告警,一次全量
     # 重排会把真实改动埋掉 —— 源码那边才是拦人的。
     - name: Ruff check (tests, 只报不拦)
@@ -115,8 +115,6 @@ jobs:
       # codespell 直接报参数错误退出。之前这一行包在 || echo 里,错误一起
       # 被吞了,于是这道门禁其实一次都没真正跑过。
       run: 'codespell forgemind/ --ignore-words=.codespellignore'
-    - name: Workflow shell 声明检查
-      run: 'python scripts/check_workflow_shell.py'
     - name: 仓库残留扫描
       run: |
                 # 复盘措辞、构建产物、诊断产物、过期副本与许可证头。
@@ -598,7 +596,7 @@ jobs:
       with:
         python-version: '3.11'
     - name: 装解析工作流用的库
-      run: pip install pyyaml --break-system-packages -q
+      run: pip install pyyaml ruff --break-system-packages -q
     - name: 取私人仓源码
       working-directory: .
       shell: bash
@@ -647,6 +645,12 @@ jobs:
       # 公开仓自己的工作流也有 Windows runner,bash 语法没声明 shell
       # 会在那边直接跑不起来。
       run: python scripts/check_workflow_shell.py
+    - name: Ruff check (公开仓脚本)
+      # 公开仓的脚本以前没人查过 —— 这里面的检查器本身就是门禁,
+      # 写错了不会有人发现。
+      run: 'ruff check scripts/ --output-format=github'
+    - name: Ruff format check (公开仓脚本)
+      run: 'ruff format --check scripts/ --output-format=github'
     - name: 核对检查器都接进了流水线
       # 检查器写了却没人调用,看起来门禁齐了,实际一道都没生效。
       run: python scripts/check_gates_wired.py --public . --private src

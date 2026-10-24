@@ -28,9 +28,9 @@ from pathlib import Path
 
 try:
     import yaml
-except ImportError:  # pragma: no cover
+except ImportError as exc:  # pragma: no cover
     print("需要 pyyaml 才能解析工作流文件", file=sys.stderr)
-    raise SystemExit(2)
+    raise SystemExit(2) from exc
 
 PUBLIC = Path(__file__).resolve().parent.parent
 MIRROR_WORKFLOW = "ci-mirror.yml"
@@ -60,9 +60,8 @@ def normalize(block: str) -> list[str]:
     pending = ""
     for raw in block.splitlines():
         line = raw.strip()
-        if not pending:
-            if not line or line.startswith("#"):
-                continue
+        if not pending and (not line or line.startswith("#")):
+            continue
         if line.endswith("\\"):
             pending += line[:-1].strip() + " "
             continue
@@ -70,7 +69,7 @@ def normalize(block: str) -> list[str]:
         pending = ""
     if pending:
         lines.append(pending.strip())
-    return [" ".join(l.split()) for l in lines if l.strip()]
+    return [" ".join(line.split()) for line in lines if line.strip()]
 
 
 def _steps_of(job: dict) -> list[dict]:
@@ -112,14 +111,14 @@ def check_no_shallow_fetch(workflow: dict) -> list[str]:
     """
     problems: list[str] = []
     for job_name, job in (workflow.get("jobs") or {}).items():
-        for step in (job.get("steps") or []):
+        for step in job.get("steps") or []:
             run = step.get("run")
             if not isinstance(run, str) or "git fetch" not in run:
                 continue
             if re.search(r"--depth[= ]1(?![0-9])", run):
                 problems.append(
-                    f"{job_name}: 取源码用了 --depth 1(只剩一个提交),"
-                    f"私人仓的 git 历史用例会失效")
+                    f"{job_name}: 取源码用了 --depth 1(只剩一个提交),私人仓的 git 历史用例会失效"
+                )
     return problems
 
 
@@ -134,8 +133,7 @@ def check_history_depth(workflow: dict) -> list[str]:
     """
     problems: list[str] = []
     for job_name, job in (workflow.get("jobs") or {}).items():
-        runs = [s.get("run") for s in (job.get("steps") or [])
-                if isinstance(s.get("run"), str)]
+        runs = [s.get("run") for s in (job.get("steps") or []) if isinstance(s.get("run"), str)]
         if not any("pytest tests/" in r for r in runs):
             continue
         # 只跑重并发档的作业不碰 git 历史用例(那个文件不是重并发档),
@@ -144,22 +142,19 @@ def check_history_depth(workflow: dict) -> list[str]:
             continue
         for run in runs:
             if "git fetch" in run and re.search(r"--depth[= ]", run):
-                problems.append(
-                    f"{job_name}: 跑私人仓全量测试的作业取了浅历史,"
-                    f"git 历史用例会失效")
+                problems.append(f"{job_name}: 跑私人仓全量测试的作业取了浅历史,git 历史用例会失效")
                 break
     return problems
 
 
 def _installs_deps(commands: set[str]) -> bool:
     """这个作业是否装了项目的依赖。"""
-    return any("requirements-ci.txt" in c and c.startswith("pip install")
-               for c in commands)
+    return any("requirements-ci.txt" in c and c.startswith("pip install") for c in commands)
 
 
 def _job_commands(job: dict) -> set[str]:
     out: set[str] = set()
-    for step in (job.get("steps") or []):
+    for step in job.get("steps") or []:
         run = step.get("run")
         if isinstance(run, str):
             out.update(normalize(run))
@@ -174,33 +169,33 @@ def check_dep_placement(private_workflows: dict, mirror_workflows: dict) -> list
     命令在镜像里出现了,但落在了错误的作业里。
     """
     problems: list[str] = []
-    mirror_jobs = [(name, _job_commands(job)) for name, job
-                   in mirror_workflows.get("jobs", {}).items()]
+    mirror_jobs = [
+        (name, _job_commands(job)) for name, job in mirror_workflows.get("jobs", {}).items()
+    ]
     for wf_name, wf in private_workflows.items():
         for pj_name, pj in (wf.get("jobs") or {}).items():
             pcmds = _job_commands(pj)
             if not _installs_deps(pcmds):
                 continue
-            checks = {c for c in pcmds
-                      if not c.startswith("pip install")
-                      and "requirements-ci.txt" not in c}
+            checks = {
+                c
+                for c in pcmds
+                if not c.startswith("pip install") and "requirements-ci.txt" not in c
+            }
             for cmd in sorted(checks):
                 if not any(cmd in mcmds for _, mcmds in mirror_jobs):
                     continue
-                if not any(cmd in mcmds and _installs_deps(mcmds)
-                           for _, mcmds in mirror_jobs):
+                if not any(cmd in mcmds and _installs_deps(mcmds) for _, mcmds in mirror_jobs):
                     problems.append(
-                        f"{wf_name}:{pj_name} 的检查在镜像里没有落在装了依赖的"
-                        f"作业中: {cmd[:90]}")
+                        f"{wf_name}:{pj_name} 的检查在镜像里没有落在装了依赖的作业中: {cmd[:90]}"
+                    )
     return problems
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="核对镜像工作流覆盖了私人仓的门禁")
-    parser.add_argument("--private", type=Path, required=True,
-                        help="私人仓源码根目录")
-    parser.add_argument("--public", type=Path, default=PUBLIC,
-                        help="公开仓根目录")
+    parser.add_argument("--private", type=Path, required=True, help="私人仓源码根目录")
+    parser.add_argument("--public", type=Path, default=PUBLIC, help="公开仓根目录")
     args = parser.parse_args()
 
     private_dir = args.private.resolve()
@@ -242,15 +237,13 @@ def main() -> int:
         for cmd in missing:
             problems.append(f"{name} 有命令没被镜像: {cmd}")
         for cmd in missing_uncond:
-            problems.append(
-                f"{name} 有无条件命令在镜像里被条件跳过了: {cmd}")
+            problems.append(f"{name} 有无条件命令在镜像里被条件跳过了: {cmd}")
 
     # 私人仓的工作流不许有漏网的
     for path in sorted(private_wf_dir.glob("*.yml")):
         if path.name in GATE_WORKFLOWS or path.name in EXCLUDED_WORKFLOWS:
             continue
-        problems.append(
-            f"私人仓的工作流 {path.name} 既没被镜像,也没在排除清单里写明理由")
+        problems.append(f"私人仓的工作流 {path.name} 既没被镜像,也没在排除清单里写明理由")
 
     # 镜像自己的硬性要求
     problems.extend(check_no_shallow_fetch(mirror))

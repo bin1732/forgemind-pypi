@@ -8,7 +8,6 @@ import asyncio
 import sys
 
 import akshare as ak
-
 from forgemind.core.data.akshare_etl import AKShareETL
 
 SYMBOLS = ["600519", "000001"]
@@ -18,13 +17,28 @@ START, END = "2023-01-01", "2024-12-31"
 def probe_providers():
     """逐个探测三个源 —— 确认回退链上哪几个真的可用"""
     for name, fn in [
-        ("eastmoney", lambda: ak.stock_zh_a_hist(
-            symbol="600519", period="daily",
-            start_date="20240101", end_date="20240110", adjust="qfq")),
-        ("tencent", lambda: ak.stock_zh_a_hist_tx(
-            symbol="sh600519", start_date="20240101", end_date="20240110", adjust="qfq")),
-        ("sina", lambda: ak.stock_zh_a_daily(
-            symbol="sh600519", start_date="20240101", end_date="20240110", adjust="qfq")),
+        (
+            "eastmoney",
+            lambda: ak.stock_zh_a_hist(
+                symbol="600519",
+                period="daily",
+                start_date="20240101",
+                end_date="20240110",
+                adjust="qfq",
+            ),
+        ),
+        (
+            "tencent",
+            lambda: ak.stock_zh_a_hist_tx(
+                symbol="sh600519", start_date="20240101", end_date="20240110", adjust="qfq"
+            ),
+        ),
+        (
+            "sina",
+            lambda: ak.stock_zh_a_daily(
+                symbol="sh600519", start_date="20240101", end_date="20240110", adjust="qfq"
+            ),
+        ),
     ]:
         try:
             df = fn()
@@ -40,8 +54,7 @@ async def main():
     assert stats["klines"] > 0, f"多源回退未取到任何行: {stats}"
     assert stats["ok_symbols"] >= 1, f"没有标的取数成功: {stats}"
     assert "failures" in stats, "缺少按原因归类的失败明细"
-    print(f"PASS akshare real fetch {stats['klines']} klines "
-          f"from {stats['ok_symbols']} symbol(s)")
+    print(f"PASS akshare real fetch {stats['klines']} klines from {stats['ok_symbols']} symbol(s)")
 
     # 下游:真实数据 -> 选股
     from forgemind.core.agents.stock_picker import StockPickerAgent
@@ -49,8 +62,10 @@ async def main():
 
     with DuckDBStorage() as db:
         rows = db.query_scalar("SELECT COUNT(*) FROM kline_daily")
-        syms = [r["symbol"] for r in db.query_df(
-            "SELECT DISTINCT symbol FROM kline_daily").to_dict("records")]
+        syms = [
+            r["symbol"]
+            for r in db.query_df("SELECT DISTINCT symbol FROM kline_daily").to_dict("records")
+        ]
     print(f"DB rows={rows} symbols={syms}")
     assert rows > 0, "数据未落进 DuckDB"
 
