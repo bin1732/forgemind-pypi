@@ -60,6 +60,20 @@ async def main():
     assert all(p.rationale for p in picks), "存在没有给出理由的选股结果"
     print(f"PASS end-to-end real data: {rows} rows -> {len(picks)} picks")
 
+    # 宏观:对外说明里写着提供 CN macro,这里就真取一次
+    from forgemind.core.data.sources.extended_sources import MacroDataSource
+
+    macro = MacroDataSource()
+    ok, why = macro.is_available()
+    assert ok, f"宏观源不可用:{why}"
+    frame = macro.fetch(start="2024-01-01", end="2024-12-31")
+    print(f"MACRO rows={frame.height} cols={frame.columns}")
+    assert frame.height > 0, "宏观源没有取到任何行"
+    for column in ("PMI", "CPI", "PPI", "M2_yoy", "10y_yield", "USD_CNY"):
+        assert column in frame.columns, f"宏观表少了 {column} 列"
+        assert frame[column].null_count() < frame.height, f"{column} 全是空值"
+    print("PASS macro real fetch")
+
 
 if __name__ == "__main__":
     try:
