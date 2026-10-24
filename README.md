@@ -180,16 +180,16 @@ forgemind agent --symbol 600519.SH
 ┌─────────────────────────────────────────────────────────┐
 │                   ForgeMind                             │
 ├──────────────┬──────────────────┬─────────────────────┤
-│  CLI / API   │  Desktop (Tauri) │  MCP Protocol       │
+│ CLI / API    │ Desktop (Tauri)  │ MCP Protocol        │
 ├──────────────┴──────────────────┴─────────────────────┤
-│  FastAPI Server                                        │
+│  FastAPI Server                                         │
 ├───────────────┬───────────────┬───────────────────────┤
-│  Stock Picker │  AI Decision  │  Backtest Engine       │
-│  Agent        │  (LangGraph)  │  (Vectorized)         │
+│ Stock Picker  │ AI Decision   │ Backtest Engine       │
+│ Agent         │ (LangGraph)   │ (Event-driven)        │
 ├───────────────┴───────────────┴───────────────────────┤
-│  169 Alpha Factors (Alpha158 + Alpha101) · IC · Barra  │
+│  169 Alpha Factors (Alpha158 + Alpha101) · IC · Barra   │
 ├─────────────────────────────────────────────────────────┤
-│  AKShare ETL → DuckDB / ClickHouse                    │
+│  AKShare ETL → DuckDB / ClickHouse                      │
 └─────────────────────────────────────────────────────────┘
 ```
 
