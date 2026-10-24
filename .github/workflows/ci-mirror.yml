@@ -126,6 +126,11 @@ jobs:
                 # 根本不会被执行,流水线却显示为绿。
                 pip install packaging --break-system-packages -q
                 python scripts/check_ci_lock.py
+    - name: 版本号声明对账
+      run: |
+                # 版本号写在 pyproject 与 forgemind/__init__.py 两处,漏改一处,
+                # 装出来的包就会报一个和实际代码对不上的版本。
+                python scripts/check_version_consistency.py .
     - name: Vulture dead code scan
       run: |
                 pip install vulture --break-system-packages -q
