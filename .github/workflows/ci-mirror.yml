@@ -105,11 +105,13 @@ jobs:
     # 测试树只报不拦:那批长名测试文件攒着几千条历史告警,一次全量
     # 重排会把真实改动埋掉 —— 源码那边才是拦人的。
     - name: Ruff check (tests, 只报不拦)
-      run: 'ruff check tests/ --output-format=github
-        || echo "tests: ruff 告警只报不拦"'
+      run: |
+        ruff check tests/ --output-format=github \
+          || echo "tests: ruff 告警只报不拦"
     - name: Ruff format check (tests, 只报不拦)
-      run: 'ruff format --check tests/ --output-format=github
-        || echo "tests: ruff format 只报不拦"'
+      run: |
+        ruff format --check tests/ --output-format=github \
+          || echo ""tests: ruff format 只报不拦"
     - name: Codespell
       # codespell 没有 --output-format 这个参数(那是 flake8 的),带着它
       # codespell 直接报参数错误退出。之前这一行包在 || echo 里,错误一起
@@ -148,10 +150,12 @@ jobs:
                 python -m vulture forgemind/ --min-confidence 100
     # 测试树只报不拦:那里面有一批靠副作用生效的 pytest fixture,
     # vulture 认不出那是 fixture,会报成"未使用的变量"。
+    # || 必须和命令写在同一行:折行之后它就成了独立的一条命令,
+    # 步骤会以语法错误失败 —— 这道"只报不拦"的检查反而把流水线弄红了。
     - name: Vulture dead code scan (tests, 只报不拦)
       run: |
-                python -m vulture tests/ --min-confidence 100
-                || echo "tests: vulture 告警只报不拦"
+                python -m vulture tests/ --min-confidence 100 \
+                  || echo "tests: vulture 告警只报不拦"
 
   mirror-security:
     name: 镜像 · 安全扫描
@@ -582,6 +586,12 @@ jobs:
                   # mock 只应活在测试里。构建配置或业务源码一旦引用
                   # __mocks__,真机上就会显示编造的数据,而测试还是全绿。
                   python ../scripts/check_ui_mock_isolation.py .
+    - name: 空态区分核对
+      run: |
+                  # 取数失败时界面要说得出是失败,不能笼统写"暂无数据" ——
+                  # 用户会以为自己没数据,其实是后端连不上。判据是组件测试
+                  # 真的断言了这一点,所以这里只检查那条测试在不在。
+                  python ../scripts/check_ui_empty_state.py .
 
   mirror-audit:
     name: 镜像 · 完整性对账
