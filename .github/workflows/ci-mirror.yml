@@ -24,6 +24,12 @@ on:
 permissions:
   contents: read
 
+# 新的发布会把上一轮还在跑的验证顶掉。被顶掉的那次记成 cancelled
+# (而不是 failure)—— 它验的是已经被取代的构件,红在那里只会误导人。
+concurrency:
+  group: mirror-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   # 构件的来源提交写在公开仓的清单里。镜像测的必须是它 —— 否则"测过的"
   # 与"发出去的"可能不是同一份代码,全绿也就没有意义了。
@@ -460,6 +466,9 @@ jobs:
         echo "下载 $url"
         curl -sSL --retry 5 --retry-delay 5 -o "$GITHUB_WORKSPACE/dist/$name" "$url"
         echo "$sha  $GITHUB_WORKSPACE/dist/$name" | sha256sum -c -
+        # 核对 wheel 里的模块与源码一个不少:构建配置漏掉一个子包,
+        # 用户装上之后 import 才报错 —— 源码树里那个模块明明在。
+        python src/scripts/check_wheel_contents.py "$GITHUB_WORKSPACE/dist/$name" src
         python -m venv "$GITHUB_WORKSPACE/v"
         "$GITHUB_WORKSPACE/v/bin/pip" install -q --upgrade pip
         # 连依赖一起装,跟真实用户一样

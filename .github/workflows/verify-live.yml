@@ -17,6 +17,12 @@ on:
 permissions:
   contents: read
 
+# 新的发布会把上一轮还在跑的验证顶掉。被顶掉的那次记成 cancelled
+# (而不是 failure)—— 它验的是已经被取代的构件,红在那里只会误导人。
+concurrency:
+  group: verify-live-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   live-akshare:
     runs-on: ubuntu-latest

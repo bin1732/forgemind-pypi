@@ -13,6 +13,12 @@ on:
 permissions:
   contents: write
 
+# 发布不打断:一次发布被打断会留下半发布的构件(资产传了一半、索引还没指),
+# 那比排队久一点糟糕得多。
+concurrency:
+  group: ship-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
   # 先把"这次发布用哪个提交"定下来,后面所有构建都钉在它上面。
   # 三个构建各自 fetch main 的话,main 一动就可能拿到不同的提交 ——

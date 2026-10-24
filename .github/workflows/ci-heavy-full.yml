@@ -12,7 +12,9 @@ name: heavy-full
 on:
   workflow_dispatch:
   schedule:
+  # 一天两个时段:这一档要跑近一小时,错过一个时段就少一次验证。
   - cron: '41 3 * * *'
+  - cron: '41 15 * * *'
 
 permissions:
   contents: read
