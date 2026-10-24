@@ -104,15 +104,28 @@ def main() -> int:
     repo = args.repo.resolve()
     problems: list[str] = []
 
-    # 1) 判据是"线上索引指向的那个构建",不是"仓库里恰好剩一个目录"。
+    # 1) 判据是"这次发布的那份产物",不是"仓库里恰好剩一个目录"。
     # 发布流程会往 main 提交索引与清单,而验证工作流是被 ship 触发的 ——
     # 触发的那一刻 main 上可能还没有这次发布的提交。拿"目录数"当判据,
-    # 就会把一次正常的发布报成不一致。真正要紧的是:用户按索引下载到的
-    # 那个构建,内容与清单对得上。
+    # 就会把一次正常的发布报成不一致。
+    #
+    # 优先用清单里记的构建号:清单与文件在同一个提交里,天然同源。
+    # 清单没有这个字段(旧清单)时退回索引指向的构建 —— 那也是用户按
+    # 索引下载到的。
     builds_dir = repo / "releases" / "builds"
     build_dirs = (
         sorted(p for p in builds_dir.iterdir() if p.is_dir()) if builds_dir.is_dir() else []
     )
+    manifest_path = repo / "releases" / "builds" / "manifest.json"
+    manifest_assets: set[str] = set()
+    manifest_sizes: dict[str, int] = {}
+    manifest_build = ""
+    if manifest_path.is_file():
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        manifest_assets = set(manifest.get("assets", []))
+        manifest_sizes = dict(manifest.get("sizes", {}))
+        manifest_build = str(manifest.get("build_id") or "")
+
     index_path = repo / "pypi" / "simple" / "forgemind" / "index.html"
     online_build = ""
     if index_path.is_file():
@@ -127,7 +140,13 @@ def main() -> int:
                     online_build = after[0]
 
     build = None
-    if online_build:
+    if manifest_build:
+        candidate = builds_dir / manifest_build
+        if candidate.is_dir():
+            build = candidate
+        else:
+            problems.append(f"清单记的构建目录不存在: releases/builds/{manifest_build}")
+    elif online_build:
         candidate = builds_dir / online_build
         if candidate.is_dir():
             build = candidate
@@ -167,15 +186,10 @@ def main() -> int:
                         )
 
     # 3) 清单与实际文件一致
-    manifest_path = repo / "releases" / "builds" / "manifest.json"
-    manifest_assets: set[str] = set()
-    manifest_sizes: dict[str, int] = {}
     if not manifest_path.is_file():
         problems.append(f"找不到清单: {manifest_path}")
     else:
         manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-        manifest_assets = set(manifest.get("assets", []))
-        manifest_sizes = dict(manifest.get("sizes", {}))
         if not manifest_sizes:
             problems.append("清单里没有 sizes 字段,清单是旧的")
         if not (manifest.get("source_commit") or "").strip():
@@ -189,17 +203,15 @@ def main() -> int:
             # 字节数只在同一个构建内部比。源码包不是可复现构建 —— 同样的
             # 源码打两次包,字节数会差几十个字节(归档里的时间戳)。拿它去
             # 比另一个构建的同名文件,比的其实是两次不同的构建,必然对不上。
-            # 清单要记自己属于哪个构建,只有同一个构建的字节数才可比。
-            manifest_build = str(manifest.get("build_id") or "")
             if manifest_build and manifest_build != build.name:
                 problems.append(
-                    f"清单记的是构建 {manifest_build},线上索引指向 {build.name};两边不是同一份产物"
+                    f"清单记的是构建 {manifest_build},核对的却是 {build.name};两边不是同一份产物"
                 )
             elif not manifest_build:
                 # 旧清单没有这个字段。它读不到自己属于哪一次构建,字节数
                 # 就无从判断该不该比 —— 这种情况下不比,而不是拿两个不同
                 # 构建的字节数硬比。
-                print(f"注意:清单里没有 build_id,跳过字节数核对(线上索引指向 {build.name})")
+                print(f"注意:清单里没有 build_id,跳过字节数核对(核对的是 {build.name})")
                 manifest_sizes = {}
             for name in sorted(local & set(manifest_sizes)):
                 actual = (build / name).stat().st_size

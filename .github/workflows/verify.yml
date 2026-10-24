@@ -242,17 +242,29 @@ jobs:
     permissions:
       contents: read
     steps:
-      - name: 检出公开仓最新 main
-        uses: actions/checkout@v4
+      # 检出**最新那次发布**的提交,不是 main 的当前快照。
+      # 发布流程会往 main 提交清单与索引,而本工作流是被 ship 触发的:
+      # 触发的那一刻 main 上可能还没有这次发布的提交,拿那个快照去核对
+      # 清单与文件,比的其实是两次不同的构建,必然对不上。
+      - name: 找出最近一次发布的提交
+        id: rel
+        uses: actions/github-script@v7
         with:
-          ref: main
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
+          script: |
+            const { data } = await github.rest.repos.listCommits({
+              owner: context.repo.owner, repo: context.repo.repo,
+              sha: 'main', per_page: 30,
+            });
+            const hit = data.find(c => c.commit.message.startsWith('Manifest'));
+            if (!hit) core.setFailed('最近 30 个提交里没有 Manifest 提交');
+            else { core.setOutput('sha', hit.sha); console.log(hit.sha); }
       - name: 检出公开仓
         uses: actions/checkout@v4
         with:
-          ref: main
+          ref: ${{ steps.rel.outputs.sha }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
       - name: 读出构件来源提交
         id: source
         uses: ./.github/actions/resolve-source
