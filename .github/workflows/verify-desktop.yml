@@ -247,6 +247,16 @@ jobs:
             fi
           }
           run info        info
+          # 发布出去的二进制报的版本必须与源码声明的一致。版本对不上,
+          # 用户拿到的和发布出去的就不是同一份东西,而表面看不出来。
+          declared=$(sed -n 's/^version = "\(.*\)"/\1/p' src/pyproject.toml | head -1)
+          actual=$(sed -n 's/.*Version:[[:space:]]*//p' rel_info.log | tr -d '\r')
+          echo "  declared=$declared actual=$actual"
+          if [ -n "$declared" ] && [ "$declared" = "$actual" ]; then
+            echo "  PASS 发布物版本与源码一致"
+          else
+            echo "  FAIL 发布物版本($actual)与源码声明($declared)不一致"; RC=1
+          fi
           run signal      signal
           run router-demo router-demo
           run backtest    backtest --start 2024-01-01 --end 2024-12-31
@@ -282,6 +292,15 @@ jobs:
           grep -q "ForgeMind Config" rel_info.log || { echo "FAIL: info 无正常输出"; exit 1; }
           grep -q "Total Return" rel_backtest___start_2024_01.log \
             || { echo "FAIL: backtest 无指标输出"; exit 1; }
+          # 发布出去的二进制报的版本必须与源码声明的一致
+          declared=$(sed -n 's/^version = "\(.*\)"/\1/p' src/pyproject.toml | head -1)
+          actual=$(sed -n 's/.*Version:[[:space:]]*//p' rel_info.log | tr -d '\r')
+          echo "  declared=$declared actual=$actual"
+          if [ -n "$declared" ] && [ "$declared" = "$actual" ]; then
+            echo "  PASS 发布物版本与源码一致"
+          else
+            echo "  FAIL 发布物版本($actual)与源码声明($declared)不一致"; RC=1
+          fi
           exit "$RC"
 
       - name: Run the RELEASED binary - key subcommands (Windows)
@@ -303,6 +322,15 @@ jobs:
             fi
           done
           grep -q "ForgeMind Config" rel_info.log || { echo "FAIL: info 无正常输出"; exit 1; }
+          # 发布出去的二进制报的版本必须与源码声明的一致
+          declared=$(sed -n 's/^version = "\(.*\)"/\1/p' src/pyproject.toml | head -1)
+          actual=$(sed -n 's/.*Version:[[:space:]]*//p' rel_info.log | tr -d '\r')
+          echo "  declared=$declared actual=$actual"
+          if [ -n "$declared" ] && [ "$declared" = "$actual" ]; then
+            echo "  PASS 发布物版本与源码一致"
+          else
+            echo "  FAIL 发布物版本($actual)与源码声明($declared)不一致"; RC=1
+          fi
           exit "$RC"
 
       - name: cargo build (desktop binary)

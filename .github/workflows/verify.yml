@@ -60,6 +60,13 @@ jobs:
           "$GITHUB_WORKSPACE/.v/bin/pip" install -q --upgrade pip
           "$GITHUB_WORKSPACE/.v/bin/pip" install -q "$GITHUB_WORKSPACE"/dist/*.whl
           "$GITHUB_WORKSPACE/.v/bin/python" -c "import forgemind; print('import ok', forgemind.__version__)"
+          # 构件报的版本必须与源码声明的一致。版本对不上,装到用户手上的
+          # 和发布出去的就不是同一份东西,而这种不一致从表面看不出来。
+          declared=$(sed -n 's/^version = "\(.*\)"/\1/p' "$GITHUB_WORKSPACE/src/pyproject.toml" | head -1)
+          actual=$("$GITHUB_WORKSPACE/.v/bin/python" -c "import forgemind; print(forgemind.__version__)")
+          echo "declared=$declared actual=$actual"
+          [ -n "$declared" ] && [ "$declared" = "$actual" ] \
+            || { echo "FAIL: 构件版本($actual)与源码声明($declared)不一致"; exit 1; }
 
       - name: Sync the canonical verification script from private source
         shell: bash
@@ -89,6 +96,13 @@ jobs:
           for c in info signal router-demo; do
             "$V/forgemind" $c >/dev/null && echo "PASS forgemind $c" || { echo "FAIL forgemind $c"; exit 1; }
           done
+          # 构件报的版本必须与源码声明的一致。版本对不上,装到用户手上的
+          # 和发布出去的就不是同一份东西,而这种不一致从表面看不出来。
+          declared=$(sed -n 's/^version = "\(.*\)"/\1/p' "$GITHUB_WORKSPACE/src/pyproject.toml" | head -1)
+          actual=$("$V/forgemind" info | sed -n 's/.*Version:[[:space:]]*//p' | tr -d '\r')
+          echo "declared=$declared actual=$actual"
+          [ -n "$declared" ] && [ "$declared" = "$actual" ] \
+            || { echo "FAIL: 构件版本($actual)与源码声明($declared)不一致"; exit 1; }
           "$V/forgemind" backtest --start 2024-01-01 --end 2024-12-31 | grep -q "Total Return" \
             && echo "PASS backtest" || { echo "FAIL backtest"; exit 1; }
           # forgemind agent 现在是两步: prepare + 人工审批。
