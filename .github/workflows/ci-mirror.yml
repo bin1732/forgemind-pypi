@@ -111,7 +111,10 @@ jobs:
       run: 'ruff format --check tests/ --output-format=github
         || echo "tests: ruff format 只报不拦"'
     - name: Codespell
-      run: 'codespell forgemind/ --ignore-words=.codespellignore --output-format=github'
+      # codespell 没有 --output-format 这个参数(那是 flake8 的),带着它
+      # codespell 直接报参数错误退出。之前这一行包在 || echo 里,错误一起
+      # 被吞了,于是这道门禁其实一次都没真正跑过。
+      run: 'codespell forgemind/ --ignore-words=.codespellignore'
     - name: Workflow shell 声明检查
       run: 'python scripts/check_workflow_shell.py'
     - name: 仓库残留扫描
