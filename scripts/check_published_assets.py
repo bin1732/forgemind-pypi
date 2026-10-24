@@ -104,20 +104,45 @@ def main() -> int:
     repo = args.repo.resolve()
     problems: list[str] = []
 
-    # 1) 只留当前 build 目录
+    # 1) 判据是"线上索引指向的那个构建",不是"仓库里恰好剩一个目录"。
+    # 发布流程会往 main 提交索引与清单,而验证工作流是被 ship 触发的 ——
+    # 触发的那一刻 main 上可能还没有这次发布的提交。拿"目录数"当判据,
+    # 就会把一次正常的发布报成不一致。真正要紧的是:用户按索引下载到的
+    # 那个构建,内容与清单对得上。
     builds_dir = repo / "releases" / "builds"
     build_dirs = (
         sorted(p for p in builds_dir.iterdir() if p.is_dir()) if builds_dir.is_dir() else []
     )
-    if len(build_dirs) != 1:
-        problems.append(
-            f"releases/builds 下应只有当前构建目录,实际 {len(build_dirs)} 个: "
-            f"{[p.name for p in build_dirs]}"
-        )
-    build = build_dirs[0] if build_dirs else None
+    index_path = repo / "pypi" / "simple" / "forgemind" / "index.html"
+    online_build = ""
+    if index_path.is_file():
+        page = index_path.read_text(encoding="utf-8")
+        link = INDEX_LINK.search(page)
+        if link:
+            # href 形如 .../main/releases/builds/<build_id>/<文件名>
+            parts = link.group(1).split("/main/", 1)[-1].split("/")
+            if "builds" in parts:
+                after = parts[parts.index("builds") + 1:]
+                if after:
+                    online_build = after[0]
+
+    build = None
+    if online_build:
+        candidate = builds_dir / online_build
+        if candidate.is_dir():
+            build = candidate
+        else:
+            problems.append(f"线上索引指向的构建目录不存在: releases/builds/{online_build}")
+    elif build_dirs:
+        # 没有索引可依据时退回唯一的那个目录
+        build = build_dirs[0] if len(build_dirs) == 1 else None
+        if build is None:
+            problems.append(
+                f"索引里找不到构建目录,仓库里有 {len(build_dirs)} 个: "
+                f"{[p.name for p in build_dirs]}"
+            )
 
     # 2) 索引声明的校验值与仓库里那个文件一致
-    index_path = repo / "pypi" / "simple" / "forgemind" / "index.html"
     if not index_path.is_file():
         problems.append(f"找不到索引页: {index_path}")
     else:
@@ -161,6 +186,17 @@ def main() -> int:
             missing = local - manifest_assets
             if missing:
                 problems.append(f"清单里没有这些已发布的文件: {sorted(missing)}")
+            # 字节数只在同一个构建内部比。源码包不是可复现构建 —— 同样的
+            # 源码打两次包,字节数会差几十个字节(归档里的时间戳)。拿它去
+            # 比另一个构建的同名文件,比的其实是两次不同的构建,必然对不上。
+            # 清单要记自己属于哪个构建,只有同一个构建的字节数才可比。
+            manifest_build = str(manifest.get("build_id") or "")
+            if manifest_build and manifest_build != build.name:
+                problems.append(
+                    f"清单记的是构建 {manifest_build},线上索引指向 {build.name};两边不是同一份产物"
+                )
+            elif not manifest_build:
+                problems.append("清单里没有 build_id,无法确认它对应哪一次构建")
             for name in sorted(local & set(manifest_sizes)):
                 actual = (build / name).stat().st_size
                 if actual != manifest_sizes[name]:
