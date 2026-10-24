@@ -68,9 +68,10 @@ jobs:
         git remote add origin "https://x-access-token:${PRIVATE_REPO_TOKEN}@github.com/bin1732/forgemind.git"
         # 取构件用的那个提交,不是"当前的 main" —— 两者可能不是一回事,
         # 测的不是发布的那个就等于白测。
-        # 深度 200 够私人仓的 git 历史用例:最近一个 audit 命名的提交在
-        # 173 个提交之前,再往前的老提交用例会自己跳过。
-        git fetch -q --depth 200 origin "$SOURCE_COMMIT"
+        # 取完整历史。私人仓的 git 历史用例会回看很早以前的提交(最早那个
+        # audit 命名的提交在两百多个提交之前)。用固定深度取源码,历史一长
+        # 那个提交就掉出窗口,取源码这一步自己先失败。
+        git fetch -q origin "$SOURCE_COMMIT"
         git checkout -q FETCH_HEAD
         # 按 SHA 取源不会建 origin/main 引用,仓库里就没有 main 分支了,
         # 而私人仓的 git 历史用例要它 —— 补一个本地 main 指向同一个提交。
@@ -170,9 +171,10 @@ jobs:
         git remote add origin "https://x-access-token:${PRIVATE_REPO_TOKEN}@github.com/bin1732/forgemind.git"
         # 取构件用的那个提交,不是"当前的 main" —— 两者可能不是一回事,
         # 测的不是发布的那个就等于白测。
-        # 深度 200 够私人仓的 git 历史用例:最近一个 audit 命名的提交在
-        # 173 个提交之前,再往前的老提交用例会自己跳过。
-        git fetch -q --depth 200 origin "$SOURCE_COMMIT"
+        # 取完整历史。私人仓的 git 历史用例会回看很早以前的提交(最早那个
+        # audit 命名的提交在两百多个提交之前)。用固定深度取源码,历史一长
+        # 那个提交就掉出窗口,取源码这一步自己先失败。
+        git fetch -q origin "$SOURCE_COMMIT"
         git checkout -q FETCH_HEAD
         # 按 SHA 取源不会建 origin/main 引用,仓库里就没有 main 分支了,
         # 而私人仓的 git 历史用例要它 —— 补一个本地 main 指向同一个提交。
@@ -387,9 +389,10 @@ jobs:
         git remote add origin "https://x-access-token:${PRIVATE_REPO_TOKEN}@github.com/bin1732/forgemind.git"
         # 取构件用的那个提交,不是"当前的 main" —— 两者可能不是一回事,
         # 测的不是发布的那个就等于白测。
-        # 深度 200 够私人仓的 git 历史用例:最近一个 audit 命名的提交在
-        # 173 个提交之前,再往前的老提交用例会自己跳过。
-        git fetch -q --depth 200 origin "$SOURCE_COMMIT"
+        # 取完整历史。私人仓的 git 历史用例会回看很早以前的提交(最早那个
+        # audit 命名的提交在两百多个提交之前)。用固定深度取源码,历史一长
+        # 那个提交就掉出窗口,取源码这一步自己先失败。
+        git fetch -q origin "$SOURCE_COMMIT"
         git checkout -q FETCH_HEAD
         # 按 SHA 取源不会建 origin/main 引用,仓库里就没有 main 分支了,
         # 而私人仓的 git 历史用例要它 —— 补一个本地 main 指向同一个提交。
@@ -521,9 +524,10 @@ jobs:
         git remote add origin "https://x-access-token:${PRIVATE_REPO_TOKEN}@github.com/bin1732/forgemind.git"
         # 取构件用的那个提交,不是"当前的 main" —— 两者可能不是一回事,
         # 测的不是发布的那个就等于白测。
-        # 深度 200 够私人仓的 git 历史用例:最近一个 audit 命名的提交在
-        # 173 个提交之前,再往前的老提交用例会自己跳过。
-        git fetch -q --depth 200 origin "$SOURCE_COMMIT"
+        # 取完整历史。私人仓的 git 历史用例会回看很早以前的提交(最早那个
+        # audit 命名的提交在两百多个提交之前)。用固定深度取源码,历史一长
+        # 那个提交就掉出窗口,取源码这一步自己先失败。
+        git fetch -q origin "$SOURCE_COMMIT"
         git checkout -q FETCH_HEAD
         # 按 SHA 取源不会建 origin/main 引用,仓库里就没有 main 分支了,
         # 而私人仓的 git 历史用例要它 —— 补一个本地 main 指向同一个提交。
@@ -600,9 +604,10 @@ jobs:
         git remote add origin "https://x-access-token:${PRIVATE_REPO_TOKEN}@github.com/bin1732/forgemind.git"
         # 取构件用的那个提交,不是"当前的 main" —— 两者可能不是一回事,
         # 测的不是发布的那个就等于白测。
-        # 深度 200 够私人仓的 git 历史用例:最近一个 audit 命名的提交在
-        # 173 个提交之前,再往前的老提交用例会自己跳过。
-        git fetch -q --depth 200 origin "$SOURCE_COMMIT"
+        # 取完整历史。私人仓的 git 历史用例会回看很早以前的提交(最早那个
+        # audit 命名的提交在两百多个提交之前)。用固定深度取源码,历史一长
+        # 那个提交就掉出窗口,取源码这一步自己先失败。
+        git fetch -q origin "$SOURCE_COMMIT"
         git checkout -q FETCH_HEAD
         # 按 SHA 取源不会建 origin/main 引用,仓库里就没有 main 分支了,
         # 而私人仓的 git 历史用例要它 —— 补一个本地 main 指向同一个提交。
