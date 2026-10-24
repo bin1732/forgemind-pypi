@@ -95,12 +95,20 @@ jobs:
         python-version: '3.11'
     - name: Install Ruff
       run: 'pip install ruff codespell --break-system-packages -q'
+    # 源码这两步是拦人的。用项目自己的 ruff 配置(命令行不再覆盖),
+    # 配置漂移会让"本地过了"和"流水线过了"不是同一件事。
     - name: Ruff check (lint)
-      run: 'ruff check forgemind/ tests/ --output-format=github --line-length 120
-        --ignore=F401,F841 || echo "ruff check: warnings allowed"'
+      run: 'ruff check forgemind/ --output-format=github'
     - name: Ruff format check
-      run: 'ruff format --check forgemind/ tests/ --output-format=github --line-length
-        120 || echo "ruff format: warnings allowed"'
+      run: 'ruff format --check forgemind/ --output-format=github'
+    # 测试树只报不拦:那批长名测试文件攒着几千条历史告警,一次全量
+    # 重排会把真实改动埋掉 —— 源码那边才是拦人的。
+    - name: Ruff check (tests, 只报不拦)
+      run: 'ruff check tests/ --output-format=github
+        || echo "tests: ruff 告警只报不拦"'
+    - name: Ruff format check (tests, 只报不拦)
+      run: 'ruff format --check tests/ --output-format=github
+        || echo "tests: ruff format 只报不拦"'
     - name: Codespell
       run: 'codespell forgemind/ --ignore-words=.codespellignore --output-format=github
         || echo "codespell: warnings allowed"'
