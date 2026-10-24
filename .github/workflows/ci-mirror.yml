@@ -110,8 +110,7 @@ jobs:
       run: 'ruff format --check tests/ --output-format=github
         || echo "tests: ruff format 只报不拦"'
     - name: Codespell
-      run: 'codespell forgemind/ --ignore-words=.codespellignore --output-format=github
-        || echo "codespell: warnings allowed"'
+      run: 'codespell forgemind/ --ignore-words=.codespellignore --output-format=github'
     - name: 仓库残留扫描
       run: |
                 # 复盘措辞、构建产物、诊断产物、过期副本与许可证头。
@@ -139,11 +138,16 @@ jobs:
                 # 版本号写在 pyproject 与 forgemind/__init__.py 两处,漏改一处,
                 # 装出来的包就会报一个和实际代码对不上的版本。
                 python scripts/check_version_consistency.py .
-    - name: Vulture dead code scan
+    - name: Vulture dead code scan (源码)
       run: |
                 pip install vulture --break-system-packages -q
-                python -m vulture forgemind/ tests/ --min-confidence 100 || true
-                echo "Vulture max-confidence scan done"
+                python -m vulture forgemind/ --min-confidence 100
+    # 测试树只报不拦:那里面有一批靠副作用生效的 pytest fixture,
+    # vulture 认不出那是 fixture,会报成"未使用的变量"。
+    - name: Vulture dead code scan (tests, 只报不拦)
+      run: |
+                python -m vulture tests/ --min-confidence 100
+                || echo "tests: vulture 告警只报不拦"
 
   mirror-security:
     name: 镜像 · 安全扫描
