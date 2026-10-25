@@ -85,7 +85,7 @@ jobs:
 
       - name: Assert verify.py itself is lint-clean
         run: |
-          pip install -q --break-system-packages ruff
+          pip install -q --break-system-packages ruff==0.16.9
           ruff check --isolated --select E9,F63,F7,F82 "$GITHUB_WORKSPACE/src-scripts/verify.py"
 
       - name: Smoke - all CLI subcommands

@@ -8,6 +8,7 @@ import asyncio
 import sys
 
 import akshare as ak
+
 from forgemind.core.data.akshare_etl import AKShareETL
 
 SYMBOLS = ["600519", "000001"]

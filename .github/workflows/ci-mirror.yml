@@ -95,7 +95,7 @@ jobs:
       with:
         python-version: '3.11'
     - name: Install Ruff
-      run: 'pip install ruff codespell --break-system-packages -q'
+      run: 'pip install ruff==0.16.9 codespell==2.4.3 --break-system-packages -q'
     # 源码这两步是拦人的。用项目自己的 ruff 配置(命令行不再覆盖),
     # 配置漂移会让"本地过了"和"流水线过了"不是同一件事。
     - name: Ruff check (lint)
@@ -606,7 +606,7 @@ jobs:
       with:
         python-version: '3.11'
     - name: 装解析工作流用的库
-      run: pip install pyyaml ruff codespell --break-system-packages -q
+      run: pip install pyyaml ruff==0.16.9 codespell==2.4.3 --break-system-packages -q
     - name: 取私人仓源码
       working-directory: .
       shell: bash

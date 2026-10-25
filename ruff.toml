@@ -7,6 +7,7 @@ target-version = "py311"
 
 [lint]
 select = ["E", "F", "I", "N", "W", "UP", "B", "A", "C4", "PT"]
+
 ignore = [
     "E501",  # 行太长(为了可读性接受长行)
     "B008",  # 参数默认值里调用函数(pydantic 的写法)
@@ -14,3 +15,7 @@ ignore = [
     "N806",  # 变量名用大写
     "B905",  # zip 不带 strict
 ]
+
+# forgemind 在 src/ 下面,ruff 猜不出它是自己人,会当第三方包排 import
+[lint.isort]
+known-first-party = ["forgemind"]
