@@ -97,9 +97,7 @@ class FakeRepo:
 
     def _children(self, path: str) -> list[str]:
         prefix = path.rstrip("/") + "/"
-        return sorted(
-            k for k in self.tree if k.startswith(prefix) and "/" not in k[len(prefix) :]
-        )
+        return sorted(k for k in self.tree if k.startswith(prefix) and "/" not in k[len(prefix) :])
 
     def _prune_empty_dirs(self, path: str) -> None:
         """删掉一个路径之后,把它上面已经空掉的目录也去掉(git 不存空目录)。"""
