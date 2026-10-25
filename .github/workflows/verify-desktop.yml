@@ -408,20 +408,30 @@ jobs:
           set -uo pipefail
           # Git Bash 会吞掉反斜杠路径,统一用正斜杠
           BIN=./src/forgemind-ui/src-tauri/target/release/forgemind-desktop.exe
-          # Windows 没有 GNU timeout;用后台进程 + 看门狗 + 强杀。
+          # Windows 没有 GNU timeout;用后台进程 + 轮询存活 + 强杀。
           #
           # Git Bash 的 kill -TERM 对原生 Windows 进程不生效,进程留着,
           # 后面的 wait 就永远阻塞 —— 作业会挂到 GitHub 的默认超时(6 小时)。
           # 强杀用 taskkill 按映像名杀(// 是 Git Bash 里 / 的转义)。
+          #
+          # "活过 30 秒"由存活判定给出,不靠退出码:Git Bash 对被杀掉的
+          # 原生进程报的是 1,不是 143/137 —— 靠退出码判会把"活着被杀掉"
+          # 误判成"异常退出"。
           code=0
           "$BIN" > app.log 2>&1 &
           pid=$!
-          ( sleep 30; taskkill //F //IM forgemind-desktop.exe > /dev/null 2>&1 ) &
-          watchdog=$!
-          wait "$pid" || code=$?
-          kill "$watchdog" 2>/dev/null || true
-          # 137/143 = 被强杀 = 应用一直存活,这正是我们要的信号
-          [ "$code" = "143" ] || [ "$code" = "137" ] && code=124
+          alive=1
+          for _ in $(seq 1 30); do
+            kill -0 "$pid" 2>/dev/null || { alive=0; break; }
+            sleep 1
+          done
+          if [ "$alive" = "1" ]; then
+            taskkill //F //IM forgemind-desktop.exe > /dev/null 2>&1 || true
+            wait "$pid" 2>/dev/null || true
+            code=124
+          else
+            wait "$pid" || code=$?
+          fi
           echo "exit code: $code"
           tail -25 app.log
           # Windows runner 无交互式桌面,但进程能跑起来就证明
