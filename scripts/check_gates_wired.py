@@ -27,6 +27,10 @@ NOT_A_GATE = {
     "audit_release.py": "本地汇总自检;各项检查在流水线里各自跑",
     "verify3.py": "三视角验证的本地入口,流水线里由 verify.yml 覆盖",
     "verify_three_angles.py": "同上",
+    "capture_desktop_evidence.py": (
+        "采集桌面端界面证据的脚本:要浏览器 + 真行情数据,按需在本地跑。"
+        "它与真实现对得上这件事由私人仓的 tests/test_desktop_evidence_contract.py 盯着"
+    ),
 }
 
 # 脚本名出现在工作流里就算被调用
