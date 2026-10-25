@@ -95,6 +95,8 @@ jobs:
             name: windows
             bundler: msi
     runs-on: ${{ matrix.os }}
+    # 兜底:任何一步挂死(例如 GUI 进程杀不掉)都不该占着 runner 到默认超时
+    timeout-minutes: 45
     steps:
       - name: 检出公开仓
         uses: actions/checkout@v4
@@ -406,22 +408,20 @@ jobs:
           set -uo pipefail
           # Git Bash 会吞掉反斜杠路径,统一用正斜杠
           BIN=./src/forgemind-ui/src-tauri/target/release/forgemind-desktop.exe
-          # Windows 的 timeout 是 cmd 的 sleep,语义不同;这里用 PowerShell 无关的
-          # 后台 + 轮询方式,不依赖 coreutils
+          # Windows 没有 GNU timeout;用后台进程 + 看门狗 + 强杀。
+          #
+          # Git Bash 的 kill -TERM 对原生 Windows 进程不生效,进程留着,
+          # 后面的 wait 就永远阻塞 —— 作业会挂到 GitHub 的默认超时(6 小时)。
+          # 强杀用 taskkill 按映像名杀(// 是 Git Bash 里 / 的转义)。
           code=0
           "$BIN" > app.log 2>&1 &
           pid=$!
-          for _ in $(seq 1 30); do
-            kill -0 "$pid" 2>/dev/null || break
-            sleep 1
-          done
-          if kill -0 "$pid" 2>/dev/null; then
-            kill -TERM "$pid" 2>/dev/null || true
-            wait "$pid" 2>/dev/null || true
-            code=124
-          else
-            wait "$pid" || code=$?
-          fi
+          ( sleep 30; taskkill //F //IM forgemind-desktop.exe > /dev/null 2>&1 ) &
+          watchdog=$!
+          wait "$pid" || code=$?
+          kill "$watchdog" 2>/dev/null || true
+          # 137/143 = 被强杀 = 应用一直存活,这正是我们要的信号
+          [ "$code" = "143" ] || [ "$code" = "137" ] && code=124
           echo "exit code: $code"
           tail -25 app.log
           # Windows runner 无交互式桌面,但进程能跑起来就证明
