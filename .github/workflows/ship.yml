@@ -169,7 +169,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           python3 << 'PYEOF'
-          import base64, hashlib, json, pathlib, urllib.request, urllib.error, time
+          import base64, hashlib, json, pathlib, sys, urllib.request, urllib.error, time
           from urllib.parse import quote
 
           TOKEN = __import__('os').environ['GITHUB_TOKEN']
@@ -349,10 +349,20 @@ jobs:
                       continue
                   if entry.get('type') == 'dir':
                       purge_dir(full)
-                      # 清空之后目录的 sha 变了,拿删之前的旧 sha 去删会 404,
-                      # 于是空目录永远留在仓库里 —— 重新取一次。
-                      fresh = {e.get('name'): e.get('sha') for e in list_dir(path)}
-                      remove_path(full, fresh.get(name))
+                      # git 里没有空目录:里面的文件删光之后,这个目录在
+                      # GitHub 上就已经不存在了。回父目录看一眼确认 ——
+                      # 还在才删。
+                      #
+                      # 之前这里列的是 path 自己的内容(已经空了),拿到的是
+                      # 空字典,于是 sha 传成 None。contents API 删目录必须带
+                      # sha,不带就回 422 "sha wasn't supplied";而目录真的
+                      # 已经不在了时,带旧 sha 去删会回 404。两种都会把发布
+                      # 流程顶红,还留下一个删不掉的报错。
+                      parent = path.rsplit('/', 1)[0] if '/' in path else ''
+                      fresh = {e.get('name'): e.get('sha') for e in list_dir(parent)}
+                      if name not in fresh:
+                          continue
+                      remove_path(full, fresh[name])
                   else:
                       remove_path(full, entry.get('sha'))
 

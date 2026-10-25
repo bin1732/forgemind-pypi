@@ -687,7 +687,7 @@ jobs:
         fi
         {
           echo "### 构件来源"
-          echo "
+          echo ""
           echo "| 项 | 值 |"
           echo "| --- | --- |"
           echo "| 构件来源提交 | \`$got\` |"
