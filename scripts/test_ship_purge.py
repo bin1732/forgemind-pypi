@@ -30,7 +30,7 @@ import urllib.error
 import urllib.request
 
 WORKFLOW = pathlib.Path(__file__).resolve().parent.parent / ".github" / "workflows" / "ship.yml"
-WANTED = ("call", "list_dir", "remove_path", "purge_dir")
+WANTED = ("call", "list_dir", "remove_path", "purge_dir", "purge_builds", "keep_build", "build_num")
 
 
 def extract_functions(text: str) -> str:
@@ -208,11 +208,17 @@ def main() -> int:
     source = extract_functions(text)
 
     repo = FakeRepo()
+    # 四个构建目录 + 一份清单。分别是:更旧的(该删)、线上索引正指向的
+    # (不能删)、本次的(不能删)、编号更大的(并发发布留下的,不能删)。
+    repo.tree["releases/builds/100"] = ("dir", "")
+    repo.tree["releases/builds/100/a.whl"] = ("file", "wheel")
     repo.tree["releases/builds/111"] = ("dir", "")
-    repo.tree["releases/builds/111/a.whl"] = ("file", "wheel")
-    repo.tree["releases/builds/111/b.tar.gz"] = ("file", "sdist")
+    repo.tree["releases/builds/111/b.whl"] = ("file", "wheel")
     repo.tree["releases/builds/222"] = ("dir", "")
     repo.tree["releases/builds/222/c.whl"] = ("file", "wheel")
+    repo.tree["releases/builds/333"] = ("dir", "")
+    repo.tree["releases/builds/333/d.whl"] = ("file", "wheel")
+    repo.tree["releases/builds/manifest.json"] = ("file", '{"build_id": "222"}')
 
     os.environ.setdefault("GITHUB_TOKEN", "fake-token")
     urllib.request.urlopen = make_fake_urlopen(repo)
@@ -240,24 +246,38 @@ def main() -> int:
         "TOKEN": "fake-token",
     }
     exec(compile(source, "ship.yml", "exec"), namespace)  # noqa: S102
-    purge_dir = namespace["purge_dir"]
+    purge_builds = namespace["purge_builds"]
+    build_num = namespace["build_num"]
 
-    purge_dir("releases/builds", keep_prefix="releases/builds/222")
+    # 跑工作流自己的那个函数,而不是在这里重写一份调用点 ——
+    # 重写的那份守不住调用点。清单就是在这儿被顺手删掉的:写清单的
+    # 同一步骤把它当成旧文件清掉,来源提交绑定那条链就断了。
+    build_id, live_id = "222", "111"
+    namespace["build_id"] = build_id
+    namespace["live_id"] = live_id
+    namespace["my_num"] = build_num(build_id)
+    purge_builds(build_id, live_id)
 
     problems: list[str] = []
-    if "releases/builds/111" in repo.tree:
-        problems.append("旧构建目录没有被删掉")
-    if "releases/builds/111/a.whl" in repo.tree:
-        problems.append("旧构建目录里的文件没有被删掉")
+    if "releases/builds/100" in repo.tree:
+        problems.append("更旧的构建目录没有被删掉")
+    if "releases/builds/100/a.whl" in repo.tree:
+        problems.append("更旧的构建目录里的文件没有被删掉")
+    if "releases/builds/111/b.whl" not in repo.tree:
+        problems.append("线上索引正指向的构建被误删了")
     if "releases/builds/222/c.whl" not in repo.tree:
-        problems.append("保留的构建目录被误删了")
+        problems.append("本次构建被误删了")
+    if "releases/builds/333/d.whl" not in repo.tree:
+        problems.append("编号更大的构建被误删了")
+    if "releases/builds/manifest.json" not in repo.tree:
+        problems.append("清单文件被清理掉了 —— 来源提交绑定会断")
 
     if problems:
         print("清理逻辑有问题:")
         for item in problems:
             print(" -", item)
         return 1
-    print(f"清理逻辑正常: 删了 {len(repo.deleted)} 个路径,保留目录完好")
+    print(f"清理逻辑正常: 删了 {len(repo.deleted)} 个路径,该留的都留着")
     return 0
 
 

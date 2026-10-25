@@ -339,13 +339,15 @@ jobs:
                   raise SystemExit(1)
               print(f'  [{code}] rm {path}')
 
-          def purge_dir(path, keep_prefix=None, keep_names=()):
+          def purge_dir(path, keep_prefix=None, keep_names=(), keep_predicate=None):
               for entry in list_dir(path):
                   name = entry.get('name', '')
                   full = f"{path}/{name}"
                   if keep_prefix and full.startswith(keep_prefix):
                       continue
                   if name in keep_names:
+                      continue
+                  if keep_predicate is not None and keep_predicate(name):
                       continue
                   if entry.get('type') == 'dir':
                       purge_dir(full)
@@ -365,6 +367,26 @@ jobs:
                       remove_path(full, fresh[name])
                   else:
                       remove_path(full, entry.get('sha'))
+
+          def purge_builds(build_id, live_id):
+              """清理旧构建目录。
+
+              有四样东西不能删:
+                本次构建         —— 刚写完的那份
+                线上索引指向的   —— 删了用户按索引下载就是 404
+                编号更大的构建   —— 并发发布时别的作业刚写好的
+                清单文件本身     —— manifest.json 是"发了什么、从哪个提交来"
+                                     的机器可读真源。少了它,验证工作流就
+                                     找不到这次发布的来源提交,整条"测的就
+                                     是发的"链就断掉 —— 之前就是在这儿被
+                                     顺手删掉的:写完清单的同一步骤把它当
+                                     成旧文件清掉了。
+              """
+              keep = {'manifest.json'}
+              if live_id:
+                  keep.add(live_id)
+              purge_dir('releases/builds', keep_prefix=f'releases/builds/{build_id}',
+                        keep_names=keep, keep_predicate=keep_build)
 
           # 清单是"发布了什么、多大、从哪个提交来"的机器可读真源。
           # 字节数写在这里,文档与检查都对着它核对,不用在文档里硬编码
@@ -391,8 +413,10 @@ jobs:
           code, _ = call('PUT', f'{API}/contents/releases/builds/manifest.json', dm)
           print(f'  [{code}] manifest.json')
 
-          purge_dir('releases/builds', keep_prefix=f'releases/builds/{build_id}',
-                    keep_names={live_id} if live_id else ())
+          # 清理旧构建。保留哪些由 purge_builds 决定,那里的规则和理由
+          # 写在一起,测试也直接跑那个函数 —— 调用点自己重写一份的测试
+          # 守不住调用点。
+          purge_builds(build_id, live_id)
           # 早期流程使用的固定路径,当前流程不再写入,一并清理
           purge_dir('releases/source')
           purge_dir('pypi/simple/forgemind', keep_prefix='pypi/simple/forgemind/index.html')
