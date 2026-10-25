@@ -329,7 +329,8 @@ jobs:
               for attempt in range(4):
                   code, _ = call('DELETE', f'{API}/contents/{path}', payload)
                   last = code
-                  if code == 200:
+                  if code in (200, 404):
+                      # 404 表示已经不在了 —— 目标达成,不算失败
                       break
                   print(f'  [{code}] rm {path} 失败,重试')
                   time.sleep(3 * (attempt + 1))
@@ -348,7 +349,10 @@ jobs:
                       continue
                   if entry.get('type') == 'dir':
                       purge_dir(full)
-                      remove_path(full, entry.get('sha'))
+                      # 清空之后目录的 sha 变了,拿删之前的旧 sha 去删会 404,
+                      # 于是空目录永远留在仓库里 —— 重新取一次。
+                      fresh = {e.get('name'): e.get('sha') for e in list_dir(path)}
+                      remove_path(full, fresh.get(name))
                   else:
                       remove_path(full, entry.get('sha'))
 

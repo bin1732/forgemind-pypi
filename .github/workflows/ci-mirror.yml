@@ -111,7 +111,7 @@ jobs:
     - name: Ruff format check (tests, 只报不拦)
       run: |
         ruff format --check tests/ --output-format=github \
-          || echo ""tests: ruff format 只报不拦"
+          || echo "tests: ruff format 只报不拦"
     - name: Codespell
       # codespell 没有 --output-format 这个参数(那是 flake8 的),带着它
       # codespell 直接报参数错误退出。之前这一行包在 || echo 里,错误一起
@@ -655,6 +655,11 @@ jobs:
       # 公开仓自己的工作流也有 Windows runner,bash 语法没声明 shell
       # 会在那边直接跑不起来。
       run: python scripts/check_workflow_shell.py
+    - name: 发布清理逻辑核对
+      # 发布时删旧构建目录那一步:目录里的文件删完后,目录自身的 sha 就变了,
+      # 还拿旧 sha 去删只会 404,空目录就一个个留在仓库里。这条用工作流里
+      # 的原码跑一遍,不是抄一份。
+      run: python scripts/test_ship_purge.py
     - name: Ruff check (公开仓脚本)
       # 公开仓的脚本以前没人查过 —— 这里面的检查器本身就是门禁,
       # 写错了不会有人发现。
@@ -682,7 +687,7 @@ jobs:
         fi
         {
           echo "### 构件来源"
-          echo ""
+          echo "
           echo "| 项 | 值 |"
           echo "| --- | --- |"
           echo "| 构件来源提交 | \`$got\` |"
