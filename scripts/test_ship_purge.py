@@ -61,11 +61,17 @@ def extract_functions(text: str) -> str:
 
 
 class FakeRepo:
-    """一个假的 contents API 仓库。
+    """一个假的 contents API 仓库 —— 按真 API 的脾气建模。
 
-    目录的 sha 由它里面的东西决定 —— 里面的文件删掉了,sha 就变了。
-    这正是真仓库的脾气,也是当初那个 bug 的根因:清空之后还拿着旧 sha
-    去删目录,只会得到 404。
+    真 API 的几条硬规矩(对着真仓库一条条实测过,不是照文档猜的):
+      * 删除必须带 sha,不带回 422 '"sha" wasn\'t supplied'
+      * 删非空目录回 422 '"<path>" is not a file' —— contents API 删不了非空目录
+      * sha 对不上(目录被清空后 sha 就变了)回 404 Not Found
+      * git 里没有空目录:最后一个文件删掉,那个目录就没了
+
+    早先这个假实现比真实现宽松(不带 sha 也放行),于是"清空之后还拿着
+    旧 sha 去删目录"这种错在测试里是绿的,真跑时才炸 —— 而且炸在发布
+    流程上。假实现必须比真实现严,不然它守不住任何东西。
     """
 
     def __init__(self) -> None:
@@ -74,11 +80,36 @@ class FakeRepo:
         self.deleted: list[str] = []
 
     def _sha(self, path: str) -> str:
-        prefix = path + "/"
-        children = sorted(k for k in self.tree if k.startswith(prefix))
-        if children:
-            return "sha-dir-" + path + "-" + str(len(children))
-        return f"sha-{path}"
+        """内容的 sha。目录的 sha 由里面的东西决定 —— 里面的文件删了,sha 就变了。"""
+        entry = self.tree.get(path)
+        if entry is not None and entry[0] == "file":
+            return "sha-file-" + hashlib.sha256(entry[1].encode()).hexdigest()[:12]
+        prefix = path.rstrip("/") + "/"
+        children = sorted(
+            k for k in self.tree if k.startswith(prefix) and "/" not in k[len(prefix) :]
+        )
+        if not children:
+            return "sha-dir-empty-" + path
+        digest = hashlib.sha256()
+        for child in children:
+            digest.update(child.encode())
+            digest.update(self._sha(child).encode())
+        return "sha-dir-" + digest.hexdigest()[:12]
+
+    def _children(self, path: str) -> list[str]:
+        prefix = path.rstrip("/") + "/"
+        return sorted(
+            k for k in self.tree if k.startswith(prefix) and "/" not in k[len(prefix) :]
+        )
+
+    def _prune_empty_dirs(self, path: str) -> None:
+        """删掉一个路径之后,把它上面已经空掉的目录也去掉(git 不存空目录)。"""
+        parent = path.rsplit("/", 1)[0] if "/" in path else ""
+        while parent and parent in self.tree:
+            if self._children(parent):
+                return
+            del self.tree[parent]
+            parent = parent.rsplit("/", 1)[0] if "/" in parent else ""
 
     def listing(self, path: str) -> list[dict]:
         prefix = path.rstrip("/") + "/"
@@ -111,15 +142,24 @@ class FakeRepo:
             self.tree[path] = ("file", base64.b64decode(payload["content"]).decode())
             return 200, {}
         if method == "DELETE":
-            if path not in self.tree:
-                return 404, {"message": "Not Found"}
             want = (payload or {}).get("sha")
-            if want and want != self._sha(path):
-                return 409, {"message": "sha mismatch"}
-            prefix = path + "/"
-            for key in [k for k in self.tree if k.startswith(prefix)]:
-                del self.tree[key]
-            del self.tree[path]
+            if not want:
+                # 真 API:不带 sha 直接拒
+                return 422, {"message": 'Invalid request.\n\n"sha" wasn\'t supplied.'}
+            entry = self.tree.get(path)
+            if entry is None:
+                return 404, {"message": "Not Found"}
+            if want != self._sha(path):
+                # sha 对不上:目录被清空后 sha 就变了
+                return 404, {"message": "Not Found"}
+            if entry[0] == "dir":
+                if self._children(path):
+                    # 真 API:contents API 删不了非空目录
+                    return 422, {"message": f"{path} is not a file"}
+                del self.tree[path]
+            else:
+                del self.tree[path]
+            self._prune_empty_dirs(path)
             self.deleted.append(path)
             return 200, {}
         return 405, {}
@@ -179,6 +219,14 @@ def main() -> int:
 
     # 命名空间只放工作流里那段脚本自己 import 的东西 —— 少一个 import,
     # 这里的测试就会像真跑一样报错。
+    #
+    # time 换成不睡的:真脚本删失败时会退避重试(3+6+9+12 秒),
+    # 测试里没必要真等那么久 —— 该红的地方一样红,只是快。
+    class _FastTime:
+        @staticmethod
+        def sleep(_seconds: float) -> None:
+            return None
+
     namespace: dict[str, object] = {
         "base64": base64,
         "hashlib": hashlib,
@@ -186,7 +234,7 @@ def main() -> int:
         "pathlib": pathlib,
         "re": re,
         "sys": sys,
-        "time": time,
+        "time": _FastTime,
         "urllib": urllib,
         "API": "https://api.github.com/repos/fake/fake",
         "TOKEN": "fake-token",

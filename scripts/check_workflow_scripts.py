@@ -30,6 +30,7 @@ checkout 过本仓,在那儿 init 会串到本仓的 .git,`git remote add origin
 from __future__ import annotations
 
 import re
+import subprocess
 import sys
 from pathlib import Path
 
@@ -153,7 +154,62 @@ def check_run(name: str, run: str) -> list[str]:
     if "\n" in run and not run.endswith("\n"):
         problems.append(f"{name}: 多行脚本末尾没有换行")
 
+    problems.extend(check_shell_syntax(name, run))
+
     return problems
+
+
+def check_shell_syntax(name: str, run: str) -> list[str]:
+    """用 shell 自己检查这段脚本的语法。
+
+    引号写坏、续行断开、|| 落到单独一行 —— 这些在 YAML 里都看不出来,
+    流水线跑到那一步才会以语法错误失败。shell 的 -n 不执行,只查语法。
+    """
+    if not run.strip():
+        return []
+    try:
+        result = subprocess.run(
+            ["bash", "-n"], input=run, capture_output=True, text=True, timeout=30
+        )
+    except (OSError, subprocess.SubprocessError):
+        # 没有 shell 可用就放过,别因为环境缺东西而误报
+        return []
+    if result.returncode == 0:
+        return []
+    detail = (result.stderr or "").strip().splitlines()
+    message = detail[0] if detail else "语法错误"
+    return [f"{name}: shell 语法错误 —— {message}"]
+
+
+def check_script_exists(label: str, run: str, workdir: str | None) -> tuple[list[str], int]:
+    """run 里调用的仓库脚本,必须真的存在于那个作业的工作目录下。
+
+    作业可以指定 working-directory,也可以用 defaults.run.working-directory
+    统一指定。脚本路径写对了、文件却不在那个目录下时,流水线会在这里
+    失败 —— 而且是在跑了一堆别的之后才失败,不容易看出是路径问题。
+
+    返回 (问题列表, 没查的条数)。工作目录在本地不存在时(镜像工作流要把
+    私人源码 checkout 到 src/,本地没 checkout 过),无从判断脚本在不在 ——
+    这时只记"没查",不报"缺失"。把"查不到"当成"没有",会让检查在本地恒红,
+    而红的原因与工作流本身无关,反倒把真问题淹了。
+    """
+    problems: list[str] = []
+    skipped = 0
+    # python scripts/xxx.py 或 python3 scripts/xxx.py
+    matches = list(re.finditer(r"\bpython3?\s+(?:-[^\s]+\s+)*([\w./-]+\.py)\b", run))
+    if not matches:
+        return problems, skipped
+    base = Path(workdir) if workdir else Path(".")
+    if not base.is_dir():
+        # 工作目录本身不在,脚本在不在没法验证
+        return problems, len(matches)
+    for match in matches:
+        rel = match.group(1)
+        if rel.startswith("/") or ".." in rel:
+            continue
+        if not (base / rel).is_file():
+            problems.append(f"{label}: 调用的脚本 {rel} 在工作目录 {base} 下不存在")
+    return problems, skipped
 
 
 def main() -> int:
@@ -164,6 +220,7 @@ def main() -> int:
         return 1
 
     problems: list[str] = []
+    unverified = 0
     for path in sorted(root.glob("*.yml")):
         strict_problem = check_strict_parse(path)
         if strict_problem:
@@ -178,18 +235,33 @@ def main() -> int:
                 continue
             problems.extend(check_step_schema(path.name, job_name, job))
             problems.extend(check_git_init_isolation(path.name, job_name, job))
+            # 作业级 working-directory 与步骤级 working-directory 都要算进去
+            defaults = (job.get("defaults") or {}).get("run") or {}
+            job_wd = defaults.get("working-directory")
             for step in job.get("steps") or []:
                 run = step.get("run")
                 if not isinstance(run, str) or not run.strip():
                     continue
                 label = f"{path.name}:{job_name}:{step.get('name', step.get('uses', '?'))}"
                 problems.extend(check_run(label, run))
+                step_wd = step.get("working-directory")
+                if step_wd:
+                    workdir = str(Path(job_wd) / step_wd) if job_wd else str(step_wd)
+                else:
+                    workdir = job_wd
+                found, missed = check_script_exists(label, run, workdir)
+                problems.extend(found)
+                unverified += missed
 
     if problems:
         print("工作流脚本写法有问题:")
         for item in problems:
             print(" -", item)
         return 1
+
+    if unverified:
+        print(f"工作流脚本写法检查通过({unverified} 处脚本路径因工作目录不在本地而未核对)")
+        return 0
 
     print("工作流脚本写法检查通过")
     return 0
