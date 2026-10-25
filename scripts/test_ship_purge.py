@@ -25,7 +25,6 @@ import pathlib
 import re
 import sys
 import textwrap
-import time
 import urllib.error
 import urllib.request
 
