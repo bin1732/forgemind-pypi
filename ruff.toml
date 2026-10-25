@@ -5,6 +5,15 @@
 line-length = 100
 target-version = "py311"
 
+# 格式化器不改动字符串的引号风格。
+#
+# 有些字符串是接口报错原文,例如 GitHub contents API 的
+# '"sha" wasn' + "'" + 't supplied' —— 写成单引号就得把撇号转义,
+# 词被切成两半,拼写检查只看到半个词,报一个不存在的错。改引号风格
+# 还会让"照抄接口原文"的测试对着一个不存在的接口验。
+[format]
+quote-style = "preserve"
+
 [lint]
 select = ["E", "F", "I", "N", "W", "UP", "B", "A", "C4", "PT"]
 
