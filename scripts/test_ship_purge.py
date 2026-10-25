@@ -63,7 +63,7 @@ class FakeRepo:
     """一个假的 contents API 仓库 —— 按真 API 的脾气建模。
 
     真 API 的几条硬规矩(对着真仓库一条条实测过,不是照文档猜的):
-      * 删除必须带 sha,不带回 422 '"sha" wasn\'t supplied'
+      * 删除必须带 sha,不带回 422 '"sha" wasn't supplied'
       * 删非空目录回 422 '"<path>" is not a file' —— contents API 删不了非空目录
       * sha 对不上(目录被清空后 sha 就变了)回 404 Not Found
       * git 里没有空目录:最后一个文件删掉,那个目录就没了
@@ -142,7 +142,7 @@ class FakeRepo:
             want = (payload or {}).get("sha")
             if not want:
                 # 真 API:不带 sha 直接拒
-                return 422, {"message": 'Invalid request.\n\n"sha" wasn\'t supplied.'}
+                return 422, {"message": "Invalid request.\n\n\"sha\" wasn't supplied."}
             entry = self.tree.get(path)
             if entry is None:
                 return 404, {"message": "Not Found"}
