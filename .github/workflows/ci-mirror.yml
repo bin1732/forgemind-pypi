@@ -141,8 +141,9 @@ jobs:
                 python scripts/check_ci_lock.py
     - name: 版本号声明对账
       run: |
-                # 版本号写在 pyproject 与 forgemind/__init__.py 两处,漏改一处,
-                # 装出来的包就会报一个和实际代码对不上的版本。
+                # 版本号写在 pyproject、forgemind/__init__.py、桌面端 Cargo.toml
+                # 与界面 package.json 四处,漏改一处,装出来的包或桌面包
+                # 就会报一个和实际代码对不上的版本。
                 python scripts/check_version_consistency.py .
     - name: Vulture dead code scan (源码)
       run: |
