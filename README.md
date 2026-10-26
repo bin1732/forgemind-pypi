@@ -89,7 +89,7 @@ python scripts/research_demo.py --symbols 600519,000001 --start 2024-01-01
 
 ## 🔌 接入 MCP 客户端(Claude Desktop / Cursor / Claude Code)
 
-`forgemind mcp` 以 stdio 方式提供 10 个 MCP 工具。客户端需要一个**绝对路径**
+`forgemind mcp` 以 stdio 方式提供 12 个 MCP 工具。客户端需要一个**绝对路径**
 的命令 —— MCP 客户端不会用你当前 shell 的 PATH。
 
 **1. 确认 `forgemind` 在哪**
