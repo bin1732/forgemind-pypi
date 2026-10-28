@@ -258,6 +258,35 @@ jobs:
                   code, _ = call('PUT', f'{API}/contents/pypi/simple/forgemind/index.html', di)
                   print(f'  [{code}] pypi index -> {sha[:16]} (path {rp})')
 
+          # 清单写在**产物上传之后、等索引之前**。
+          #
+          # 顺序有讲究:
+          #   * 必须在清理旧构建之前 —— 反过来会出现一段时间里清单还指着
+          #     上一次构建,而那个构建已经被删了,按清单核对的人找不到文件,
+          #     却什么错都没犯。
+          #   * 必须在产物上传之后 —— 清单记的是这次上传的字节数。
+          #   * 要在等索引之前 —— 上面那步等线上索引最长要 10 分钟,
+          #     清单要是压在那后面,这段时间里"Release 上的资产"已经是
+          #     新的、"清单记的字节数"还是旧的,对账作业必然报对不上。
+          #     作业若在中途被取消,这个不一致窗口就一直留着。挪到
+          #     等待之前,窗口只剩几秒。
+          mf = {'version': 'latest', 'assets': sorted(uploaded),
+                'sizes': {k: asset_sizes[k] for k in sorted(asset_sizes)},
+                # 记下这次构建的编号。验证工作流要靠它确认"清单说的"
+                # 与"线上索引指向的"是同一份产物 —— 两者不是同一份时,
+                # 清单里的字节数与文件对不上是必然的,而不是出了错。
+                'build_id': build_id,
+                'source_repo': 'bin1732/forgemind',
+                'source_commit': __import__('os').environ.get('SOURCE_COMMIT', ''),
+                'install': 'pip install --extra-index-url https://bin1732.github.io/forgemind-pypi/pypi/simple/ forgemind'}
+          # 清单就地更新,不先删后写:少一次提交,历史里不留删除痕迹
+          stm, exm = call('GET', f'{API}/contents/releases/builds/manifest.json')
+          dm = {'message': 'Manifest', 'content': base64.b64encode(json.dumps(mf, indent=2).encode()).decode(), 'branch': 'main'}
+          if stm == 200 and exm:
+              dm['sha'] = exm['sha']
+          code, _ = call('PUT', f'{API}/contents/releases/builds/manifest.json', dm)
+          print(f'  [{code}] manifest.json')
+
           # 3) 等线上索引指向本次构建,再清理历史构建目录
           # GitHub Pages 部署新索引有延迟:这段时间里线上索引还指着上一个
           # 构建。立刻把上一个构建删掉,用户按线上索引下载就会拿到 404。
@@ -393,26 +422,6 @@ jobs:
           # 会漂移的数字;来源提交也一样 —— 它是"测的"与"发的"能对上的
           # 唯一凭据。
           #
-          # 清单必须写在清理旧构建**之前**:反过来会出现一段时间里
-          # 清单还指着上一次构建,而那个构建已经被删了 —— 按清单核对的人
-          # 找不到文件,却什么错都没犯。
-          mf = {'version': 'latest', 'assets': sorted(uploaded),
-                'sizes': {k: asset_sizes[k] for k in sorted(asset_sizes)},
-                # 记下这次构建的编号。验证工作流要靠它确认"清单说的"
-                # 与"线上索引指向的"是同一份产物 —— 两者不是同一份时,
-                # 清单里的字节数与文件对不上是必然的,而不是出了错。
-                'build_id': build_id,
-                'source_repo': 'bin1732/forgemind',
-                'source_commit': __import__('os').environ.get('SOURCE_COMMIT', ''),
-                'install': 'pip install --extra-index-url https://bin1732.github.io/forgemind-pypi/pypi/simple/ forgemind'}
-          # 清单就地更新,不先删后写:少一次提交,历史里不留删除痕迹
-          stm, exm = call('GET', f'{API}/contents/releases/builds/manifest.json')
-          dm = {'message': 'Manifest', 'content': base64.b64encode(json.dumps(mf, indent=2).encode()).decode(), 'branch': 'main'}
-          if stm == 200 and exm:
-              dm['sha'] = exm['sha']
-          code, _ = call('PUT', f'{API}/contents/releases/builds/manifest.json', dm)
-          print(f'  [{code}] manifest.json')
-
           # 清理旧构建。保留哪些由 purge_builds 决定,那里的规则和理由
           # 写在一起,测试也直接跑那个函数 —— 调用点自己重写一份的测试
           # 守不住调用点。
