@@ -104,13 +104,15 @@ jobs:
       run: 'ruff format --check forgemind/ scripts/ --output-format=github'
     # 测试树只报不拦:那批长名测试文件攒着几千条历史告警,一次全量
     # 重排会把真实改动埋掉 —— 源码那边才是拦人的。
+    # 只打统计摘要:逐条列出来是四千多行,会把真实改动埋得更深,
+    # 计数本身就是诚实的。
     - name: Ruff check (tests, 只报不拦)
       run: |
-        ruff check tests/ --output-format=github \
+        ruff check tests/ --statistics \
           || echo "tests: ruff 告警只报不拦"
     - name: Ruff format check (tests, 只报不拦)
       run: |
-        ruff format --check tests/ --output-format=github \
+        ruff format --check tests/ \
           || echo "tests: ruff format 只报不拦"
     - name: Codespell
       # codespell 没有 --output-format 这个参数(那是 flake8 的),带着它
