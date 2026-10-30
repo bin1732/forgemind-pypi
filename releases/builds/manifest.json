@@ -9,12 +9,12 @@
   ],
   "sizes": {
     "forgemind-2026.9.3-py3-none-any.whl": 197780,
-    "forgemind-2026.9.3.tar.gz": 1245177,
-    "forgemind-linux": 209935112,
-    "forgemind-macos": 137224880,
-    "forgemind-windows-x64.exe": 165847687
+    "forgemind-2026.9.3.tar.gz": 1245118,
+    "forgemind-linux": 209936248,
+    "forgemind-macos": 137225232,
+    "forgemind-windows-x64.exe": 165847014
   },
-  "build_id": "41105561057",
+  "build_id": "41107411205",
   "source_repo": "bin1732/forgemind",
   "source_commit": "eb29b3eb38a70178ab55b53084d962a40a041072",
   "install": "pip install --extra-index-url https://bin1732.github.io/forgemind-pypi/pypi/simple/ forgemind"
