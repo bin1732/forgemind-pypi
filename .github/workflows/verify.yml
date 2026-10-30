@@ -22,7 +22,7 @@ concurrency:
 
 jobs:
   verify-wheel:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     steps:
       - name: 检出公开仓
         uses: actions/checkout@v4
@@ -215,7 +215,7 @@ jobs:
   # 用户视角的验证:只用公开渠道拿到的产物,不碰本地源码。
   user-journey:
     name: 真实用户旅程
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     steps:
       - name: 检出公开仓
         uses: actions/checkout@v4
@@ -238,7 +238,7 @@ jobs:
   # 这一层没人守的话,旧构建会一直留在仓库里,文档里的声明也会悄悄过期。
   verify-assets:
     name: 构件与声明对账
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     permissions:
       contents: read
     steps:
@@ -293,18 +293,18 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - os: ubuntu-22.04
+          - os: ubuntu-26.04
             name: linux
-          - os: windows-latest
+          - os: windows-2025
             name: windows
-          - os: macos-latest
+          - os: macos-26
             name: macos
     runs-on: ${{ matrix.os }}
     steps:
       - name: Download the released binary
         shell: bash
         run: |
-          if [ "${{ matrix.os }}" = "windows-latest" ]; then
+          if [ "${{ matrix.os }}" = "windows-2025" ]; then
             NAME="forgemind-windows-x64.exe"
           else
             NAME="forgemind-${{ matrix.name }}"
@@ -337,7 +337,7 @@ jobs:
         shell: bash
         run: |
           set -uo pipefail
-          if [ "${{ matrix.os }}" = "windows-latest" ]; then
+          if [ "${{ matrix.os }}" = "windows-2025" ]; then
             BIN="forgemind-windows-x64.exe"
           else
             BIN="forgemind-${{ matrix.name }}"

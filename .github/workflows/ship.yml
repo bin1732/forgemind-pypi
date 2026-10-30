@@ -24,7 +24,7 @@ jobs:
   # 三个构建各自 fetch main 的话,main 一动就可能拿到不同的提交 ——
   # wheel 与三个二进制来自不同代码,这种不一致没有任何检查会发现。
   resolve-source:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     outputs:
       commit: ${{ steps.resolve.outputs.commit }}
     steps:
@@ -45,7 +45,7 @@ jobs:
 
   build-wheel:
     needs: resolve-source
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     steps:
       - name: Fetch private source
         shell: bash
@@ -84,11 +84,11 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - os: ubuntu-22.04
+          - os: ubuntu-26.04
             name: linux
-          - os: windows-latest
+          - os: windows-2025
             name: windows
-          - os: macos-latest
+          - os: macos-26
             name: macos
     runs-on: ${{ matrix.os }}
     steps:
@@ -127,7 +127,7 @@ jobs:
           ENTRY=$(python3 -c "import forgemind.cli; print(forgemind.cli.__file__)")
           PKG_PATH=$(python3 -c "import forgemind, os; print(os.path.dirname(forgemind.__file__))")
           mkdir -p out
-          if [ "${{ matrix.os }}" = "windows-latest" ]; then
+          if [ "${{ matrix.os }}" = "windows-2025" ]; then
             NAME="forgemind-windows-x64.exe"
           else
             NAME="forgemind-${{ matrix.name }}"
@@ -150,7 +150,7 @@ jobs:
 
   ship:
     needs: [resolve-source, build-wheel, build-standalone]
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     env:
       # 构件的来源提交。写进清单,镜像才有可能去测同一个提交 ——
       # 否则"测过的"与"发出去的"可能不是一回事。

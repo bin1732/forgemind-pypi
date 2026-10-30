@@ -22,7 +22,7 @@ permissions:
 jobs:
   heavy-full:
     name: 重并发测试 (完整规模)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     defaults:
       run:
         working-directory: src

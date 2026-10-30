@@ -27,7 +27,7 @@ concurrency:
 jobs:
   check-rust:
     name: cargo check (lib.rs)
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-26.04
     steps:
       - name: 检出公开仓
         uses: actions/checkout@v4
@@ -56,7 +56,9 @@ jobs:
       - name: Install Tauri system dependencies
         run: |
           # 注意:注释不能放在反斜杠续行中间,否则 shell 会把下一行当命令执行
-          # libappindicator3-dev 与 libayatana-appindicator3-dev 在 ubuntu-22.04 互斥
+          # libappindicator3-dev 与 libayatana-appindicator3-dev 互斥:后者在包的
+          # 元数据里就写着 Conflicts: libappindicator3-dev,两个都装会打架。
+          # 装哪个都行,这里只装 libayatana(Tauri 的托盘图标用它)。
           sudo apt-get update -qq
           sudo apt-get install -y -qq \
             libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev patchelf \
@@ -87,7 +89,7 @@ jobs:
   # 就能看出来,不该等到桌面构建白烧二十分钟才发现。
   workflow-hygiene:
     name: 工作流自检 (runner 标签 / 平台一致)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     steps:
       - name: 检出公开仓
         uses: actions/checkout@v4
@@ -133,18 +135,18 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - os: ubuntu-22.04
+          - os: ubuntu-26.04
             name: linux
             bundler: deb
           # 与 ship.yml / verify.yml 用同一个标签:发布物就是在
-          # macos-latest 上构建的,验证也必须在同一套环境里做。
+          # macos-26 上构建的,验证也必须在同一套环境里做。
           # 原来这里写 macos-14,而那个标签已于 2026-11-02 被平台移除,
           # 作业会永远排不上 runner(而且 10 月的 brownout 窗口里
           # 已经开始间歇性失败)。
-          - os: macos-latest
+          - os: macos-26
             name: macos
             bundler: dmg
-          - os: windows-latest
+          - os: windows-2025
             name: windows
             bundler: msi
     runs-on: ${{ matrix.os }}
@@ -181,7 +183,9 @@ jobs:
       - name: Install Tauri system dependencies (Linux)
         if: runner.os == 'Linux'
         run: |
-          # libappindicator3-dev 与 libayatana-appindicator3-dev 在 ubuntu-22.04 互斥
+          # libappindicator3-dev 与 libayatana-appindicator3-dev 互斥:后者在包的
+          # 元数据里就写着 Conflicts: libappindicator3-dev,两个都装会打架。
+          # 装哪个都行,这里只装 libayatana(Tauri 的托盘图标用它)。
           sudo apt-get update -qq
           sudo apt-get install -y -qq \
             libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev patchelf \

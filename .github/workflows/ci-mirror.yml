@@ -35,7 +35,7 @@ jobs:
   # 与"发出去的"可能不是同一份代码,全绿也就没有意义了。
   resolve-source:
     name: 镜像 · 定位构件来源提交
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     outputs:
       commit: ${{ steps.source.outputs.commit }}
     steps:
@@ -50,7 +50,7 @@ jobs:
   mirror-lint:
     name: 镜像 · 代码质量
     needs: resolve-source
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     defaults:
       run:
         working-directory: src
@@ -176,7 +176,7 @@ jobs:
   mirror-security:
     name: 镜像 · 安全扫描
     needs: resolve-source
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     defaults:
       run:
         working-directory: src
@@ -259,7 +259,7 @@ jobs:
   mirror-tests:
     name: 镜像 · Python 测试 (常规)
     needs: resolve-source
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     defaults:
       run:
         working-directory: src
@@ -396,7 +396,7 @@ jobs:
   mirror-heavy:
     name: 镜像 · 重并发测试 (heavy)
     needs: resolve-source
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
     defaults:
       run:
@@ -464,7 +464,7 @@ jobs:
   mirror-wheel-suite:
     name: 镜像 · 全量测试跑在发布出去的 wheel 上
     needs: resolve-source
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     defaults:
       run:
         working-directory: src
@@ -532,7 +532,7 @@ jobs:
   mirror-ui:
     name: 镜像 · UI 测试 (Next.js + Jest)
     needs: resolve-source
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     defaults:
       run:
         working-directory: src/forgemind-ui
@@ -612,7 +612,7 @@ jobs:
   mirror-audit:
     name: 镜像 · 完整性对账
     needs: resolve-source
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     steps:
     - name: 检出公开仓
       uses: actions/checkout@v4
@@ -714,7 +714,7 @@ jobs:
 
   mirror-status:
     name: 镜像 · 汇总校验结论
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     if: always()
     continue-on-error: true
     permissions:
