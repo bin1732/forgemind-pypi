@@ -63,7 +63,7 @@ jobs:
           echo "源码 @ $(git rev-parse --short HEAD)"
           ls | head
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: '3.11'
 
@@ -73,7 +73,7 @@ jobs:
           pip install --break-system-packages build
           python -m build
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: wheel
           path: here/dist/
@@ -108,7 +108,7 @@ jobs:
           echo "源码 @ $(git rev-parse --short HEAD)"
           ls | head
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: '3.11'
 
@@ -143,7 +143,7 @@ jobs:
           mv "dist/$NAME" out/
           ls -lh out/
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: standalone-${{ matrix.name }}
           path: here/out/
@@ -156,11 +156,11 @@ jobs:
       # 否则"测过的"与"发出去的"可能不是一回事。
       SOURCE_COMMIT: ${{ needs.resolve-source.outputs.commit }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/download-artifact@v4
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v8
         with:
           path: artifacts
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: '3.11'
 

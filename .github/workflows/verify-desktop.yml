@@ -30,7 +30,7 @@ jobs:
     runs-on: ubuntu-26.04
     steps:
       - name: 检出公开仓
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           ref: main
       - name: 读出构件来源提交
@@ -92,7 +92,7 @@ jobs:
     runs-on: ubuntu-26.04
     steps:
       - name: 检出公开仓
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
       - name: 取私人仓的检查器
         shell: bash
         env:
@@ -111,7 +111,7 @@ jobs:
             echo "私人仓 main 上没有 scripts/check_runner_labels.py" >&2
             exit 1
           fi
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: '3.11'
       - name: runner 镜像标签核对
@@ -154,7 +154,7 @@ jobs:
     timeout-minutes: 45
     steps:
       - name: 检出公开仓
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           ref: main
       - name: 读出构件来源提交
@@ -176,7 +176,7 @@ jobs:
           git fetch -q --depth 1 origin "$SOURCE_COMMIT"
           git checkout -q FETCH_HEAD
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: '22'
 
@@ -509,7 +509,7 @@ jobs:
           fi
           echo "PASS 桌面应用(Windows)存活 30 秒"
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: forgemind-desktop-${{ matrix.name }}
           path: |

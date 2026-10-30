@@ -25,7 +25,7 @@ jobs:
     runs-on: ubuntu-26.04
     steps:
       - name: 检出公开仓
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           ref: main
       - name: 读出构件来源提交
@@ -45,7 +45,7 @@ jobs:
           git checkout -q FETCH_HEAD
           echo "private source @ $(git rev-parse --short HEAD)"
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: '3.11'
 
@@ -218,7 +218,7 @@ jobs:
     runs-on: ubuntu-26.04
     steps:
       - name: 检出公开仓
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           path: public-repo
           ref: main
@@ -248,7 +248,7 @@ jobs:
       # 清单与文件,比的其实是两次不同的构建,必然对不上。
       - name: 找出最近一次发布的提交
         id: rel
-        uses: actions/github-script@v7
+        uses: actions/github-script@v9
         with:
           script: |
             const { data } = await github.rest.repos.listCommits({
@@ -259,10 +259,10 @@ jobs:
             if (!hit) core.setFailed('最近 30 个提交里没有 Manifest 提交');
             else { core.setOutput('sha', hit.sha); console.log(hit.sha); }
       - name: 检出公开仓
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           ref: ${{ steps.rel.outputs.sha }}
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: '3.11'
       - name: 读出构件来源提交

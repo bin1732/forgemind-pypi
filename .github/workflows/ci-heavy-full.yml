@@ -28,7 +28,7 @@ jobs:
         working-directory: src
     steps:
     - name: 检出公开仓
-      uses: actions/checkout@v4
+      uses: actions/checkout@v7
       with:
         ref: main
     - name: 读出构件来源提交
@@ -51,7 +51,7 @@ jobs:
         git checkout -q FETCH_HEAD
         git branch -f main FETCH_HEAD
         echo "private source @ $(git rev-parse --short HEAD)"
-    - uses: actions/setup-python@v5
+    - uses: actions/setup-python@v7
       with:
         python-version: '3.11'
     - name: Install dependencies

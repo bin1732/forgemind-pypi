@@ -28,7 +28,7 @@ jobs:
     runs-on: ubuntu-26.04
     steps:
       - name: 检出公开仓
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           ref: main
       - name: 读出构件来源提交
@@ -50,7 +50,7 @@ jobs:
           git fetch -q --depth 1 origin "$SOURCE_COMMIT"
           git checkout -q FETCH_HEAD
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: '3.11'
 
@@ -108,7 +108,7 @@ jobs:
             echo "FAIL: CLI etl 既没成功也没给出分类"; exit 1
           fi
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: live-akshare-logs

@@ -40,7 +40,7 @@ jobs:
       commit: ${{ steps.source.outputs.commit }}
     steps:
     - name: 检出公开仓
-      uses: actions/checkout@v4
+      uses: actions/checkout@v7
       with:
         ref: main
     - name: 从清单读出来源提交
@@ -91,7 +91,7 @@ jobs:
           exit 1
         fi
         echo "history commits: $n"
-    - uses: actions/setup-python@v5
+    - uses: actions/setup-python@v7
       with:
         python-version: '3.11'
     - name: Install Ruff
@@ -217,7 +217,7 @@ jobs:
           exit 1
         fi
         echo "history commits: $n"
-    - uses: actions/setup-python@v5
+    - uses: actions/setup-python@v7
       with:
         python-version: '3.11'
     - name: Install dependencies
@@ -265,7 +265,7 @@ jobs:
         working-directory: src
     steps:
     - name: 检出公开仓
-      uses: actions/checkout@v4
+      uses: actions/checkout@v7
       with:
         ref: main
     - name: 取私人仓源码
@@ -304,7 +304,7 @@ jobs:
           exit 1
         fi
         echo "history commits: $n"
-    - uses: actions/setup-python@v5
+    - uses: actions/setup-python@v7
       with:
         python-version: '3.11'
     - name: Install dependencies
@@ -438,7 +438,7 @@ jobs:
           exit 1
         fi
         echo "history commits: $n"
-    - uses: actions/setup-python@v5
+    - uses: actions/setup-python@v7
       with:
         python-version: '3.11'
     - name: Install dependencies
@@ -470,7 +470,7 @@ jobs:
         working-directory: src
     steps:
     - name: 检出公开仓
-      uses: actions/checkout@v4
+      uses: actions/checkout@v7
       with:
         ref: main
     - name: 取私人仓源码
@@ -489,7 +489,7 @@ jobs:
         git fetch -q origin "$SOURCE_COMMIT"
         git checkout -q FETCH_HEAD
         git branch -f main FETCH_HEAD
-    - uses: actions/setup-python@v5
+    - uses: actions/setup-python@v7
       with:
         python-version: '3.11'
     - name: Install dependencies
@@ -573,7 +573,7 @@ jobs:
           exit 1
         fi
         echo "history commits: $n"
-    - uses: actions/setup-node@v4
+    - uses: actions/setup-node@v7
       with:
         node-version: '20'
         cache: npm
@@ -615,10 +615,10 @@ jobs:
     runs-on: ubuntu-26.04
     steps:
     - name: 检出公开仓
-      uses: actions/checkout@v4
+      uses: actions/checkout@v7
       with:
         ref: main
-    - uses: actions/setup-python@v5
+    - uses: actions/setup-python@v7
       with:
         python-version: '3.11'
     - name: 装解析工作流用的库
@@ -722,7 +722,7 @@ jobs:
       actions: read
     steps:
     - name: 汇总本镜像各作业结论
-      uses: actions/github-script@v7
+      uses: actions/github-script@v9
       with:
         script: |
           // workflow_run 触发时 context.run 是 undefined(事件载荷里没有
