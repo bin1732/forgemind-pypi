@@ -147,6 +147,19 @@ jobs:
                 # 与界面 package.json 四处,漏改一处,装出来的包或桌面包
                 # 就会报一个和实际代码对不上的版本。
                 python scripts/check_version_consistency.py .
+    - name: runner 镜像标签核对
+      run: |
+                # 平台会退役 runner 镜像标签,标签被移除后用到它的作业
+                # 永远排不上 runner。这里核对的是发布出去的这份源码里
+                # 的工作流,不是本地工作区里的。
+                # 这道检查是后加的:发布出去的源码提交可能早于它 ——
+                # 早于它的提交本来就没有这道检查,不是失败,但要说清楚。
+                if [ -f scripts/check_runner_labels.py ]; then
+                  pip install pyyaml --break-system-packages -q
+                  python scripts/check_runner_labels.py .
+                else
+                  echo "这份源码提交还没有 runner 标签核对,本次不核对"
+                fi
     - name: Vulture dead code scan (源码)
       run: |
                 pip install vulture --break-system-packages -q

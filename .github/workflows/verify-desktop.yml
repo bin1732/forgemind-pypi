@@ -79,8 +79,54 @@ jobs:
         run: |
           grep -E "^test result|running [0-9]+ test" -A 1 || true
 
+  # 工作流自身也要体检:runner 镜像标签被平台移除时,作业不是"跑失败",
+  # 而是永远排不上 runner;发布用的平台和验证用的平台不是同一个标签时,
+  # 验过的环境和发布的环境就不是同一套。这两种问题在作业跑起来之前
+  # 就能看出来,不该等到桌面构建白烧二十分钟才发现。
+  workflow-hygiene:
+    name: 工作流自检 (runner 标签 / 平台一致)
+    runs-on: ubuntu-latest
+    steps:
+      - name: 检出公开仓
+        uses: actions/checkout@v4
+      - name: 取私人仓的检查器
+        shell: bash
+        env:
+          PRIVATE_REPO_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN }}
+        run: |
+          set -euo pipefail
+          # 这里要的是**工具**,不是产品源码:判据表要跟着平台公告更新,
+          # 用最新的那份才准。取私人仓的 main 而不是清单里记的那一份 ——
+          # 钉在发布提交上,清单一落后这道检查就会静默跳过。
+          mkdir -p tool && cd tool
+          git init -q
+          git remote add origin "https://x-access-token:${PRIVATE_REPO_TOKEN}@github.com/bin1732/forgemind.git"
+          git fetch -q --depth 1 origin main
+          git checkout -q FETCH_HEAD
+          if [ ! -f scripts/check_runner_labels.py ]; then
+            echo "私人仓 main 上没有 scripts/check_runner_labels.py" >&2
+            exit 1
+          fi
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: runner 镜像标签核对
+        working-directory: tool
+        run: |
+          # 判据在私人仓(唯一真源),这里直接用那份,公开仓不另存一份 ——
+          # 两份会漂移,漂移了就等于没有检查。
+          # 目标(..)是公开仓自己的根:要查的是公开仓这些工作流用的
+          # runner 标签,不是私人仓的。
+          pip install pyyaml --break-system-packages -q
+          python scripts/check_runner_labels.py ..
+      - name: 发布与验证的平台标签一致
+        run: |
+          python scripts/check_release_platform_parity.py .
+
   build-desktop:
-    needs: check-rust
+    needs:
+    - check-rust
+    - workflow-hygiene
     strategy:
       fail-fast: false
       matrix:
@@ -88,7 +134,12 @@ jobs:
           - os: ubuntu-22.04
             name: linux
             bundler: deb
-          - os: macos-14
+          # 与 ship.yml / verify.yml 用同一个标签:发布物就是在
+          # macos-latest 上构建的,验证也必须在同一套环境里做。
+          # 原来这里写 macos-14,而那个标签已于 2026-11-02 被平台移除,
+          # 作业会永远排不上 runner(而且 10 月的 brownout 窗口里
+          # 已经开始间歇性失败)。
+          - os: macos-latest
             name: macos
             bundler: dmg
           - os: windows-latest
