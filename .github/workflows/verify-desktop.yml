@@ -9,9 +9,11 @@ on:
     workflows: ["ship"]
     types: [completed]
   workflow_dispatch:
-  push:
-    paths:
-      - ".github/workflows/verify-desktop.yml"
+# 这里原来还挂着一个 push 触发(只在工作流文件自身改动时触发)。它是
+# 纯冗余:这个工作流验的永远是**清单里那份已发布源码**,push 触发和
+# ship 触发验的是同一件事。而两者跑在同一个并发组里,ship 完成后触发
+# 的那一轮会把 push 触发的那一轮顶成 cancelled —— 跑得快就侥幸存活,
+# 跑得慢就被取消,对外信号是随机的。去掉它,一次发布对应一次验证。
 
 permissions:
   contents: read
