@@ -671,11 +671,12 @@ jobs:
       # 公开仓自己的工作流也有 Windows runner,bash 语法没声明 shell
       # 会在那边直接跑不起来。
       run: python scripts/check_workflow_shell.py
-    - name: 发布清理逻辑核对
-      # 发布时删旧构建目录那一步:目录里的文件删完后,目录自身的 sha 就变了,
-      # 还拿旧 sha 去删只会 404,空目录就一个个留在仓库里。这条用工作流里
-      # 的原码跑一遍,不是抄一份。
-      run: python scripts/test_ship_purge.py
+    - name: 发布写入逻辑核对
+      # 一次发布只落两个提交:构件 + 索引 + 清单,以及清理旧构建。
+      # 每个提交都会触发一次 Pages 部署,提交一多,线上索引切换就慢,
+      # 这段时间里"用户按索引装到的"与"清单说的"不是同一份产物。
+      # 这条直接跑发布脚本的判据函数,不是抄一份。
+      run: python scripts/test_publish.py
     - name: Ruff check (公开仓脚本)
       # 公开仓的脚本以前没人查过 —— 这里面的检查器本身就是门禁,
       # 写错了不会有人发现。
