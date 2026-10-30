@@ -251,12 +251,18 @@ jobs:
         uses: actions/github-script@v9
         with:
           script: |
+            // 按**内容**找,不按提交信息的措辞找:发布流程改过一次写法
+            // (一次发布只落两个提交,清单与构件在同一个提交里),按措辞
+            // 找就会把旧那次发布的提交当成这次 —— 拿旧清单核对新构件,
+            // 必然对不上,而错误信息说的是"字节数不一致",看不出是找错了
+            // 提交。清单是"发了什么"的真源,最后改过它的那个提交就是
+            // 要核对的那一次。
             const { data } = await github.rest.repos.listCommits({
               owner: context.repo.owner, repo: context.repo.repo,
-              sha: 'main', per_page: 30,
+              sha: 'main', path: 'releases/builds/manifest.json', per_page: 1,
             });
-            const hit = data.find(c => c.commit.message.startsWith('Manifest'));
-            if (!hit) core.setFailed('最近 30 个提交里没有 Manifest 提交');
+            const hit = data[0];
+            if (!hit) core.setFailed('main 上找不到改过清单的提交');
             else { core.setOutput('sha', hit.sha); console.log(hit.sha); }
       - name: 检出公开仓
         uses: actions/checkout@v7

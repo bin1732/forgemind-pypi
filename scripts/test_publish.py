@@ -204,6 +204,27 @@ class TestManifestShape:
 
 
 if __name__ == "__main__":
-    import pytest
-
-    sys.exit(pytest.main([__file__, "-v"]))
+    # 公开仓的脚本测试不依赖 pytest:那个作业的环境里没有 pytest,
+    # 依赖它就等于让这道检查永远跑不起来。这里自带一个极简运行器 ——
+    # 断言用普通的 assert,跑一遍所有以 test_ 开头的方法。
+    failures = []
+    total = 0
+    for name, obj in sorted(globals().items()):
+        if not (isinstance(obj, type) and name.startswith("Test")):
+            continue
+        for meth in sorted(dir(obj)):
+            if not meth.startswith("test_"):
+                continue
+            total += 1
+            try:
+                getattr(obj(), meth)()
+                print(f"  PASS {name}.{meth}")
+            except Exception as exc:  # noqa: BLE001
+                failures.append(f"{name}.{meth}: {exc}")
+                print(f"  FAIL {name}.{meth}: {exc}")
+    if failures:
+        print(f"{len(failures)}/{total} 条判据不成立:", file=sys.stderr)
+        for item in failures:
+            print(f" - {item}", file=sys.stderr)
+        sys.exit(1)
+    print(f"发布判据 {total} 条全部成立")
