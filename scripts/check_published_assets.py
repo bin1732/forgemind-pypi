@@ -21,6 +21,7 @@
 from __future__ import annotations
 
 import argparse
+import base64
 import hashlib
 import json
 import os
@@ -48,6 +49,29 @@ ASSET_SUFFIXES = (".whl", ".tar.gz", ".exe")
 def is_asset(name: str) -> bool:
     """清单里的资产名。"""
     return name.endswith(ASSET_SUFFIXES) or name in ("forgemind-linux", "forgemind-macos")
+
+
+def remote_manifest(token: str | None) -> dict | None:
+    """读远端 main 上的清单。读不到就返回 None。"""
+    if not token:
+        return None
+    url = (
+        "https://api.github.com/repos/bin1732/forgemind-pypi/contents/releases/builds/manifest.json"
+    )
+    req = urllib.request.Request(
+        url,
+        headers={
+            "Authorization": f"Bearer {token}",
+            "Accept": "application/vnd.github+json",
+            "User-Agent": "forgemind-assets",
+        },
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=60) as resp:
+            payload = json.load(resp)
+        return json.loads(base64.b64decode(payload["content"]))
+    except Exception:
+        return None
 
 
 def release_assets(token: str | None) -> dict[str, int] | None:
@@ -251,11 +275,27 @@ def main() -> int:
 
     if not args.skip_online:
         token = token_from_env_or_remote()
+        # 本地检出的清单可能不是线上最新的那一份(工作区落后于远端 main)。
+        # 这时"清单记的字节数"与"线上资产的字节数"必然对不上,而错误信息
+        # 说的是字节数 —— 看不出根因是工作区旧了。这里先说清楚。
+        remote = remote_manifest(token)
+        stale = False
+        if remote is not None and manifest_build and remote.get("build_id"):
+            if str(remote["build_id"]) != manifest_build:
+                stale = True
+                problems.append(
+                    f"本地检出的清单是构建 {manifest_build},线上最新的是 "
+                    f"{remote['build_id']} —— 工作区落后于远端 main,先同步再核对"
+                )
         actual = release_assets(token)
         if actual is None:
             problems.append(
                 "读不到 continuous release 的资产(缺凭据或网络不可达),清单里的字节数未与线上核对"
             )
+        elif stale:
+            # 拿旧构建的字节数去比新构建,比的是两次不同的构建,必然对不上
+            # —— 这时候报字节数不一致只会把人引到错的地方去。
+            print(f"注意:本地清单不是线上最新的一份,跳过字节数核对(线上是 {remote['build_id']})")
         else:
             for name, size in manifest_sizes.items():
                 if name not in actual:
