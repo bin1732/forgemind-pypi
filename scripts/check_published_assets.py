@@ -139,6 +139,17 @@ def main() -> int:
                 if after:
                     online_build = after[0]
 
+    # 清单与索引必须指的是同一份产物。
+    # 这两条链路是分开的:清单随发布流程写,索引由 Pages 部署刷到线上,
+    # 两者之间有延迟。延迟期间"用户按索引装到的"和"清单说的"不是同一份
+    # 产物 —— 版本号一样、内容不一样,装到的人不会知道自己拿的是哪一份。
+    # 清单与索引对不上时必须报出来,不能只核对各自内部。
+    if manifest_build and online_build and manifest_build != online_build:
+        problems.append(
+            f"线上索引指向的构建 {online_build} 与清单记的构建 {manifest_build} "
+            "不是同一份产物 —— 用户按索引装到的是前者,清单说的却是后者"
+        )
+
     build = None
     if manifest_build:
         candidate = builds_dir / manifest_build
