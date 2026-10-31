@@ -275,7 +275,8 @@ forgemind mcp                       # 以标准输入输出的方式启动 MCP �
 但桌面应用**还没有可下载的安装包** —— Tauri 应用启动的是本机的 Python
 sidecar,需要先装好 Python 3.11+ 与本包,没有把解释器打进去。上面表里
 "桌面端"一行下载并实跑的是三个平台的**独立二进制**
-(`forgemind-linux` / `forgemind-macos` / `forgemind-windows-x64.exe`),
+(`forgemind-<版本>-linux` / `forgemind-<版本>-macos` /
+`forgemind-<版本>-windows-x64.exe`),
 它们在 [Releases](https://github.com/bin1732/forgemind-pypi/releases) 上。
 运行中的探测脚本在 `scripts/live_probe.py`,对着已安装的包执行:
 

@@ -263,6 +263,13 @@ def main() -> int:
         if not f.is_file() or f.name == "manifest.json":
             continue
         name, size = f.name, f.stat().st_size
+        # 资产名带上版本号。资产名不变时,GitHub 的 CDN 会继续发旧副本 ——
+        # 用户下到的会是有意为之的上一个构建,而且时有时无(缓存刷新与
+        # 下载的竞态)。wheel 一直带着版本号,所以从没旧过;二进制以前
+        # 用的是固定名,于是只有它会旧。名字一变,URL 就变,CDN 就没有
+        # 旧副本可发了。
+        if args.publish_version not in name:
+            name = name.replace("forgemind-", f"forgemind-{args.publish_version}-", 1)
         # 资产上传必须走 uploads.github.com,不是 api.github.com
         upload_url = rel["upload_url"].replace("{?name,label}", "")
         code, _ = call(

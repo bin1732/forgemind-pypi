@@ -46,6 +46,17 @@ CODE_FENCE = re.compile(r"```.*?```", re.DOTALL)
 ASSET_SUFFIXES = (".whl", ".tar.gz", ".exe")
 
 
+def asset_kind(name: str) -> str:
+    """资产的名字形态(版本号抹成 *)。
+
+    版本号每次发布都变(每次发布给一个新的 post 号)。文档里写死一个
+    版本号,下一个发布就对不上了 —— 按名字形态比才对:清单里的
+    forgemind-2026.9.3.post2-py3-none-any.whl 与文档里的
+    forgemind-2026.9.3-py3-none-any.whl 是同一形态的东西 ✓。
+    """
+    return re.sub(r"\d+\.\d+\.\d+(?:\.post\d+)?|<[^>]*>", "*", name)
+
+
 def is_asset(name: str) -> bool:
     """清单里的资产名。"""
     return name.endswith(ASSET_SUFFIXES) or name in ("forgemind-linux", "forgemind-macos")
@@ -275,19 +286,18 @@ def main() -> int:
             return
         text = CODE_FENCE.sub(" ", doc.read_text(encoding="utf-8"))
         listed = {name for name in DOC_NAME.findall(text) if is_asset(name)}
-        # 文档里写成模板的名字(forgemind-<版本>-....whl)不是具体资产,
-        # 拿它去比对清单必然对不上 —— 模板跳过。
-        listed = {name for name in listed if "<" not in name and ">" not in name}
         if not listed:
             problems.append(f"{doc.name} 里没有找到列出资产的表格")
             return
         # 文档点名了清单里没有的资产 = 承诺了不存在的东西 → 一定要报
-        unknown = listed - manifest_assets
+        listed_kinds = {asset_kind(name) for name in listed}
+        manifest_kinds = {asset_kind(name) for name in manifest_assets}
+        unknown = listed_kinds - manifest_kinds
         if unknown:
             problems.append(f"{doc.name} 列了清单里没有的资产: {sorted(unknown)}")
         # 清单里有而文档没列 = 漏列,不是错(给用户看的文档不必列全)
         if strict:
-            absent = manifest_assets - listed
+            absent = manifest_kinds - listed_kinds
             if absent:
                 problems.append(f"清单里的资产没在 {doc.name} 里列出: {sorted(absent)}")
 
