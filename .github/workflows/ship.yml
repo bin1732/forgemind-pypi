@@ -164,6 +164,24 @@ jobs:
           python3 -m pip install --break-system-packages "."
           python3 -m pip install --break-system-packages pyinstaller
 
+      - name: 确认构建用的版本号
+        shell: bash
+        # 工作目录是仓库根(不是 here):从 here 里 import 命中的会是源码
+        # 树,不是装出来的那份 —— 要看的就是装出来的那份报什么。
+        run: |
+          set -euo pipefail
+          # 源码里的声明、装出来的包、期望的发布版本,三者必须一致。
+          # 对不上时打出来的二进制报的就是错的版本,而从外面看不出来 ——
+          # 构件的字节数与校验值都是对的,只有版本号不对。
+          want="${{ needs.resolve-source.outputs.publish_version }}"
+          src=$(sed -n 's/^__version__ = "\(.*\)"/\1/p' here/forgemind/__init__.py | head -1)
+          installed=$(python3 -c "import forgemind; print(forgemind.__version__)")
+          echo "want=$want src=$src installed=$installed"
+          if [ "$src" != "$want" ] || [ "$installed" != "$want" ]; then
+            echo "FAIL: 构建用的版本号对不上(期望 $want / 源码 $src / 装出来的 $installed)"
+            exit 1
+          fi
+
       - name: Build standalone
         shell: bash
         working-directory: here
