@@ -60,11 +60,15 @@ pip install --extra-index-url https://bin1732.github.io/forgemind-pypi/pypi/simp
 > 能同时解析 forgemind 本体与全部依赖,`forgemind[cn]` 额外装上 akshare。
 > 也可直接装文件:从上面的下载页取 `forgemind-<版本>-py3-none-any.whl` 再 `pip install` 它。
 
-> **这个渠道每次发布都覆盖同一个版本号**(2026.9.3),内容却是新的构建。
-> 所以**新装**的机器拿到的总是最新那一版;**已经装过**的机器再执行同一条
-> 命令,pip 会说 "Requirement already satisfied" 而不重新下载 —— 想更新到
-> 后来发布的构建,要用 `pip install --force-reinstall`。这是"版本号不变、
-> 内容变"的渠道的固有代价,不是安装方式写错了。
+> **每次发布的版本号带一个递增的 post 号**(2026.9.3 → 2026.9.3.post1 →
+> 2026.9.3.post2 → …),所以 `pip install --upgrade` 能正常升级到新发布的
+> 构建。版本号写在每次发布的清单里(`releases/builds/manifest.json` 的
+> `published_version`),发布出去的 wheel 文件名与它一致。
+>
+> 为什么要 post 号:同一个版本号下内容变了,pip 是不会升级的 —— 已装过的
+> 机器再执行同一条安装命令,pip 看到"这个版本已经满足"就不重新下载,
+> 用户就永远拿不到后来发布的构建。递增的版本号是这条渠道能被真正
+> 升级的前提。
 
 或直接下载单文件二进制(Linux / macOS / Windows,见 Releases)。
 

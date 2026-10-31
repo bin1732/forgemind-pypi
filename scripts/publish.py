@@ -225,6 +225,11 @@ def main() -> int:
     parser.add_argument("--branch", default="main", help="写哪个分支")
     parser.add_argument("--build-id", required=True, help="本次构建的编号")
     parser.add_argument("--source-commit", required=True, help="本次构建的来源提交")
+    parser.add_argument(
+        "--publish-version",
+        required=True,
+        help="这次发布用的版本号(源码里的基础版本 + .postN)",
+    )
     parser.add_argument("--artifacts", default="artifacts", help="构件目录")
     parser.add_argument("--live-index", default=LIVE_INDEX, help="线上索引地址")
     args = parser.parse_args()
@@ -308,6 +313,10 @@ def main() -> int:
         "build_id": build_id,
         "source_repo": "bin1732/forgemind",
         "source_commit": args.source_commit,
+        # 这次发布实际用的版本号。源码里的基础版本不变(那是维护者抬大
+        # 版本的地方),每次发布另给一个 post 号 —— 同一个版本号下内容变了,
+        # pip 是不会升级的,用户就永远拿不到新构建。
+        "published_version": args.publish_version,
         "install": (
             "pip install --extra-index-url "
             "https://bin1732.github.io/forgemind-pypi/pypi/simple/ forgemind"

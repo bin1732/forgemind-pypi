@@ -27,6 +27,7 @@ jobs:
     runs-on: ubuntu-26.04
     outputs:
       commit: ${{ steps.resolve.outputs.commit }}
+      publish_version: ${{ steps.version.outputs.version }}
     steps:
       - name: Resolve source commit
         id: resolve
@@ -42,6 +43,27 @@ jobs:
           git checkout -q FETCH_HEAD
           echo "commit=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
           echo "源码提交 @ $(git rev-parse --short HEAD)"
+      - name: 算这次发布的版本号
+        id: version
+        # 工作目录是 probe(私人源码),不是仓库根 —— 脚本在私人源码里,
+        # 仓库根下没有它。
+        working-directory: probe
+        shell: bash
+        run: |
+          set -euo pipefail
+          # 同一个版本号、内容却变了,pip 是不会升级的:已装过的机器再执行
+          # 同一条安装命令,pip 看到"这个版本已经满足"就不重新下载 —— 用户
+          # 永远拿不到后来发布的构建(实测过)。每次发布给一个新的 post 号,
+          # 版本单调递增,pip 才认得出这是更新的。
+          base=$(sed -n 's/^version = "\(.*\)"/\1/p' pyproject.toml | head -1)
+          # 上一次发布用过的版本号:清单里记着(第一次发布时清单里还没这个字段)
+          prev=$(curl -sS --max-time 60 \
+            https://raw.githubusercontent.com/bin1732/forgemind-pypi/main/releases/builds/manifest.json \
+            | python3 -c "import json,sys;print(json.load(sys.stdin).get('published_version',''))" \
+            2>/dev/null || true)
+          version=$(python3 scripts/publish_version.py --base "$base" --previous "$prev")
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "发布版本 @ $version (基础版本 $base,上一次 ${prev:-无})"
 
   build-wheel:
     needs: resolve-source
@@ -66,6 +88,17 @@ jobs:
       - uses: actions/setup-python@v7
         with:
           python-version: '3.11'
+
+      - name: 打上这次发布的版本号
+        working-directory: here
+        shell: bash
+        run: |
+          set -euo pipefail
+          # 仓库里的四处声明保持基础版本不动 —— 那是维护者抬大版本的地方。
+          # 构建用的这份副本打上发布版本,于是装出来的包与独立二进制报的
+          # 都是"这次发布"的版本。
+          python scripts/apply_publish_version.py . \
+            "${{ needs.resolve-source.outputs.publish_version }}"
 
       - name: Build wheel + sdist
         working-directory: here
@@ -111,6 +144,17 @@ jobs:
       - uses: actions/setup-python@v7
         with:
           python-version: '3.11'
+
+      - name: 打上这次发布的版本号
+        working-directory: here
+        shell: bash
+        run: |
+          set -euo pipefail
+          # 必须在装包之前打:下面 pip install "." 装的是这份副本,
+          # 独立二进制打的是装进去的那份 —— 版本号打晚了,二进制报的还是
+          # 基础版本。
+          python scripts/apply_publish_version.py . \
+            "${{ needs.resolve-source.outputs.publish_version }}"
 
       - name: Install deps
         shell: bash
@@ -179,4 +223,5 @@ jobs:
           python3 scripts/publish.py \
             --build-id "${{ github.run_id }}" \
             --source-commit "${{ needs.resolve-source.outputs.commit }}" \
+            --publish-version "${{ needs.resolve-source.outputs.publish_version }}" \
             --artifacts artifacts

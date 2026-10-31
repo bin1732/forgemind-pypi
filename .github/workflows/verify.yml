@@ -60,8 +60,9 @@ jobs:
           "$GITHUB_WORKSPACE/.v/bin/pip" install -q --upgrade pip
           "$GITHUB_WORKSPACE/.v/bin/pip" install -q "$GITHUB_WORKSPACE"/dist/*.whl
           "$GITHUB_WORKSPACE/.v/bin/python" -c "import forgemind; print('import ok', forgemind.__version__)"
-          # 构件报的版本必须与源码声明的一致。版本对不上,装到用户手上的
-          # 和发布出去的就不是同一份东西,而这种不一致从表面看不出来。
+          # 这一处装的是**从源码构建**的 wheel,还没打发布版本号,
+          # 所以对的是源码声明的基础版本 ✓(发布出来的那一个由下面
+          # "构件与声明对账"那档对着清单核 ✓)。
           declared=$(sed -n 's/^version = "\(.*\)"/\1/p' "$GITHUB_WORKSPACE/src/pyproject.toml" | head -1)
           actual=$("$GITHUB_WORKSPACE/.v/bin/python" -c "import forgemind; print(forgemind.__version__)")
           echo "declared=$declared actual=$actual"
@@ -96,13 +97,18 @@ jobs:
           for c in info signal router-demo; do
             "$V/forgemind" $c >/dev/null && echo "PASS forgemind $c" || { echo "FAIL forgemind $c"; exit 1; }
           done
-          # 构件报的版本必须与源码声明的一致。版本对不上,装到用户手上的
+          # 构件报的版本必须与**这次发布用的版本**一致。发布用的是
+          # "基础版本 + post 号"(每次发布递增 —— 同一个版本号下内容变了,
+          # pip 是不会升级的,用户就永远拿不到新构建),所以要对的是清单里
+          # 记的发布版本,不是源码里的基础版本。版本对不上,装到用户手上的
           # 和发布出去的就不是同一份东西,而这种不一致从表面看不出来。
-          declared=$(sed -n 's/^version = "\(.*\)"/\1/p' "$GITHUB_WORKSPACE/src/pyproject.toml" | head -1)
+          published=$(curl -sS --max-time 60 \
+            https://raw.githubusercontent.com/bin1732/forgemind-pypi/main/releases/builds/manifest.json \
+            | jq -r '.published_version // ""')
           actual=$("$V/forgemind" info | sed -n 's/.*Version:[[:space:]]*//p' | tr -d '\r')
-          echo "declared=$declared actual=$actual"
-          [ -n "$declared" ] && [ "$declared" = "$actual" ] \
-            || { echo "FAIL: 构件版本($actual)与源码声明($declared)不一致"; exit 1; }
+          echo "published=$published actual=$actual"
+          [ -n "$published" ] && [ "$published" = "$actual" ] \
+            || { echo "FAIL: 构件版本($actual)与这次发布的版本($published)不一致"; exit 1; }
           "$V/forgemind" backtest --start 2024-01-01 --end 2024-12-31 | grep -q "Total Return" \
             && echo "PASS backtest" || { echo "FAIL backtest"; exit 1; }
           # forgemind agent 现在是两步: prepare + 人工审批。

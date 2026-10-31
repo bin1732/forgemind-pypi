@@ -520,6 +520,15 @@ jobs:
         # 连依赖一起装,跟真实用户一样
         "$GITHUB_WORKSPACE/v/bin/pip" install -q "$GITHUB_WORKSPACE/dist/$name"
         "$GITHUB_WORKSPACE/v/bin/pip" install -q pytest pytest-asyncio pytest-timeout
+        # 发布出去的那个 wheel 报的版本,必须与清单里记的发布版本一致。
+        # 清单写的是"这次发布用的版本号"(基础版本 + post 号),而 wheel
+        # 的文件名里也是它 —— 两者对不上,说明发布出去的与清单说的不是
+        # 同一份东西。
+        published=$(python3 -c "import json;print(json.load(open('releases/builds/manifest.json')).get('published_version',''))")
+        actual=$("$GITHUB_WORKSPACE/v/bin/python" -c "import forgemind; print(forgemind.__version__)")
+        echo "published=$published actual=$actual"
+        [ "$published" = "$actual" ] || {
+          echo "FAIL: 发布出去的 wheel 版本($actual)与清单记的($published)不一致"; exit 1; }
     - name: 全量测试跑在这个环境上
       run: |
         # PYTHONSAFEPATH:不让 `python -m` 把当前目录塞进 sys.path。
