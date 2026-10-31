@@ -107,7 +107,10 @@ jobs:
             | jq -r '.published_version // ""')
           actual=$("$V/forgemind" info | sed -n 's/.*Version:[[:space:]]*//p' | tr -d '\r')
           echo "published=$published actual=$actual"
-          [ -n "$published" ] && [ "$published" = "$actual" ] \
+          if [ -z "$published" ]; then
+            echo "FAIL: 清单里没有 published_version —— 这次发布不是用新流程发的"; exit 1
+          fi
+          [ "$published" = "$actual" ] \
             || { echo "FAIL: 构件版本($actual)与这次发布的版本($published)不一致"; exit 1; }
           "$V/forgemind" backtest --start 2024-01-01 --end 2024-12-31 | grep -q "Total Return" \
             && echo "PASS backtest" || { echo "FAIL backtest"; exit 1; }

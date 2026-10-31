@@ -527,6 +527,9 @@ jobs:
         published=$(python3 -c "import json;print(json.load(open('releases/builds/manifest.json')).get('published_version',''))")
         actual=$("$GITHUB_WORKSPACE/v/bin/python" -c "import forgemind; print(forgemind.__version__)")
         echo "published=$published actual=$actual"
+        if [ -z "$published" ]; then
+          echo "FAIL: 清单里没有 published_version —— 这次发布不是用新流程发的"; exit 1
+        fi
         [ "$published" = "$actual" ] || {
           echo "FAIL: 发布出去的 wheel 版本($actual)与清单记的($published)不一致"; exit 1; }
     - name: 全量测试跑在这个环境上
