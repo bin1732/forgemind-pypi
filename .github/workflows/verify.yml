@@ -292,8 +292,11 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          # 两份文档都核:私人仓的自检文档,以及公开仓给用户看的 README ——
+          # README 里点名的下载物必须真的在这次发布的清单里。
           python scripts/check_published_assets.py \
-            --doc "$GITHUB_WORKSPACE/src/docs/AUDIT_3_DIMENSIONS.md"
+            --doc "$GITHUB_WORKSPACE/src/docs/AUDIT_3_DIMENSIONS.md" \
+            --doc-mentions "$GITHUB_WORKSPACE/README.md"
   verify-binaries:
     strategy:
       fail-fast: false

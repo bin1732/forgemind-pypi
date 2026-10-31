@@ -120,7 +120,19 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="核对发布构件与清单、索引、文档")
     parser.add_argument("--repo", type=Path, default=REPO, help="公开仓根目录")
     parser.add_argument(
-        "--doc", type=Path, default=None, help="私人仓自检文档路径(给了就核对里面的字节数)"
+        "--doc",
+        type=Path,
+        action="append",
+        help="要核对的文档路径(可给多个)。严格:文档必须列全清单里的资产。",
+    )
+    parser.add_argument(
+        "--doc-mentions",
+        type=Path,
+        action="append",
+        help=(
+            "只核'文档点名的资产是不是真存在'(宽松)。"
+            "给用户看的文档不必列全清单里的每一件 —— 漏列不是错,乱点名才是。"
+        ),
     )
     parser.add_argument("--skip-online", action="store_true", help="不查 Release,只核对本地")
     args = parser.parse_args()
@@ -256,22 +268,33 @@ def main() -> int:
                     )
 
     # 4) 文档里列的资产与清单一致;清单的字节数与线上发布资产一致
-    if args.doc is not None:
-        doc = args.doc.resolve()
+    def check_doc(doc_arg: Path, strict: bool) -> None:
+        doc = doc_arg.resolve()
         if not doc.is_file():
             problems.append(f"找不到文档: {doc}")
-        else:
-            text = CODE_FENCE.sub(" ", doc.read_text(encoding="utf-8"))
-            listed = {name for name in DOC_NAME.findall(text) if is_asset(name)}
-            if not listed:
-                problems.append("文档里没有找到列出资产的表格")
-            else:
-                unknown = listed - manifest_assets
-                if unknown:
-                    problems.append(f"文档列了清单里没有的资产: {sorted(unknown)}")
-                absent = manifest_assets - listed
-                if absent:
-                    problems.append(f"清单里的资产没在文档里列出: {sorted(absent)}")
+            return
+        text = CODE_FENCE.sub(" ", doc.read_text(encoding="utf-8"))
+        listed = {name for name in DOC_NAME.findall(text) if is_asset(name)}
+        # 文档里写成模板的名字(forgemind-<版本>-....whl)不是具体资产,
+        # 拿它去比对清单必然对不上 —— 模板跳过。
+        listed = {name for name in listed if "<" not in name and ">" not in name}
+        if not listed:
+            problems.append(f"{doc.name} 里没有找到列出资产的表格")
+            return
+        # 文档点名了清单里没有的资产 = 承诺了不存在的东西 → 一定要报
+        unknown = listed - manifest_assets
+        if unknown:
+            problems.append(f"{doc.name} 列了清单里没有的资产: {sorted(unknown)}")
+        # 清单里有而文档没列 = 漏列,不是错(给用户看的文档不必列全)
+        if strict:
+            absent = manifest_assets - listed
+            if absent:
+                problems.append(f"清单里的资产没在 {doc.name} 里列出: {sorted(absent)}")
+
+    for doc_arg in args.doc or []:
+        check_doc(doc_arg, strict=True)
+    for doc_arg in args.doc_mentions or []:
+        check_doc(doc_arg, strict=False)
 
     if not args.skip_online:
         token = token_from_env_or_remote()

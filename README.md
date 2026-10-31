@@ -60,6 +60,12 @@ pip install --extra-index-url https://bin1732.github.io/forgemind-pypi/pypi/simp
 > 能同时解析 forgemind 本体与全部依赖,`forgemind[cn]` 额外装上 akshare。
 > 也可直接装文件:从上面的下载页取 `forgemind-<版本>-py3-none-any.whl` 再 `pip install` 它。
 
+> **这个渠道每次发布都覆盖同一个版本号**(2026.9.3),内容却是新的构建。
+> 所以**新装**的机器拿到的总是最新那一版;**已经装过**的机器再执行同一条
+> 命令,pip 会说 "Requirement already satisfied" 而不重新下载 —— 想更新到
+> 后来发布的构建,要用 `pip install --force-reinstall`。这是"版本号不变、
+> 内容变"的渠道的固有代价,不是安装方式写错了。
+
 或直接下载单文件二进制(Linux / macOS / Windows,见 Releases)。
 
 启动本地 API 服务:
@@ -261,7 +267,12 @@ forgemind mcp                       # 以标准输入输出的方式启动 MCP �
 用户装到的是 wheel,这是两句话。装出来再跑,这句话就不用说了 ——
 发布出去的依赖区间是不是用得了,也只有这样才验得出来。
 
-桌面端构件从 [Releases](https://github.com/bin1732/forgemind-pypi/releases) 下载。
+桌面端的**源码构建与实跑**在流水线里完成(三个平台都真跑起来了),
+但桌面应用**还没有可下载的安装包** —— Tauri 应用启动的是本机的 Python
+sidecar,需要先装好 Python 3.11+ 与本包,没有把解释器打进去。上面表里
+"桌面端"一行下载并实跑的是三个平台的**独立二进制**
+(`forgemind-linux` / `forgemind-macos` / `forgemind-windows-x64.exe`),
+它们在 [Releases](https://github.com/bin1732/forgemind-pypi/releases) 上。
 运行中的探测脚本在 `scripts/live_probe.py`,对着已安装的包执行:
 
 ```bash
