@@ -46,6 +46,153 @@ def _force_utf8_stdio() -> None:
 _force_utf8_stdio()
 
 
+def cmd_demo(args):
+    """一条命令看到真实结果:取数 → 回测 → 落库
+
+    给第一次用的人的第一条命令:不需要密钥、不需要配置文件、不需要先
+    准备数据,装好就能跑。
+
+    数据只有三种来源,全都是真实行情:
+
+    - 免费数据源实时拉取(装了 [cn] 额外依赖时可用)
+    - 本地库里已经存好的真实行情
+    - 包内置的真实历史行情(见 forgemind/data/README.md)
+
+    这里没有"用随机数凑一份数据"那条路 —— 跑出来的收益、夏普、回撤
+    全部来自真实价格,赚是赚,亏是亏。
+    """
+    import importlib.util
+
+    import pandas as pd
+
+    from forgemind.core.backtest.engine import SimpleBacktestEngine
+    from forgemind.core.data.storage import DuckDBStorage, bare_symbol
+    from forgemind.core.strategies.library import STRATEGY_REGISTRY
+
+    symbol = args.symbol
+    start, end = args.start, args.end
+    db_symbol = bare_symbol(symbol)
+
+    print("ForgeMind 演示 —— 一条命令看到结果")
+    print(f"  标的 {symbol} · 区间 {start} → {end} · 策略 {args.strategy}")
+
+    price_df = None
+    data_note = ""
+    extra_hint = ""
+
+    # 取数:实时行情 → 本地库 → 包内置的真实历史行情
+    if importlib.util.find_spec("akshare") is not None:
+        try:
+            from forgemind.core.data.akshare_etl import AKShareETL
+
+            etl = AKShareETL()
+            prev_level = os.environ.get("FORGEMIND_LOG_LEVEL")
+            os.environ["FORGEMIND_LOG_LEVEL"] = "ERROR"
+            try:
+                stats = asyncio.run(etl.run(symbols=[db_symbol], start=start, end=end))
+            finally:
+                if prev_level is None:
+                    os.environ.pop("FORGEMIND_LOG_LEVEL", None)
+                else:
+                    os.environ["FORGEMIND_LOG_LEVEL"] = prev_level
+            n_klines = (stats or {}).get("klines", 0) or 0
+            if n_klines:
+                print(f"1/3 取数 · ✅ 实时行情:{n_klines} 根日线(免费数据源)")
+                data_note = "实时行情"
+        except Exception as exc:  # noqa: BLE001 — 取不到数不该让整条命令失败
+            extra_hint = f"免费数据源这次没取到({type(exc).__name__}),先用手头的数据"
+    else:
+        extra_hint = "想拉实时行情就装:pip install 'forgemind[cn]'"
+
+    if not data_note:
+        try:
+            with DuckDBStorage() as db:
+                price_df = db.query_df(
+                    "SELECT date, open, high, low, close, volume FROM kline_daily "
+                    "WHERE symbol = ? AND date BETWEEN ? AND ? ORDER BY date ASC",
+                    [db_symbol, start, end],
+                )
+        except Exception:  # noqa: BLE001 — 库还没建好是常见情况
+            price_df = None
+        if price_df is not None and not price_df.empty:
+            price_df["date"] = pd.to_datetime(price_df["date"])
+            price_df = price_df.set_index("date").sort_index()
+            data_note = f"本地库里的真实行情({len(price_df)} 根日线)"
+
+    if not data_note:
+        price_df = _bundled_real_prices(start, end)
+        data_note = (
+            f"包内置的真实历史行情({len(price_df)} 根日线,"
+            f"{price_df.index[0].date()} → {price_df.index[-1].date()})"
+        )
+
+    if not data_note.startswith("实时行情"):
+        print(f"1/3 取数 · ✅ {data_note}")
+        if extra_hint:
+            print(f"      {extra_hint}")
+
+    # 用之前先体检:列序写错这类问题读得出来、日期也对,只有策略在上面
+    # 算出离谱结果时才暴露。这里先挡住,别把坏数据算成好结果。
+    from forgemind.core.data.ohlc import assert_ohlc
+
+    assert_ohlc(price_df, "演示用的行情数据")
+
+    # 回测:按名字真的选策略
+    if args.strategy not in STRATEGY_REGISTRY:
+        print(f"❌ 未知策略 {args.strategy}")
+        print(f"   可选:{', '.join(sorted(STRATEGY_REGISTRY))}")
+        raise SystemExit(2)
+    strategy = STRATEGY_REGISTRY[args.strategy]()
+    strategy.validate_parameters()
+
+    engine = SimpleBacktestEngine(initial_capital=100_000)
+    result = engine.run(strategy, price_df)
+    total = float(getattr(result, "total_return", 0.0) or 0.0)
+    sharpe = float(getattr(result, "sharpe", 0.0) or 0.0)
+    mdd = float(getattr(result, "max_drawdown", 0.0) or 0.0)
+    n_trades = int(getattr(result, "n_trades", 0) or 0)
+    print(f"2/3 回测 · 策略 {args.strategy}")
+    if n_trades:
+        print(
+            f"3/3 结果 · 总收益 {total:+.2%} · 夏普 {sharpe:.2f} · "
+            f"最大回撤 {mdd:.2%} · 进出 {n_trades} 次"
+        )
+    else:
+        print("3/3 结果 · 这段区间里策略没有产生任何进出(总收益与夏普都是 0)")
+    print(f"      (数据来源:{data_note} —— 真实价格,不是模拟数据)")
+    if n_trades and total < 0:
+        # 不粉饰:这段行情里这个策略亏了,就说它亏了。策略不是万能的,
+        # 换个标的或换段区间结果会不一样 —— 让用户自己跑一次比较。
+        print("      提示:这一段行情里这个策略是亏的。换标的、换区间或换策略,")
+        print("           结果会不同 —— 下面几条命令就是给你试的。")
+
+    print("\n下一步:")
+    print(f"  forgemind pick --symbol {symbol}      多因子选股")
+    print(f"  forgemind backtest --strategy {args.strategy} --symbol {symbol}   再跑一次回测")
+    print("  forgemind mcp                          接入 MCP 客户端(Claude Desktop / Cursor)")
+    print("  forgemind info                         版本、数据源与连接状态")
+    return 0
+
+
+def _bundled_real_prices(start: str, end: str):
+    """读包内置的真实历史行情。
+
+    内置的是历史事实,不是模拟数据。区间与文件里的数据对不上时,按文件里
+    实际有的那段来 —— 少给几根总比给一段编造的强。
+    """
+    import pandas as pd
+
+    from forgemind.core.data import bundled_sample_path
+
+    path = bundled_sample_path()
+    df = pd.read_csv(path, parse_dates=["date"]).set_index("date").sort_index()
+    lo, hi = pd.Timestamp(start), pd.Timestamp(end)
+    window = df[(df.index >= lo) & (df.index <= hi)]
+    if window.empty:
+        window = df
+    return window
+
+
 def cmd_backtest(args):
     """跑一个示例回测"""
     import numpy as np
@@ -661,6 +808,16 @@ def build_parser() -> argparse.ArgumentParser:
     parser_signal.add_argument("--confidence", type=float, default=0.5, help="0-1")
     parser_signal.add_argument("--rationale", default=None, help="信号理由")
     parser_signal.set_defaults(func=cmd_broker_test)
+
+    # demo — 新手的第一条命令:零配置、零密钥,跑完就看到结果
+    parser_demo = subparsers.add_parser(
+        "demo", help="一条命令看到真实结果:取数 → 回测 → 落库(无需密钥或配置)"
+    )
+    parser_demo.add_argument("--symbol", default="600519", help="6 位代码,可选 .SH/.SZ")
+    parser_demo.add_argument("--start", default="2024-01-01")
+    parser_demo.add_argument("--end", default="2024-12-31")
+    parser_demo.add_argument("--strategy", default="ma_cross", help="策略名")
+    parser_demo.set_defaults(func=cmd_demo)
 
     return parser
 
