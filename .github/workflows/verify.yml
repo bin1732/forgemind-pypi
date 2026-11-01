@@ -345,10 +345,26 @@ jobs:
             if curl -sSLf --max-time 1800 -o "$NAME" "$URL" && [ -s "$NAME" ]; then
               ok=1; break
             fi
-            echo "  尝试 $i/8 失败(资产可能正被 ship 替换),15s 后重试"
+            echo "  尝试 $i/8 失败(资产可能正被 ship 替换),重读清单后重试"
             sleep 15
+            # 重读一次清单。资产名带着版本号,而发布会把上一版的资产换掉 ——
+            # 名字不跟着清单走,重试再多次也只会一直 404。
+            version=$(curl -sS --max-time 60 \
+              https://raw.githubusercontent.com/bin1732/forgemind-pypi/main/releases/builds/manifest.json \
+              | jq -r '.published_version // ""')
+            if [ -n "$version" ]; then
+              if [ "${{ matrix.os }}" = "windows-2025" ]; then
+                NAME="forgemind-${version}-windows-x64.exe"
+              else
+                NAME="forgemind-${version}-${{ matrix.name }}"
+              fi
+              URL="https://github.com/bin1732/forgemind-pypi/releases/download/continuous/${NAME}?cb=${GITHUB_RUN_ID}-${i}"
+            fi
           done
           if [ "$ok" != "1" ]; then echo "FAIL 下载失败(重试已耗尽)"; exit 1; fi
+          # 下载用的资产名里带着哪个版本,就把哪个版本记下来:后面核对
+          # 构件报的版本时对着它比,而不是对着可能已经变了的清单。
+          echo "$version" > .asset_version
           mv "$NAME" "$LOCAL"
           SIZE=$(wc -c < "$LOCAL")
           echo "downloaded $LOCAL ($SIZE bytes)"
@@ -397,6 +413,15 @@ jobs:
               echo "FAIL etl 崩溃: $(tail -2 out.etl.log)"
               RC=1
             fi
+          fi
+          # 下载用的资产名里带着哪个版本,构件报的版本就必须等于它 ——
+          # 名字与内容对不上,用户拿到的就不是他以为的那一版。
+          expected=$(cat .asset_version 2>/dev/null || echo "")
+          actual=$(sed -n 's/.*Version:[[:space:]]*//p' out.info.log | tr -d '\r')
+          if [ -n "$expected" ] && [ "$expected" = "$actual" ]; then
+            echo "  PASS 构件版本与资产名里的版本一致($actual)"
+          else
+            echo "  FAIL 构件版本($actual)与资产名里的版本($expected)不一致"; RC=1
           fi
           echo "--- backtest 真实输出 ---"
           grep -E "Total Return|Sharpe|Max Drawdown|Trades" out.backtest.log || true

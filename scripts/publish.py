@@ -219,6 +219,70 @@ def collect_tree(api: str, root: str) -> dict:
     return tree
 
 
+def asset_name(path: pathlib.Path, publish_version: str) -> str:
+    """资产名带上版本号。
+
+    资产名不变时,GitHub 的 CDN 会继续发旧副本 —— 用户下到的会是有意为之
+    的上一个构建,而且时有时无(缓存刷新与下载的竞态)。wheel 一直带着版本
+    号,所以从没旧过;二进制以前用的是固定名,于是只有它会旧。名字一变,
+    URL 就变,CDN 就没有旧副本可发了。
+    """
+    name = path.name
+    if publish_version not in name:
+        name = name.replace("forgemind-", f"forgemind-{publish_version}-", 1)
+    return name
+
+
+def sync_release_assets(rel: dict, files, publish_version: str, call) -> tuple[list[str], dict]:
+    """把这次的构件传上去,并把上一版的资产换掉。
+
+    **先传新的,再删旧的。**
+
+    先删后传的话,发布期间(几百兆的上传要几分钟)这个 Release 上一个资产
+    都没有 —— 用户下载任何构件都是 404,而"持续发布"的意义正在于用户随时
+    能拿到最新构建。正在跑的验证也一样:它要下的构件会在半路上被删掉,
+    报出来的却是"下载失败",与真实原因无关。
+
+    Releases API 不允许同名资产共存,所以重发同一个构建时,先把同名的
+    删掉 —— 版本号每次递增,正常情况下不会有同名,这一步只是兜住重发。
+    """
+    existing = {a["name"]: a for a in rel.get("assets", [])}
+
+    for f in files:
+        name = asset_name(f, publish_version)
+        if name in existing:
+            code, _ = call("DELETE", existing[name]["url"])
+            print(f"  [del {code}] {name}")
+            time.sleep(1)
+
+    uploaded: list[str] = []
+    asset_sizes: dict[str, int] = {}
+    upload_url = rel["upload_url"].replace("{?name,label}", "")
+    for f in files:
+        name, size = asset_name(f, publish_version), f.stat().st_size
+        # 资产上传必须走 uploads.github.com,不是 api.github.com
+        code, _ = call(
+            "POST",
+            f"{upload_url}?name={quote(name)}",
+            data=f.read_bytes(),
+            headers={"Content-Type": "application/octet-stream"},
+        )
+        print(f"  [asset {code}] {name} ({size // 1024 // 1024}MB)")
+        if code in (200, 201):
+            uploaded.append(name)
+            asset_sizes[name] = size
+
+    # 新的都到位了,再删掉上一版的资产。线上任何时刻都至少有一版可下。
+    for a in rel.get("assets", []):
+        if a["name"] in uploaded:
+            continue
+        code, _ = call("DELETE", a["url"])
+        print(f"  [del {code}] {a['name']}")
+        time.sleep(1)
+
+    return uploaded, asset_sizes
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="把这次构建发布出去")
     parser.add_argument("--api", default=DEFAULT_API, help="仓库 API 地址")
@@ -252,36 +316,11 @@ def main() -> int:
             },
         )
     print(f"release id={rel.get('id')}")
-    for a in rel.get("assets", []):
-        code, _ = call("DELETE", a["url"])
-        print(f"  [del {code}] {a['name']}")
-        time.sleep(1)
 
-    uploaded: list[str] = []
-    asset_sizes: dict[str, int] = {}
-    for f in sorted(art_dir.rglob("*")):
-        if not f.is_file() or f.name == "manifest.json":
-            continue
-        name, size = f.name, f.stat().st_size
-        # 资产名带上版本号。资产名不变时,GitHub 的 CDN 会继续发旧副本 ——
-        # 用户下到的会是有意为之的上一个构建,而且时有时无(缓存刷新与
-        # 下载的竞态)。wheel 一直带着版本号,所以从没旧过;二进制以前
-        # 用的是固定名,于是只有它会旧。名字一变,URL 就变,CDN 就没有
-        # 旧副本可发了。
-        if args.publish_version not in name:
-            name = name.replace("forgemind-", f"forgemind-{args.publish_version}-", 1)
-        # 资产上传必须走 uploads.github.com,不是 api.github.com
-        upload_url = rel["upload_url"].replace("{?name,label}", "")
-        code, _ = call(
-            "POST",
-            f"{upload_url}?name={quote(name)}",
-            data=f.read_bytes(),
-            headers={"Content-Type": "application/octet-stream"},
-        )
-        print(f"  [asset {code}] {name} ({size // 1024 // 1024}MB)")
-        if code in (200, 201):
-            uploaded.append(name)
-            asset_sizes[name] = size
+    files = [f for f in sorted(art_dir.rglob("*")) if f.is_file() and f.name != "manifest.json"]
+    uploaded, asset_sizes = sync_release_assets(
+        rel, files, args.publish_version, call
+    )
 
     # 2) 仓库里的构件 + 索引 + 清单:**一个提交**。
     #

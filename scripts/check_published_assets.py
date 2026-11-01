@@ -327,26 +327,41 @@ def main() -> int:
         stale = False
         if remote is not None and manifest_build and remote.get("build_id"):
             if str(remote["build_id"]) != manifest_build:
+                # 这只是"本地检出的不是最新一份"的事实,不是产物有问题 ——
+                # 下面的核对按线上清单做,不受它影响。所以它是提示,不是问题。
                 stale = True
-                problems.append(
-                    f"本地检出的清单是构建 {manifest_build},线上最新的是 "
-                    f"{remote['build_id']} —— 工作区落后于远端 main,先同步再核对"
+                print(
+                    f"注意:本地检出的清单是构建 {manifest_build},线上最新的是 "
+                    f"{remote['build_id']} —— 本地落后于远端 main"
                 )
         actual = release_assets(token)
         if actual is None:
             problems.append(
                 "读不到 continuous release 的资产(缺凭据或网络不可达),清单里的字节数未与线上核对"
             )
-        elif stale:
-            # 拿旧构建的字节数去比新构建,比的是两次不同的构建,必然对不上
-            # —— 这时候报字节数不一致只会把人引到错的地方去。
-            print(f"注意:本地清单不是线上最新的一份,跳过字节数核对(线上是 {remote['build_id']})")
         else:
-            for name, size in manifest_sizes.items():
+            # 拿**线上**清单里的资产名与字节数去比,而不是本地检出的那份。
+            # 线上清单与 release 资产是同一代产物,两者同源;本地那份可能
+            # 落后一轮发布,拿它去比,撞上"发布刚把资产换掉"的那一刻就会
+            # 报出"清单里的东西不在 release 上" —— 而线上其实好好的。
+            compare_assets = set(manifest_assets)
+            compare_sizes = dict(manifest_sizes)
+            if remote is not None:
+                compare_assets = set(remote.get("assets") or manifest_assets)
+                compare_sizes = dict(remote.get("sizes") or manifest_sizes)
+            if stale:
+                print(
+                    f"注意:本地清单不是线上最新的一份,字节数按线上清单核对"
+                    f"(线上是 {remote.get('build_id') if remote else '未知'})"
+                )
+            for name, size in compare_sizes.items():
                 if name not in actual:
                     problems.append(f"清单里的 {name} 不在 release 上")
                 elif actual[name] != size:
                     problems.append(f"{name} 清单记 {size} 字节,线上实际 {actual[name]} 字节")
+            for name in sorted(compare_assets):
+                if name not in actual:
+                    problems.append(f"清单里的 {name} 不在 release 上")
 
     if problems:
         print("发布构件与声明对不上:")

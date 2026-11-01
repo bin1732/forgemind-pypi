@@ -287,8 +287,22 @@ jobs:
                && [ -s "released/$NAME" ]; then
               ok=1; break
             fi
-            echo "  尝试 $i/8 失败(资产可能正被 ship 替换),15s 后重试"
+            echo "  尝试 $i/8 失败(资产可能正被 ship 替换),重读清单后重试"
             sleep 15
+            # 重读一次清单。资产名带着版本号,而发布会把上一版的资产换掉 ——
+            # 名字不跟着清单走,重试再多次也只会一直 404。
+            version=$(curl -sS --max-time 60 \
+              https://raw.githubusercontent.com/bin1732/forgemind-pypi/main/releases/builds/manifest.json \
+              | jq -r '.published_version // ""')
+            if [ -n "$version" ]; then
+              if [ "${{ runner.os }}" = "Windows" ]; then
+                NAME="forgemind-${version}-windows-x64.exe"
+              elif [ "${{ runner.os }}" = "macOS" ]; then
+                NAME="forgemind-${version}-macos"
+              else
+                NAME="forgemind-${version}-linux"
+              fi
+            fi
           done
           if [ "$ok" != "1" ]; then code=1; fi
           if [ "$code" != "0" ] || [ ! -s "released/$NAME" ]; then
@@ -296,6 +310,9 @@ jobs:
             exit 1
           fi
           mv "released/$NAME" "released/$LOCAL"
+          # 下载用的资产名里带着哪个版本,就把它记下来:后面核对构件报的
+          # 版本时对着它比,而不是对着可能已经变了的清单。
+          echo "$version" > released/.asset_version
           ls -lh "released/$LOCAL"
           file "released/$LOCAL" 2>/dev/null || true
 
@@ -323,15 +340,15 @@ jobs:
           # 用户拿到的和发布出去的就不是同一份东西,而表面看不出来。
           # 这一步跑的是**已发布**的二进制 —— 要对的是清单里记的发布版本,
           # 不是源码里的基础版本(源码那份由 verify.yml 的 wheel 档核对)。
-          published=$(curl -sS --max-time 60 \
-            https://raw.githubusercontent.com/bin1732/forgemind-pypi/main/releases/builds/manifest.json \
-            | jq -r '.published_version // ""')
+          # 对的是**下载时用的那个资产名里的版本**:名字带版本号,而发布
+          # 会把上一版的资产换掉,清单随时可能已经指向新的一版。
+          published=$(cat released/.asset_version 2>/dev/null || echo "")
           actual=$(sed -n 's/.*Version:[[:space:]]*//p' rel_info.log | tr -d '\r')
           echo "  published=$published actual=$actual"
           if [ -n "$published" ] && [ "$published" = "$actual" ]; then
-            echo "  PASS 发布物版本与这次发布的版本一致"
+            echo "  PASS 发布物版本与它自己的资产名里的版本一致"
           else
-            echo "  FAIL 发布物版本($actual)与这次发布的版本($published)不一致"; RC=1
+            echo "  FAIL 发布物版本($actual)与它自己的资产名里的版本($published)不一致"; RC=1
           fi
           run signal      signal
           run router-demo router-demo
@@ -371,15 +388,15 @@ jobs:
           # 发布出去的二进制报的版本必须与源码声明的一致
           # 这一步跑的是**已发布**的二进制 —— 要对的是清单里记的发布版本,
           # 不是源码里的基础版本(源码那份由 verify.yml 的 wheel 档核对)。
-          published=$(curl -sS --max-time 60 \
-            https://raw.githubusercontent.com/bin1732/forgemind-pypi/main/releases/builds/manifest.json \
-            | jq -r '.published_version // ""')
+          # 对的是**下载时用的那个资产名里的版本**:名字带版本号,而发布
+          # 会把上一版的资产换掉,清单随时可能已经指向新的一版。
+          published=$(cat released/.asset_version 2>/dev/null || echo "")
           actual=$(sed -n 's/.*Version:[[:space:]]*//p' rel_info.log | tr -d '\r')
           echo "  published=$published actual=$actual"
           if [ -n "$published" ] && [ "$published" = "$actual" ]; then
-            echo "  PASS 发布物版本与这次发布的版本一致"
+            echo "  PASS 发布物版本与它自己的资产名里的版本一致"
           else
-            echo "  FAIL 发布物版本($actual)与这次发布的版本($published)不一致"; RC=1
+            echo "  FAIL 发布物版本($actual)与它自己的资产名里的版本($published)不一致"; RC=1
           fi
           exit "$RC"
 
@@ -405,15 +422,15 @@ jobs:
           # 发布出去的二进制报的版本必须与源码声明的一致
           # 这一步跑的是**已发布**的二进制 —— 要对的是清单里记的发布版本,
           # 不是源码里的基础版本(源码那份由 verify.yml 的 wheel 档核对)。
-          published=$(curl -sS --max-time 60 \
-            https://raw.githubusercontent.com/bin1732/forgemind-pypi/main/releases/builds/manifest.json \
-            | jq -r '.published_version // ""')
+          # 对的是**下载时用的那个资产名里的版本**:名字带版本号,而发布
+          # 会把上一版的资产换掉,清单随时可能已经指向新的一版。
+          published=$(cat released/.asset_version 2>/dev/null || echo "")
           actual=$(sed -n 's/.*Version:[[:space:]]*//p' rel_info.log | tr -d '\r')
           echo "  published=$published actual=$actual"
           if [ -n "$published" ] && [ "$published" = "$actual" ]; then
-            echo "  PASS 发布物版本与这次发布的版本一致"
+            echo "  PASS 发布物版本与它自己的资产名里的版本一致"
           else
-            echo "  FAIL 发布物版本($actual)与这次发布的版本($published)不一致"; RC=1
+            echo "  FAIL 发布物版本($actual)与它自己的资产名里的版本($published)不一致"; RC=1
           fi
           exit "$RC"
 

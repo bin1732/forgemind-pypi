@@ -221,6 +221,12 @@ def check_script_exists(
         if repo_base not in target.parents and target != repo_base:
             continue
         if not target.is_file():
+            # 公开仓的镜像工作流引用的是**私人仓**的脚本(src/scripts/...):
+            # 那棵树只在流水线里 checkout 出来。本地没有 src/ 时无从核对 ——
+            # 只记"没查",不报"缺失"。把"查不到"当成"没有",会让本地恒红。
+            if rel.startswith("src/") and not (repo_root / "src").is_dir():
+                skipped += 1
+                continue
             problems.append(
                 f"{label}: 调用的脚本 {rel} 在工作目录 {base} 下不存在"
             )

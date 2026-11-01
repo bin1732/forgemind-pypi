@@ -203,6 +203,80 @@ class TestManifestShape:
         assert json.loads(json.dumps(manifest))["sizes"]["forgemind-linux"] == 10
 
 
+
+class TestReleaseAssetOrder:
+    """Release 资产的更新顺序:先传新的,再删旧的。
+
+    先删后传的话,发布期间这个 Release 上一个资产都没有 —— 用户下载
+    任何构件都是 404,正在跑的验证也会在半路上丢掉要下的文件,报出来的
+    却是"下载失败"。这两条都不是发布该有的样子。
+    """
+
+    @staticmethod
+    def _rel(assets):
+        return {
+            "id": 7,
+            "upload_url": "https://uploads.github.com/assets{?name,label}",
+            "assets": assets,
+        }
+
+    @staticmethod
+    def _recorder():
+        seq = []
+
+        def call(method, url, data=None, headers=None, retries=4):
+            if method == "POST":
+                seq.append(("POST", url.split("name=")[-1]))
+                return 201, {}
+            if method == "DELETE":
+                seq.append(("DELETE", url.rsplit("/", 1)[-1]))
+                return 204, None
+            raise AssertionError(f"未预期的请求: {method} {url}")
+
+        return seq, call
+
+    @staticmethod
+    def _tmp_file(name, content=b"x" * 10):
+        import tempfile
+
+        d = Path(tempfile.mkdtemp())
+        f = d / name
+        f.write_bytes(content)
+        return f
+
+    def test_old_assets_survive_until_the_new_ones_are_up(self):
+        """上一版的资产必须活到新资产全部传完"""
+        old = {"name": "forgemind-2026.9.3.post10-linux", "url": "https://api/assets/1"}
+        f = self._tmp_file("forgemind-2026.9.3.post11-linux")
+        seq, call = self._recorder()
+        publish.sync_release_assets(
+            self._rel([old]), [f], "2026.9.3.post11", call
+        )
+        kinds = [k for k, _ in seq]
+        assert kinds == ["POST", "DELETE"], f"顺序不对: {seq}"
+        assert seq[0][0] == "POST", "新资产必须先传上去"
+        assert seq[-1][1] == "1", "最后删的是上一版的资产"
+
+    def test_same_name_is_deleted_before_upload(self):
+        """重发同一个构建时,同名的先删 —— Releases API 不允许同名共存"""
+        same = {"name": "forgemind-2026.9.3.post11-linux", "url": "https://api/assets/9"}
+        f = self._tmp_file("forgemind-2026.9.3.post11-linux")
+        seq, call = self._recorder()
+        publish.sync_release_assets(
+            self._rel([same]), [f], "2026.9.3.post11", call
+        )
+        kinds = [k for k, _ in seq]
+        assert kinds == ["DELETE", "POST"], f"顺序不对: {seq}"
+
+    def test_asset_name_carries_the_publish_version(self):
+        """资产名必须带上这次的版本号"""
+        f = self._tmp_file("forgemind-linux")
+        assert (
+            publish.asset_name(f, "2026.9.3.post11")
+            == "forgemind-2026.9.3.post11-linux"
+        )
+
+
 if __name__ == "__main__":
     # 公开仓的脚本测试不依赖 pytest:那个作业的环境里没有 pytest,
     # 依赖它就等于让这道检查永远跑不起来。这里自带一个极简运行器 ——
