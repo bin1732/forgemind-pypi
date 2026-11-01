@@ -227,6 +227,79 @@ def check_script_exists(
     return problems, skipped
 
 
+def check_job_graph(path: Path, data: dict, repo_root: Path) -> list[str]:
+    """作业之间的引用必须指向真实存在的东西。
+
+    needs 指向一个不存在的作业,或者用了 ./ 开头却不在仓里的本地 action,
+    GitHub 会把整个工作流判为无效 —— 那个工作流一个作业都不会跑,而
+    失败信息只出现在工作流页面上。私人仓自己的流水线一旦没有 runner,
+    这类错误就完全没人看得见:仓库里一切正常,只是那条流水线从来没跑过。
+
+    作业依赖成环同样无效。
+    """
+    problems: list[str] = []
+    jobs = data.get("jobs") or {}
+    if not isinstance(jobs, dict):
+        return problems
+
+    for name, job in jobs.items():
+        if not isinstance(job, dict):
+            continue
+        needs = job.get("needs")
+        if needs is None:
+            continue
+        wanted = [needs] if isinstance(needs, str) else list(needs or [])
+        for dep in wanted:
+            if dep not in jobs:
+                problems.append(f"{path.name}: 作业 {name} 依赖的作业 {dep} 不存在")
+        # 复用工作流调用(作业级 uses)不需要 runs-on
+        if not job.get("runs-on") and not job.get("uses"):
+            problems.append(f"{path.name}: 作业 {name} 既没有 runs-on 也没有 uses")
+
+    # 本地 action:./ 开头指的就是仓里的目录,它必须真的在
+    for name, job in jobs.items():
+        if not isinstance(job, dict):
+            continue
+        refs = []
+        job_uses = job.get("uses")
+        if isinstance(job_uses, str):
+            refs.append(job_uses)
+        for step in job.get("steps") or []:
+            if isinstance(step, dict) and isinstance(step.get("uses"), str):
+                refs.append(step["uses"])
+        for ref in refs:
+            if not ref.startswith("./"):
+                continue
+            target = (repo_root / ref[2:]).resolve()
+            if not target.is_dir():
+                problems.append(f"{path.name}: 引用的本地 action {ref} 不存在")
+            elif not (target / "action.yml").is_file() and not (target / "action.yaml").is_file():
+                problems.append(f"{path.name}: 本地 action {ref} 里没有 action.yml")
+
+    # 作业依赖成环
+    state: dict[str, int] = {}
+
+    def visit(name: str, trail: list[str]) -> None:
+        if state.get(name) == 1:
+            problems.append(f"{path.name}: 作业依赖成环({' → '.join(trail + [name])})")
+            return
+        if state.get(name) == 2:
+            return
+        state[name] = 1
+        job = jobs.get(name)
+        if isinstance(job, dict):
+            needs = job.get("needs")
+            wanted = [needs] if isinstance(needs, str) else list(needs or [])
+            for dep in wanted:
+                if dep in jobs:
+                    visit(dep, trail + [name])
+        state[name] = 2
+
+    for name in jobs:
+        visit(name, [])
+    return problems
+
+
 def main() -> int:
     """检查工作流目录,返回进程退出码。"""
     repo_root = Path(__file__).resolve().parent.parent
@@ -270,6 +343,7 @@ def main() -> int:
                 found, missed = check_script_exists(label, run, workdir, repo_root)
                 problems.extend(found)
                 unverified += missed
+        problems.extend(check_job_graph(path, data, repo_root))
 
     if problems:
         print("工作流脚本写法有问题:")
