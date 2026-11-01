@@ -141,6 +141,14 @@ exclude = ["tests*", "scripts*", "docker*", "configs*", "migrations*", "forgemin
 # Explicitly exclude non-Python frontend
 namespaces = false
 
+# 包内的数据文件要跟着 wheel 一起走。
+#
+# forgemind/data/ 不是 Python 包(里面没有 __init__.py),按包查找找不到它
+# —— 于是里面的真实历史行情**不会进 wheel**,装出来的包一跑 demo 就说
+# 文件不存在。数据文件不在包里,等��这份包到了用户手上就是坏的。
+[tool.setuptools.package-data]
+forgemind = ["data/*.csv", "data/*.md"]
+
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]

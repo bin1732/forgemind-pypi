@@ -177,10 +177,14 @@ def main() -> int:
                 # 装出来的那份必须真的被用上。环境是带 --system-site-packages
                 # 建的,系统里若装过 forgemind,import 可能命中系统那份 ——
                 # 那样验的就是旧代码,结论不作数。
+                # 在一个没有源码树的目录里导入:当前目录优先于已安装的包,
+                # 站在仓库根里导入,量到的会是源码树,不是装出来的那份 ——
+                # 那这道检查就白做了。
                 where = _run(
                     [
                         str(venv / "bin" / "python"),
                         "-c",
+                        "import os; os.chdir(os.environ.get('TMPDIR', '/tmp')); "
                         "import forgemind; print(forgemind.__file__); "
                         "print(getattr(forgemind, '__version__', ''))",
                     ],

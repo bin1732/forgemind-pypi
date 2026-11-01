@@ -83,6 +83,43 @@ def wheel_requirements(wheel: Path) -> set[str]:
     return out
 
 
+def source_data_files(source: Path) -> set[str]:
+    """源码树里包目录下的非 .py 文件。
+
+    这些文件不在包里,源码树里就白放着 —— 装出来的包用到它们时会报
+    "文件不存在"。forgemind/data/ 里的真实历史行情就是这样漏掉的:
+    它不是 Python 包,按包查找找不到它,数据文件也就没进 wheel。
+    """
+    root = source / "forgemind"
+    if not root.is_dir():
+        return set()
+    out: set[str] = set()
+    for path in root.rglob("*"):
+        if not path.is_file():
+            continue
+        rel = path.relative_to(root)
+        if rel.suffix == ".py" or "__pycache__" in rel.parts:
+            continue
+        out.add(str(rel).replace("\\", "/"))
+    return out
+
+
+def wheel_data_files(wheel: Path) -> set[str]:
+    """wheel 里包目录下的非 .py 文件。"""
+    import zipfile
+
+    out: set[str] = set()
+    with zipfile.ZipFile(wheel) as zf:
+        for name in zf.namelist():
+            if not name.startswith("forgemind/"):
+                continue
+            rel = name[len("forgemind/") :]
+            if rel.endswith(".py") or "__pycache__" in rel:
+                continue
+            out.add(rel)
+    return out
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="核对 wheel 里的模块与源码一致")
     parser.add_argument("wheel", type=Path, help="wheel 路径")
@@ -110,6 +147,13 @@ def main() -> int:
         problems.append(f"wheel 漏装了 {len(missing)} 个模块: {missing[:12]}")
     if extra:
         problems.append(f"wheel 里有源码树没有的 {len(extra)} 个模块: {extra[:12]}")
+
+    # 包内的数据文件也要在 wheel 里
+    src_data = source_data_files(args.source.resolve())
+    whl_data = wheel_data_files(args.wheel.resolve())
+    missing_data = sorted(src_data - whl_data)
+    if missing_data:
+        problems.append(f"wheel 漏装了 {len(missing_data)} 个包内数据文件: {missing_data[:12]}")
 
     # 依赖声明也要一致
     declared = declared_requirements(args.source.resolve())
