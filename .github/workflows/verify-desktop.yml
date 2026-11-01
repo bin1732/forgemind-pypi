@@ -80,14 +80,11 @@ jobs:
         with:
           python-version: '3.11'
       - name: runner 镜像标签核对
-        working-directory: tool
         run: |
-          # 判据在私人仓(唯一真源),这里直接用那份,公开仓不另存一份 ——
-          # 两份会漂移,漂移了就等于没有检查。
-          # 目标(..)是公开仓自己的根:要查的是公开仓这些工作流用的
-          # runner 标签,不是私人仓的。
+          # 判据就在这个仓里,查的目标也是这个仓:要核的是本仓这些工作流
+          # 用的 runner 镜像标签。
           pip install pyyaml --break-system-packages -q
-          python scripts/check_runner_labels.py ..
+          python scripts/check_runner_labels.py .
       - name: 发布与验证的平台标签一致
         run: |
           python scripts/check_release_platform_parity.py .
