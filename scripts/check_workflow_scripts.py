@@ -300,9 +300,13 @@ def check_job_graph(path: Path, data: dict, repo_root: Path) -> list[str]:
     return problems
 
 
-def main() -> int:
-    """检查工作流目录,返回进程退出码。"""
-    repo_root = Path(__file__).resolve().parent.parent
+def main(repo_root: Path | None = None) -> int:
+    """检查工作流目录,返回进程退出码。
+
+    repo_root 缺省是本仓的根;指到别的目录就能在临时目录里检查另一棵
+    工作流树 —— 没有这个口子,检查器自己的行为就只能靠真仓来验。
+    """
+    repo_root = (repo_root or Path(__file__).resolve().parent.parent).resolve()
     root = repo_root / ".github" / "workflows"
     if not root.is_dir():
         print(f"找不到工作流目录: {root}", file=sys.stderr)
