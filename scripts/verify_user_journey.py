@@ -200,6 +200,9 @@ def main() -> int:
                     ("配置", ["info"], "ForgeMind Config"),
                     ("策略列表", ["backtest", "--list-strategies"], "ma_cross"),
                     ("版本", ["info"], loaded_version),
+                    # 新手的第一条命令。它用包内置的真实历史行情,没有网络
+                    # 也能跑 —— 这一步验的是"装完就能看到结果"。
+                    ("一键上手", ["demo"], "总收益"),
                 ):
                     result = _run([str(exe), *argv], env=env)
                     output = result.stdout + result.stderr
@@ -231,7 +234,7 @@ def main() -> int:
             print(" -", item)
         return 1
 
-    print("\n用户旅程全通: 下载、校验、安装、命令、MCP 协议")
+    print("\n用户旅程全通: 下载、校验、安装、命令、一键上手、MCP 协议")
     return 0
 
 

@@ -103,7 +103,11 @@ def check_error_example(blocks: list[str]) -> list[str]:
 
 
 def check_bash_blocks(blocks: list[str]) -> list[str]:
-    """bash 代码块里点名的子命令必须真的存在。"""
+    """README 里点名的子命令必须真的存在。
+
+    整篇 README 都查,不只是代码块里 —— 功能表、命令清单、FAQ 里都可能有。
+    故意写错的示范(标了"错误示范"的)不在此列。
+    """
     subcommands = _real_subcommands()
     if not subcommands:
         return []
@@ -111,6 +115,8 @@ def check_bash_blocks(blocks: list[str]) -> list[str]:
     for i, code in enumerate(blocks, 1):
         for cmd in CLI_COMMAND.findall(code):
             if cmd in {"--help", "-h"}:
+                continue
+            if ERROR_EXAMPLE_MARK in code:
                 continue
             if cmd not in subcommands:
                 problems.append(f"第 {i} 段 bash 示例里的 `forgemind {cmd}` 不是真实子命令")
