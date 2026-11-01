@@ -281,13 +281,13 @@ jobs:
           # curl --retry 只重试 5xx/超时;没有 --fail 时 404 的响应体
           # ("Not Found",9 字节)会被当成内容写进文件。所以显式轮询 + --fail。
           ok=0
-          for i in 1 2 3 4 5 6 7 8; do
+          for i in $(seq 1 12); do
             if curl -sSLf --max-time 1800 -o "released/$NAME" \
                 "https://github.com/bin1732/forgemind-pypi/releases/download/continuous/$NAME" \
                && [ -s "released/$NAME" ]; then
               ok=1; break
             fi
-            echo "  尝试 $i/8 失败(资产可能正被 ship 替换),重读清单后重试"
+            echo "  尝试 $i/12 失败(资产可能正被 ship 替换),重读清单后重试"
             sleep 15
             # 重读一次清单。资产名带着版本号,而发布会把上一版的资产换掉 ——
             # 名字不跟着清单走,重试再多次也只会一直 404。

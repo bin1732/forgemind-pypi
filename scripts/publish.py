@@ -153,6 +153,40 @@ def live_build_id(timeout: int = 30) -> str:
     return ""
 
 
+def asset_downloadable(name: str, timeout: int = 60) -> bool:
+    """这个资产现在真能下载到吗。"""
+    url = f"https://github.com/bin1732/forgemind-pypi/releases/download/continuous/{quote(name)}"
+    req = urllib.request.Request(url, method="HEAD")
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as r:
+            return 200 <= r.status < 300
+    except Exception:
+        return False
+
+
+def wait_assets_downloadable(names, timeout: int = 600, check=None) -> bool:
+    """新传的资产要真能下载到,这次发布才算完成。
+
+    资产一上传,API 里就能看到;下载要走 CDN,那里要过一会儿才生效。这
+    中间用户下载任何构件都是 404 —— 而"持续发布"的意义正在于用户随时能
+    拿到最新构建。所以发布要等它们真的能下,再把索引切过去。
+
+    返回 False 表示在时限内没能全部生效:发布仍然继续(索引与清单照常
+    更新),但这件事要说出来,不能当没事发生。
+    """
+    check = check or asset_downloadable
+    deadline = time.time() + timeout
+    while True:
+        pending = [n for n in names if not check(n)]
+        if not pending:
+            return True
+        if time.time() >= deadline:
+            print(f"  资产在时限内没能下载: {pending}")
+            return False
+        print(f"  等 {len(pending)} 个资产在下载端生效…")
+        time.sleep(15)
+
+
 def build_num(name: str) -> int:
     try:
         return int(name)
@@ -319,6 +353,12 @@ def main() -> int:
 
     files = [f for f in sorted(art_dir.rglob("*")) if f.is_file() and f.name != "manifest.json"]
     uploaded, asset_sizes = sync_release_assets(rel, files, args.publish_version, call)
+
+    # 等新资产在下载端生效,再把索引切过去。
+    #
+    # 顺序很重要:索引是用户按 pip 装到东西的入口,它指向的构件必须已经
+    # 下得到。索引先切、资产还没生效,用户就会拿到 404。
+    wait_assets_downloadable(uploaded)
 
     # 2) 仓库里的构件 + 索引 + 清单:**一个提交**。
     #

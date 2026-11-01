@@ -263,6 +263,22 @@ class TestReleaseAssetOrder:
         kinds = [k for k, _ in seq]
         assert kinds == ["DELETE", "POST"], f"顺序不对: {seq}"
 
+    def test_wait_returns_when_every_asset_is_downloadable(self):
+        """资产都能下时,等待立刻返回"""
+        assert publish.wait_assets_downloadable(["a", "b"], timeout=5, check=lambda n: True)
+
+    def test_wait_gives_up_at_the_deadline(self):
+        """下不到的资产到时限就放弃,并说清楚是哪些"""
+        calls = []
+
+        def never(name):
+            calls.append(name)
+            return False
+
+        ok = publish.wait_assets_downloadable(["a"], timeout=0, check=never)
+        assert ok is False
+        assert calls == ["a"]
+
     def test_asset_name_carries_the_publish_version(self):
         """资产名必须带上这次的版本号"""
         f = self._tmp_file("forgemind-linux")
