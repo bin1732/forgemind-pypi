@@ -86,7 +86,7 @@ git commit -m "docs(readme): update quick start guide"
 
 - ❌ **不内置券商 SDK** — 框架定位是研究层,执行层交给用户
 - ❌ **不内置交易信号跟单** — 只输出 JSON / MCP / Markdown 报告
-- ✅ 所有数据源必须是免费/公开的 (AKShare / tushare / yfinance)
+- ✅ 所有数据源必须是免费/公开的 (AKShare / tushare)
 - ✅ 0 broker SDK 依赖是核心设计原则,违反的一律拒绝
 
 ## License

@@ -1,0 +1,65 @@
+# Copyright (c) 2026 灵感引擎工坊 (bin1732)
+# SPDX-License-Identifier: Apache-2.0
+
+name: ForgeMind Desktop UI
+'on':
+  push:
+    branches:
+    - main
+    - develop
+    paths-ignore:
+    - ci-status.json
+    - releases/**
+    - pypi/**
+  pull_request:
+    branches:
+    - main
+    - develop
+  workflow_dispatch: null
+permissions:
+  contents: read
+jobs:
+  test-ui:
+    name: UI 测试 (Next.js + Jest)
+    runs-on: ubuntu-26.04
+    defaults:
+      run:
+        working-directory: ./forgemind-ui
+    steps:
+    - uses: actions/checkout@v7
+    - name: Set up Node.js 20
+      if: hashFiles('forgemind-ui/package.json') != ''
+      uses: actions/setup-node@v7
+      with:
+        node-version: '20'
+        cache: npm
+        cache-dependency-path: forgemind-ui/package-lock.json
+    - name: Install dependencies
+      if: hashFiles('forgemind-ui/package.json') != ''
+      run: |
+        npm ci --legacy-peer-deps --no-audit
+    - name: TypeScript type check
+      if: hashFiles('forgemind-ui/package.json') != ''
+      run: npm run type-check
+    - name: Build
+      if: hashFiles('forgemind-ui/package.json') != ''
+      run: npm run build
+    - name: Run Jest tests
+      if: hashFiles('forgemind-ui/package.json') != ''
+      run: ./node_modules/.bin/jest
+    - name: 界面数据来源核对
+      run: |2
+                  # 界面上的数值必须来自后端。组件里留着固定的指标值,
+                  # 界面看起来正常,后端却可能早已不返回这些数。
+                  python ../scripts/check_ui_data_driven.py components
+    - name: 界面 mock 隔离核对
+      run: |2
+                  # mock 只应活在测试里。构建配置或业务源码一旦引用
+                  # __mocks__,真机上就会显示编造的数据,而测试还是全绿。
+                  python ../scripts/check_ui_mock_isolation.py .
+    - name: 空态区分核对
+      run: |2
+                  # 取数失败时界面要说得出是失败,不能笼统写"暂无数据" ——
+                  # 用户会以为自己没数据,其实是后端连不上。判据是组件测试
+                  # 真的断言了这一点,所以这里只检查那条测试在不在。
+                  python ../scripts/check_ui_empty_state.py .

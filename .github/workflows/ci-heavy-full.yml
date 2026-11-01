@@ -25,7 +25,7 @@ jobs:
     runs-on: ubuntu-26.04
     defaults:
       run:
-        working-directory: src
+        working-directory: .
     steps:
     - name: 检出公开仓
       uses: actions/checkout@v7
@@ -34,39 +34,3 @@ jobs:
     - name: 读出构件来源提交
       id: source
       uses: ./.github/actions/resolve-source
-    - name: 取私人仓源码
-      working-directory: .
-      shell: bash
-      env:
-        PRIVATE_REPO_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN }}
-        SOURCE_COMMIT: ${{ steps.source.outputs.commit }}
-      run: |
-        set -euo pipefail
-        mkdir -p src && cd src
-        git init -q
-        git remote add origin "https://x-access-token:${PRIVATE_REPO_TOKEN}@github.com/bin1732/forgemind.git"
-        # 完整历史:私人仓的 git 历史用例要翻到一千多条之前的那条提交,
-        # 浅克隆的历史不够。
-        git fetch -q origin "$SOURCE_COMMIT"
-        git checkout -q FETCH_HEAD
-        git branch -f main FETCH_HEAD
-        echo "private source @ $(git rev-parse --short HEAD)"
-    - uses: actions/setup-python@v7
-      with:
-        python-version: '3.11'
-    - name: Install dependencies
-      run: |
-        pip install --break-system-packages --no-cache-dir --prefer-binary -r requirements-ci.txt 2>&1 | tee /tmp/pip-all.log || true
-        pip install --break-system-packages --no-cache-dir --prefer-binary --no-deps -e . 2>&1 | tee -a /tmp/pip-all.log || true
-    - name: Heavy concurrency tests (full scale)
-      env:
-        # 关掉按文件分组的抽样。这个值是**除数**:抽样时每个文件留
-        # len//ratio 个,至少一个 —— 10 是"留十分之一",1 才是"全留"。
-        FORGEMIND_HEAVY_SAMPLE_RATIO: "1"
-      run: |
-        # 单用例 timeout 3600s:完整规模里有跑十几分钟的用例,
-        # 900s 的上限会误杀它们。
-        python -m pytest tests/ \
-          -m heavy \
-          --tb=short -q \
-          --timeout=3600

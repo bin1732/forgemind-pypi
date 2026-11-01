@@ -1,0 +1,104 @@
+# Copyright (c) 2026 灵感引擎工坊 (bin1732)
+# SPDX-License-Identifier: Apache-2.0
+
+name: ForgeMind Code Quality
+'on':
+  push:
+    branches:
+    - main
+    - develop
+    paths-ignore:
+    - ci-status.json
+    - releases/**
+    - pypi/**
+  pull_request:
+    branches:
+    - main
+    - develop
+  workflow_dispatch: null
+permissions:
+  contents: read
+jobs:
+  lint:
+    name: Code Quality
+    runs-on: ubuntu-26.04
+    steps:
+    - uses: actions/checkout@v7
+      with:
+        fetch-depth: 0
+    - uses: actions/setup-python@v7
+      with:
+        python-version: '3.11'
+        cache: pip
+    - name: Install Ruff
+      # 版本固定:工具一升级,同一份代码本地干净、流水线却报出一批新问题
+      run: pip install ruff==0.16.9 codespell==2.4.3 --break-system-packages -q
+    # 源码这两步是拦人的。用项目自己的 ruff 配置(命令行不再覆盖),
+    # 配置漂移会让"本地过了"和"流水线过了"不是同一件事。
+    - name: Ruff check (lint)
+      run: 'ruff check forgemind/ scripts/ --output-format=github'
+    - name: Ruff format check
+      run: 'ruff format --check forgemind/ scripts/ --output-format=github'
+    # 测试树只报不拦:那批长名测试文件攒着几千条历史告警,一次全量
+    # 重排会把真实改动埋掉 —— 源码那边才是拦人的。
+    # 只打统计摘要:逐条列出来是四千多行,会把真实改动埋得更深,
+    # 计数本身就是诚实的。
+    - name: Ruff check (tests, 只报不拦)
+      run: |
+        ruff check tests/ --statistics \
+          || echo "tests: ruff 告警只报不拦"
+    - name: Ruff format check (tests, 只报不拦)
+      run: |
+        ruff format --check tests/ \
+          || echo "tests: ruff format 只报不拦"
+    - name: Codespell
+      # codespell 没有 --output-format 这个参数(那是 flake8 的),带着它
+      # codespell 直接报参数错误退出。之前这一行包在 || echo 里,错误一起
+      # 被吞了,于是这道门禁其实一次都没真正跑过。
+      run: 'codespell forgemind/ --ignore-words=.codespellignore'
+    - name: 仓库残留扫描
+      run: |2
+                  # 复盘措辞、构建产物、诊断产物、过期副本与许可证头。
+                  # 工作区应当是干净的,所以先提交再检查。
+                  python scripts/check_repo_cleanliness.py .
+    - name: 自检文档与测试对账
+      run: |2
+                  # 自检文档里每条结论都点名了对应的回归测试。
+                  # 测试被删掉或失效,结论就成了过期说法。
+    - name: 依赖声明与实际 import 对账
+      run: |2
+                  # 声明了却没用的依赖,让每个用户白下载;用了却没声明的
+                  # 依赖,装出来的包直接跑不起来。两个方向都要对得上。
+                  python scripts/check_dependency_declarations.py
+    - name: 流水线依赖锁定与项目声明对账
+      run: |2
+                  # 流水线用 --no-deps 安装本项目,只装锁定文件里的包。
+                  # 锁定文件漏掉某个声明过的依赖,对应代码路径在流水线里
+                  # 根本不会被执行,流水线却显示为绿。
+                  pip install packaging --break-system-packages -q
+                  python scripts/check_ci_lock.py
+    - name: 版本号声明对账
+      run: |
+        # 版本号写在 pyproject、forgemind/__init__.py、桌面端 Cargo.toml
+        # 与界面 package.json 四处,漏改一处,装出来的包或桌面包
+        # 就会报一个和实际代码对不上的版本。
+        python scripts/check_version_consistency.py .
+    - name: runner 镜像标签核对
+      run: |
+        # 平台会退役 runner 镜像标签。标签一旦被移除,用到它的作业
+        # 永远排不上 runner —— 流水线停在那里,而失败信息里看不出
+        # 是标签的问题。macos-14 家族就是这么消失的。
+        pip install pyyaml --break-system-packages -q
+        python scripts/check_runner_labels.py .
+    - name: Vulture dead code scan (源码)
+      run: |
+        pip install vulture --break-system-packages -q
+        python -m vulture forgemind/ --min-confidence 100
+    # 测试树只报不拦:那里面有一批靠副作用生效的 pytest fixture,
+    # vulture 认不出那是 fixture,会报成"未使用的变量"。
+    # || 必须和命令写在同一行:折行之后它就成了独立的一条命令,
+    # 步骤会以语法错误失败 —— 这道"只报不拦"的检查反而把流水线弄红了。
+    - name: Vulture dead code scan (tests, 只报不拦)
+      run: |
+        python -m vulture tests/ --min-confidence 100 \
+          || echo "tests: vulture 告警只报不拦"

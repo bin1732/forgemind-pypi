@@ -32,22 +32,16 @@ jobs:
       - name: Resolve source commit
         id: resolve
         shell: bash
-        env:
-          PRIVATE_REPO_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN }}
         run: |
           set -euo pipefail
-          mkdir -p probe && cd probe
-          git init -q
-          git remote add origin "https://x-access-token:${PRIVATE_REPO_TOKEN}@github.com/bin1732/forgemind.git"
-          git fetch -q --depth 1 origin main
-          git checkout -q FETCH_HEAD
+          # 源码就在这个仓里。发布用的提交就是触发这次发布的那一个 ——
+          # 三个构建(轮子与三个平台)全部钉在它上面,不会出现"轮子来自
+          # 一个提交、二进制来自另一个"的情况。
           echo "commit=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
           echo "源码提交 @ $(git rev-parse --short HEAD)"
       - name: 算这次发布的版本号
         id: version
-        # 工作目录是 probe(私人源码),不是仓库根 —— 脚本在私人源码里,
-        # 仓库根下没有它。
-        working-directory: probe
+        working-directory: .
         shell: bash
         run: |
           set -euo pipefail
@@ -69,21 +63,18 @@ jobs:
     needs: resolve-source
     runs-on: ubuntu-26.04
     steps:
-      - name: Fetch private source
+      - name: 取出构建用的源码副本
         shell: bash
         env:
-          PRIVATE_REPO_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN }}
           SOURCE_COMMIT: ${{ needs.resolve-source.outputs.commit }}
         run: |
           set -euo pipefail
+          # 只取受版本控制的文件:构建产物、缓存、发布产物都不带进去。
+          # 副本是为了在上面打这次发布的版本号,不动仓库里的声明。
           mkdir -p here
-          cd here
-          git init -q
-          git remote add origin "https://x-access-token:${PRIVATE_REPO_TOKEN}@github.com/bin1732/forgemind.git"
-          git fetch -q --depth 1 origin "$SOURCE_COMMIT"
-          git checkout -q FETCH_HEAD
-          echo "源码 @ $(git rev-parse --short HEAD)"
-          ls | head
+          git archive "$SOURCE_COMMIT" | tar -x -C here
+          echo "源码副本 @ ${SOURCE_COMMIT:0:8}"
+          ls here | head
 
       - uses: actions/setup-python@v7
         with:
@@ -125,21 +116,18 @@ jobs:
             name: macos
     runs-on: ${{ matrix.os }}
     steps:
-      - name: Fetch private source
+      - name: 取出构建用的源码副本
         shell: bash
         env:
-          PRIVATE_REPO_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN }}
           SOURCE_COMMIT: ${{ needs.resolve-source.outputs.commit }}
         run: |
           set -euo pipefail
+          # 只取受版本控制的文件:构建产物、缓存、发布产物都不带进去。
+          # 副本是为了在上面打这次发布的版本号,不动仓库里的声明。
           mkdir -p here
-          cd here
-          git init -q
-          git remote add origin "https://x-access-token:${PRIVATE_REPO_TOKEN}@github.com/bin1732/forgemind.git"
-          git fetch -q --depth 1 origin "$SOURCE_COMMIT"
-          git checkout -q FETCH_HEAD
-          echo "源码 @ $(git rev-parse --short HEAD)"
-          ls | head
+          git archive "$SOURCE_COMMIT" | tar -x -C here
+          echo "源码副本 @ ${SOURCE_COMMIT:0:8}"
+          ls here | head
 
       - uses: actions/setup-python@v7
         with:

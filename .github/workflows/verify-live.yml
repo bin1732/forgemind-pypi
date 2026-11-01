@@ -34,33 +34,17 @@ jobs:
       - name: 读出构件来源提交
         id: source
         uses: ./.github/actions/resolve-source
-      - name: "Fetch private source"
-        env:
-          PRIVATE_REPO_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN }}
-          SOURCE_COMMIT: ${{ steps.source.outputs.commit }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          # 切进自己的目录再 init:工作区根已经 checkout 过公开仓,
-          # 在那儿 git init 会接着用公开仓的 .git,git remote add origin
-          # 会因为 origin 已存在而失败。
-          mkdir -p src && cd src
-          git init -q
-          git remote add origin "https://x-access-token:${PRIVATE_REPO_TOKEN}@github.com/bin1732/forgemind.git"
-          git fetch -q --depth 1 origin "$SOURCE_COMMIT"
-          git checkout -q FETCH_HEAD
-
       - uses: actions/setup-python@v7
         with:
           python-version: '3.11'
 
-      - name: "Install with CN extras"
-        working-directory: src
+      - name: Install with CN extras
+        working-directory: .
         run: |
           python -m pip install -q --break-system-packages --upgrade pip
           python -m pip install -q --break-system-packages ".[cn]"
 
-      - name: "Live akshare fetch - real upstream"
+      - name: Live akshare fetch - real upstream
         shell: bash
         run: |
           set -uo pipefail
@@ -93,7 +77,7 @@ jobs:
             exit 1
           fi
 
-      - name: "CLI etl on live upstream"
+      - name: CLI etl on live upstream
         run: |
           set -uo pipefail
           rm -rf data

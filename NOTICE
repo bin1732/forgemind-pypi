@@ -9,17 +9,11 @@ This product includes the following third-party components:
 - LangChain / LangGraph — MIT License
 - Polars — Apache License 2.0
 - ClickHouse Python Driver — Apache License 2.0
-- akshare — MIT License
 - LightGBM — The MIT License (MIT)
 - XGBoost — Apache License 2.0
-- CatBoost — Apache License 2.0
-- Next.js — MIT License
-- React — MIT License
-- Tailwind CSS — MIT License
-- shadcn/ui — MIT License
-- Tauri — MIT License
 - Pydantic — MIT License
 - Ruff — MIT License
+- structlog — Apache License 2.0 / MIT License
 
 For full license texts of bundled dependencies, refer to their respective
 project repositories.

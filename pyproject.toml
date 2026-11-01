@@ -1,0 +1,192 @@
+[build-system]
+requires = ["setuptools>=68", "setuptools-pkg>=0.1"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "forgemind"
+version = "2026.9.3"
+description = "ForgeMind - AI Quant Trading Agent"
+requires-python = ">=3.11"
+readme = "README.md"
+license = { text = "Apache-2.0" }
+
+# Core runtime dependencies
+dependencies = [
+    # Web / API
+    "fastapi>=0.115.5,<999",
+    "uvicorn[standard]>=0.32.1,<999",
+    "pydantic>=2.10.3,<999",
+    "pydantic-settings>=2.6.1,<999",
+
+    # DB / Data
+    # 上限 2.0:polars 2.0 移除了 min_periods(改名 min_samples),而本项目
+    # 的因子计算还在用它。声明 <999 是在承诺一个用不了的版本。
+    "polars>=1.17.1,<2",
+    "duckdb>=1.1.3,<999",
+    "clickhouse-driver>=0.2.9,<999",
+    "asyncpg>=0.30.0,<999",
+
+    # Cache / Queue
+    "redis>=5.2.1,<999",
+    "nats-py>=2.0.0",
+
+    # Quant
+    # 上界是刻意的:pandas 3.x / numpy 2.x 有破坏性变更,本项目在 1.x 2.x 上验证过。
+    "pandas>=2.2.3,<3",
+    "numpy>=1.26.4,<3",
+
+    # ML
+    # lightgbm 的下限取 4.6.0:4.5.0 带 PYSEC-2024-231(GHSA-2586-f3p4-hq84),
+    # 4.6.0 是首个修复版本。
+    "lightgbm>=4.6.0,<999",
+    "scikit-learn>=1.6.0,<999",
+    "joblib>=1.3,<999",  # used by lightgbm_model / xgboost_model
+    "scipy>=1.10,<2",
+    # torch is OPTIONAL via [ml] extra (see below)
+    "pyarrow>=15.0,<999",  # required by polars DataFrame.to_pandas()
+
+    # AI Agent
+    "langgraph>=0.2.55,<1",
+    # langchain 与 langchain-core 必须同主版本:langchain 1.x 会把
+    # langchain_core 打成 langchain-core<2,>=1.6.3,与下面的 core<1 冲突。
+    # langchain-core 在检测到 langchain 存在时会读取 langchain.debug,
+    # 而该属性在 1.x 已移除,会抛
+    # AttributeError: module 'langchain' has no attribute 'debug'。
+    # 显式声明 langchain<1 才能阻止 pip 装进不兼容的 1.x。
+    "langchain>=0.3,<1",
+    "langchain-core>=0.3.21,<1",
+    # LLM 提供方走原生 SDK(见 forgemind/core/ai/providers.py),
+    # 不经 langchain 的模型封装,因此不声明 langchain-openai / langchain-anthropic。
+    "openai>=1.59.7,<3",
+    "anthropic>=0.3,<1",
+
+    # Market data
+    # 真正在用的行情源只有 akshare([cn] extra)与 tushare([cn] extra)。
+
+    # Utilities
+    "httpx>=0.28.1,<999",
+    "structlog>=24.4.0,<999",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.3.4,<999",
+    "pytest-asyncio>=0.24.0,<999",
+    "pytest-cov>=6.0.0,<999",
+    "pytest-timeout>=2.3.0,<999",
+    "pyyaml>=6.0.1,<999", "packaging>=23.2,<999",
+    "psutil>=5.9.0,<999",
+    "cryptography>=42.0.0,<999",
+    "ruff>=0.8.3,<999",
+    "mypy>=1.13.0,<999",
+    "black>=24.10.0,<999",
+    # 第三方指标实现的交叉校验基准,只用于测试对拍,不进运行时依赖。
+    "empyrical-reloaded>=0.5.9,<999",
+    # 桌面端界面证据的采集脚本要驱动浏览器(浏览器本体另由
+    # `playwright install chromium` 装,不在 pip 依赖里)。
+    "playwright>=1.40.0,<999",
+]
+# LLM provider 的 SDK。openai / anthropic 同时列在核心依赖里,所以这个
+# extra 目前主要是**让名字成立** —— 错误提示里写了 6 处 pip install
+# 'forgemind[llm]',而 pyproject 里若没有 llm 这一项,用户照着提示操作
+# 会被 pip 拒绝:
+#   WARNING: forgemind 2026.9.3 does not provide the extra 'llm'
+# 也就是说"按提示自救"这条路是断的,这是比缺包本身更糟的体验。
+llm = [
+    "openai>=1.59.7,<3",
+    "anthropic>=0.3,<1",
+]
+ml = [
+    "torch>=2.0,<3",  # only for transformer_model; CPU users: --extra-index-url https://download.pytorch.org/whl/cpu
+    # xgboost 放在这里而不是核心依赖:一次真实的
+    #   pip install "forgemind[cn]"
+    # 装出了 nvidia-nccl-cu12 469 MB(Required-by: xgboost),而流水线
+    # 默认走的是 LightGBMModel,根本不用它。
+    #
+    # 证据在装出来的 wheel 自己的 METADATA:
+    #   Requires-Dist: nvidia-nccl-cu12;
+    #       platform_system == 'Linux' and platform_machine != 'aarch64'
+    #
+    # nccl 从 2.1.0 起就随 xgboost 一起被拉入(PyPI JSON API 会剥掉
+    # platform 条件标记,不能拿它当判据;判据要看 wheel 的 METADATA)。
+    # 没装时会走 sklearn 兜底,且 model.backend 会如实报 "sklearn_fallback"。
+    "xgboost>=2.0.3,<2.1",
+]
+# 中国 A 股数据源 — `forgemind etl` 子命令依赖
+cn = [
+    "akshare>=1.15.50,<999",
+    "tushare>=1.4.21,<999",
+]
+# 多模态 — embedding.py 的 OCR / PDF / 语音 / 图像分支
+multimodal = [
+    "pillow>=10.0,<999",
+    "pypdf>=4.0,<999",
+    "pytesseract>=0.3.10,<999",
+    "sentence-transformers>=2.2,<999",
+    "openai-whisper>=20231117,<999",
+]
+# 模型可解释性 — lightgbm_model / xgboost_model 的 SHAP 特征归因
+explain = [
+    "shap>=0.44,<999",
+    "catboost>=1.2,<999",
+]
+
+[project.scripts]
+forgemind = "forgemind.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["forgemind", "forgemind.*"]
+exclude = ["tests*", "scripts*", "docker*", "configs*", "migrations*", "forgemind_ui*"]
+# Explicitly exclude non-Python frontend
+namespaces = false
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+addopts = "-v --tb=short"
+# 超时阈值由 CI 命令行传入(--timeout / --timeout-method)。
+# 重并发用例(百万级真实运算)由 tests/conftest.py 的
+# pytest_collection_modifyitems 打上更宽的 pytest.mark.timeout 标记覆盖,
+# pytest-timeout 中 marker 优先于命令行参数。
+markers = [
+    "slow: marks tests as slow",
+    "heavy: marks tests that run million-scale real concurrent workloads",
+    "timeout(seconds): sets a per-test timeout, overriding the global timeout",
+]
+
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+# 格式化器不改动字符串的引号风格 —— 有些字符串是接口报错原文,改了引号
+# 会把词切开,拼写检查就会报一个不存在的错(公开仓的 ruff.toml 同理)。
+[tool.ruff.format]
+quote-style = "preserve"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "N", "W", "UP", "B", "A", "C4", "PT"]
+ignore = [
+    "E501",  # line too long (we accept longer lines for readability)
+    "B008",  # do not perform function calls in argument defaults (pydantic pattern)
+    "N803",  # argument name should be lowercase (ML convention uses X/y matrices)
+    "N806",  # variable in function should be lowercase (ML convention)
+    "B905",  # zip without explicit strict (Python 3.10+ default; OK for older compat)
+]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+warn_unused_ignores = true
+
+[tool.coverage.run]
+source = ["./forgemind"]
+include = ["*/forgemind/*.py"]
+omit = ["*/__pycache__/*", "*/tests/*"]
+
+[tool.coverage.report]
+skip_empty = true

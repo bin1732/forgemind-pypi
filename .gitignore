@@ -1,24 +1,91 @@
-# 公开仓只存构建产物与配置,源码在私人仓 bin1732/forgemind
-src/
-here/
-
-# CI 中转目录
-build/
-dist/
-*.egg-info/
-
 # Python
 __pycache__/
 *.py[cod]
+*.so
+*.egg-info/
+*.egg
+/dist/
+/build/
+.eggs/
+*.whl
+
+# Virtual environments
 .venv/
 venv/
+ENV/
+env/
 
-# 数据与缓存
-data/
-*.db
+# Test / Coverage
 .pytest_cache/
-.mypy_cache/
-.ruff_cache/
+.coverage
+htmlcov/
+.coverage.*
+*.cover
 
-# 内部触发文件(仅私人仓使用)
+# mypy
+.mypy_cache/
+.dmypy.json
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# Jupyter
+*.ipynb_checkpoints/
+cassettes/
+recordings/
+
+# UI
+forgemind-ui/next-env.d.ts
+*.tsbuildinfo
+forgemind-ui/node_modules/
+forgemind-ui/.next/
+forgemind-ui/out/
+forgemind-ui/target/
+
+# Rust build artifacts
+forgemind-ui/src-tauri/target/
+# Tauri 生成的 schema(只给编辑器自动补全用,构建不读它)
+forgemind-ui/src-tauri/gen/
+*.o
+*.rlib
+*.dylib
+
+# Secrets (never commit!)
+.env
+.env.local
+.env.*.local
+*.pem
+*.key
+
+# OS
+.DS_Store
+Thumbs.db
+
+# ML training artifacts (never commit)
+# 路径前加斜杠只匹配仓库根目录。写成 data/ 会连 forgemind/core/data/ 这类
+# 源码目录一起忽略,新文件会被静默漏提交。
+/catboost_info/
+/data/
+*.onnx  # trained models
+.verify/
+
+# Release build outputs (never commit; published as GitHub Release assets)
+/artifacts/
+/builds/
+
+
+# Internal ship trigger file (timestamp only, not sensitive,
+# but exposes dev workflow — keep private)
 .test_trigger
+ci-status.json
+
+# 流水线诊断产物(只进运行摘要与构建产物,不入版本库)
+ci-diagnostics*
+pytest-failure-report.txt
+
+# 发布流水线的中转目录
+here/

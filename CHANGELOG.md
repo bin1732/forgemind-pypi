@@ -1,0 +1,375 @@
+# Changelog
+
+All notable changes to ForgeMind are documented in this file.
+
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
+and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+## [Unreleased]
+
+### Fixed
+- The research endpoint reports the metrics of the same run that produced
+  the signals. The figures came from a random walk of its own while the
+  signals came from the research pipeline, so the two halves of one
+  answer described two different things.
+- The source tree passes the code quality checks the workflow runs, and
+  those checks now stop the workflow instead of being reported and
+  ignored. The test tree is still reported only; rewriting several
+  hundred test files at once would bury the real changes.
+- The architecture diagram no longer describes the backtest engine as
+  vectorized. It replays the bars one by one to fill the orders and
+  compound the equity curve, and the wording pointed at a different
+  mental model. The diagram is also aligned now, and the two
+  repositories describe the engine the same way.
+- An upgraded database no longer keeps a second index on the same columns.
+  Older versions created it under a different name, so an upgraded database
+  ended up with two of them and every write paid for both.
+- The desktop interface now says when it could not reach the backend
+  instead of showing an empty panel. An empty panel has two very different
+  causes — there is no data, or the data could not be fetched — and the
+  interface used to show the same message for both, so a broken backend
+  looked like a quiet database.
+- Two workflow files could not be parsed at all. A quoted value that
+  continued on the next line with the shell operator at the start of that
+  line is not valid, so the lint job had been failing to read its own
+  configuration; the private repository's own pipeline has not been
+  running since the account hit its billing limit, which is why nobody
+  noticed.
+- The desktop interface reports why a request failed instead of leaving the
+  panel empty. One of the two ways the factor list was fetched dereferenced
+  a missing value and raised, so the reason never reached the screen; the
+  panel looked the same whether there was no data or the backend could not
+  be reached.
+- The workflow checker now asks the shell whether each inline script is
+  valid. Broken quoting and a stray continuation line are invisible in
+  the file, and the step only failed when the pipeline reached it.
+- The spell check now runs for real. The step passed an option that the
+  tool does not have, so it failed on the option and the failure was
+  swallowed; the check had never examined a single word. The option is
+  gone, the step stops the run when it finds something, and the list of
+  ignored words was cut down to the one word that actually needs it.
+- Fetching data is bounded even when the connection itself hangs. The
+  socket timeout covers a server that accepts the connection and then
+  stays silent, but it does not cover a name lookup or a connect that
+  never returns; those now meet a hard wall, so a stuck upstream delays
+  the run instead of hanging it.
+- The macro data source is real now. It used to refuse to do anything and
+  say so, while the documentation promised Chinese macro data. It reads
+  the public interfaces: the manufacturing purchase managers index, the
+  consumer and producer price indices, the broad money supply, the ten
+  year government bond yield and the exchange rate. A monthly indicator
+  takes effect from the day it is published and holds until the next
+  release; an indicator that cannot be fetched is left empty rather than
+  filled with something else.
+- The numbers the data pipeline reports now say which run they belong to.
+  The stock count and the bar count were read back from the database, so
+  they kept growing with every run and the last run's data was reported
+  as this run's work. The count of this run and the count in the table are
+  now reported separately.
+- The stock list is fetched from more than one source. The aggregate
+  interface is refused on some networks, which left the table of all
+  listed companies empty. The exchanges' own lists are used as a fallback
+  and the ones that answer are merged, because the list of one exchange
+  is not the whole market. The report names the sources it used.
+- The check of the published artifact no longer fails on a network hiccup.
+  A refused connection or a dropped handshake is not a verdict about the
+  artifact, so the download is retried a few times before it is called a
+  failure.
+- The result table of the end to end pipeline is aligned from now on. The
+  frame used to be padded by hand, which made the right hand border wander
+  off; the factor, feature and signal rows were not framed at all and
+  printed outside the box. The frame is now measured from its content, so
+  every line lines up whatever the values are. The heading shows the
+  version of the package that is running instead of a release number that
+  had nothing to do with it.
+- The version number is now checked in one place. It is written both in
+  the project file and in the package itself, and a version bump that
+  touches only one of them makes the installed package report a version
+  that does not match the code.
+- The installation test no longer repeats the version number. It reads it
+  from the project file, so it keeps checking the artifact that is
+  actually current after a version bump.
+- The release note that sat in the repository root is gone. It carried
+  the test count and the build status of the day it was written, which no
+  longer matched anything.
+- The model context protocol server no longer claims a transport it does not
+  have. Its documentation mentioned server-sent events, which were never
+  implemented; the HTTP path is served by the endpoints of the web
+  interface.
+- The documentation of the model context protocol server no longer lists a
+  fixed set of resources, tools and prompts. The list it carried named
+  things that no longer exist, including a tool that never did, so anyone
+  following it would call something that is not there. It now points at
+  the listings the server itself returns, which cannot go stale.
+- The documentation of the model context protocol is checked now: every
+  name it mentions has to be a real tool, resource or prompt.
+- The tools that come with the repository now install with the development
+  extra. One of them needed a package the extra did not declare, so anyone
+  who followed the documented install got an environment where the tools
+  failed to import. The check that compares declarations against actual
+  imports now covers the scripts as well, so this does not come back.
+- The inventory tool asks the release API with the standard library instead
+  of a third-party HTTP client, which keeps one more dependency out of the
+  project.
+- The build tool of the pipeline no longer carries a known vulnerability.
+  The image shipped a version of setuptools with an advisory against it, and
+  the whitelist only carried the older identifier of that same finding, so
+  the scan started failing once the advisory was published under a second
+  name. The pipeline installs a fixed version of setuptools now, and the
+  entry is gone from the whitelist: a finding that can be fixed does not
+  belong in a whitelist.
+- The concurrency suite runs at its full scale now. The pipeline always ran
+  a sample of it, one representative per file, so the full set of about
+  eighteen hundred cases had never been run on any machine: the ones with
+  enough memory were never scheduled, and the ones with less were killed.
+  The public repository runs it at full scale on its own schedule, and all
+  of the cases pass.
+- The declared range of polars no longer promises a version the code cannot
+  use. It allowed anything from 1.17.1 upwards, but polars 2.0 removed the
+  `min_periods` argument that the factor calculation still passes, so a
+  fresh installation pulled a version that raised on the first factor. The
+  range now stops below 2.0, which is what the code actually supports.
+  Installing the released package and running the test suite against it is
+  what surfaced this: the other jobs install the pinned version and never
+  see it.
+- A tool of the model context protocol that fails while it runs now reports
+  the failure inside the result and marks it with `isError`. It answered with
+  a protocol-level error instead, so the model never saw why the call had
+  failed and the conversation stopped there. The protocol keeps the two
+  apart: a call that is invalid goes out as a protocol error, a call that ran
+  and failed comes back inside the result.
+- The HTTP adapter of that endpoint turns the marker back into an error
+  status. The desktop client decides on success by the status code, so
+  without the translation a failed call would have been shown as a normal
+  result.
+- A prompt whose arguments are incomplete now fails the whole request. It
+  returned a half-rendered prompt with the placeholder still in it and an
+  extra field alongside the messages, so the caller sent the unreplaced
+  placeholder to the model as content. The method exists, so a wrong prompt
+  name is a parameter error rather than a missing method, and it is reported
+  as such.
+- An unknown resource uses the code the protocol reserves for it. The method
+  exists, so the code for a missing method did not describe what happened.
+- The two duplicated branches of the request dispatcher are gone. The list of
+  resources and the list of prompts were each handled twice; the second copy
+  never ran, and its version of the prompt list did not declare the
+  arguments.
+- A request that fails unexpectedly gets an answer now. The transport printed
+  the failure and stayed silent, so the client waited for an answer that was
+  never going to come.
+- The table definition of the market data has a single source now. The
+  extraction job and the initialisation each wrote their own copy of it, and
+  the names of the index had drifted apart, so the same index ended up under
+  two names and the write cost doubled.
+- The backoff of the initialisation waits for the database lock with a
+  capped and jittered delay. The exponential delay grew to 51 seconds, so a
+  waiting process slept through the very moment the lock was released, and
+  with no jitter several of them woke up and collided again until their
+  retries ran out. Under load the concurrent initialisation failed with
+  "Could not set lock on file".
+- The budget of the concurrent HTTP request test matches what it verifies.
+  It starts a hundred processes at once, and on a loaded machine the start
+  alone can take longer than the ten seconds it allowed. The test is about
+  all of them succeeding, not about latency.
+- The backtest endpoint of the HTTP interface now uses the market data
+  stored in DuckDB when the symbol has any, and says which source it used.
+  It always generated a random walk, even with the bars sitting in the
+  local database, while the command line interface and the model context
+  protocol tool have been reading the stored data all along. The response
+  carried the label "not real data", so nothing was misrepresented; the
+  capability was simply missing.
+- The generated prices of the research pipeline endpoint are reproducible
+  now. The seed came from the built-in hash, which is salted per process,
+  so the same set of symbols produced different bars on every run while
+  the response called them deterministic.
+- The backtest tool of the model context protocol now uses the market data
+  stored in DuckDB when the symbol has any, and says which source it used.
+  It always ran a generated random walk, even with the bars sitting in the
+  local database, while the command line interface has been reading the
+  stored data all along. The response carried the label "not real data",
+  so nothing was misrepresented; the capability was simply missing.
+- The generated market data of that tool is reproducible now. The seed came
+  from the built-in string hash, which is salted per process, so the same
+  symbol produced different bars on every call while the response called
+  them deterministic.
+- The factor information request reports "no data" when the database has no
+  price table yet. It raised the storage error to the caller, which reads
+  like a broken service instead of a database that was never filled.
+- The prompt list declares its arguments now. The list response carried no
+  parameter information, so a client could not tell that the stock analysis
+  prompt needs a symbol, and the placeholder reached the model untouched.
+- The multimodal error carries the conventional name and its own
+  documentation. The name lacked the error suffix, and the text describing
+  the module sat inside the class body as a statement that did nothing.
+- The lint step of the verification script covers the code that ships, with
+  the same settings the pipeline uses. It inspected the whole repository
+  against stricter settings, so it could never pass, and a gate that is
+  always red is a gate nobody reads.
+- The data source's exception classifier now reuses the module-level
+  implementation. A second, text-only copy had been kept on the class and
+  shadowed the module-level one, so DuckDB concurrency, permission, and
+  disk-full failures were reported as network problems instead of the
+  actionable cause.
+- The collection hook that tags the heavy test cases was defined twice in
+  the same file. The second definition replaced the first, so the file
+  carried a duplicated block that no longer described the behaviour.
+- The streaming chat cases reach the provider through a stub client now.
+  One of them called the public API with a placeholder key, so it either
+  failed or silently degraded into "the SDK is missing" depending on the
+  network, and it never covered the streaming path. Another one collected
+  the chunks it received and asserted nothing about them.
+- The test cases that need PyTorch now skip uniformly when it is not
+  installed. Three of them in the same class imported the model without
+  the guard the other three used, so the file failed instead of skipping.
+- The workflow files are parsed with a strict parser before the pipeline
+  runs them. A repeated key makes GitHub refuse the whole file, and the
+  failure is reported only on the workflow page: the pipeline shows no
+  job at all, which reads like a workflow that has nothing to do.
+- The SPDX header of that module was truncated by a leftover code line, which
+  also commented out part of the file.
+- `.gitignore` no longer matches a `data` directory at any depth. The pattern
+  also covered `forgemind/core/data/`, so new source files placed there were
+  silently left out of commits. `dist/`, `build/`, `artifacts/`, `builds/`, and
+  `catboost_info/` are now anchored to the repository root.
+- Test collection is no longer interrupted by a truncated test module. A module
+  whose docstring was left unterminated made `pytest` abort before running a
+  single test case, which masked every other result.
+- Four test cases that were short-circuited with `pass` or `if False` now
+  assert the behaviour they describe. The providers and MCP server structure
+  checks, the `/health/services` endpoint check, and the API version
+  consistency check all ran no assertion at all.
+- Assertions that compared two command invocations byte for byte now
+  normalise the per-run identifiers first. A backtest run identifier and a
+  timestamped signal identifier differ on every run, so the comparisons could
+  never hold.
+- The per-test timeout in continuous integration now matches the slowest real
+  business test case instead of an arbitrary value. Test cases that start
+  DuckDB, spawn subprocesses, or invoke the CLI were being killed as hung.
+- The `Core imports check` step moved from the code quality job to the test
+  job. The former installs only the static analysis tools, so importing
+  modules that need the runtime dependencies could never succeed there.
+- The `Core imports check` step uses a heredoc, so the workflow file parses
+  under strict YAML rules.
+- The dependency vulnerability scan now audits the project dependencies that
+  were just installed instead of the packages that come with the runner
+  image. The action referenced by name was not published under that name.
+- The packaging workflow now removes superseded build directories. Each run
+  previously left its own copy of the distribution files in the repository.
+- A tool of the model context protocol that fails while it runs now reports the
+  failure inside the result and marks it with `isError`. It answered with a
+  protocol-level error instead, so the model never saw why the call had failed
+  and the conversation stopped there. The protocol keeps the two apart: a call
+  that is invalid goes out as a protocol error, a call that ran and failed comes
+  back inside the result.
+- The HTTP adapter of that endpoint turns the marker back into an error status.
+  The desktop client decides on success by the status code, so without the
+  translation a failed call would have been shown as a normal result.
+- A prompt whose arguments are incomplete now fails the whole request. It
+  returned a half-rendered prompt with the placeholder still in it and an extra
+  field alongside the messages, so the caller sent the unreplaced placeholder to
+  the model as content. The method exists, so a wrong prompt name is a
+  parameter error rather than a missing method, and it is reported as such.
+- An unknown resource uses the code the protocol reserves for it. The method
+  exists, so the code for a missing method did not describe what happened.
+- The two duplicated branches of the request dispatcher are gone. The list of
+  resources and the list of prompts were each handled twice; the second copy
+  never ran, and its version of the prompt list did not declare the arguments.
+- A request that fails unexpectedly gets an answer now. The transport printed
+  the failure and stayed silent, so the client waited for an answer that was
+  never going to come.
+- The table definition of the market data has a single source now. The
+  extraction job and the initialisation each wrote their own copy of it, and
+  the names of the index had drifted apart, so the same index ended up under
+  two names and the write cost doubled.
+- The isolation of the interface mock is checked now. The mock directory was
+  only referenced by the test configuration, but nothing verified that, so a
+  build configuration could have started pointing at it and the interface would
+  have shown generated data while the tests stayed green.
+- Every endpoint of the HTTP interface is called with valid parameters now.
+  Sixteen routes were reachable but only a few were exercised, and a wrong
+  parameter answers with a structured error that looks like a working
+  service. A second test now fails when a route is added without being
+  covered, so a new endpoint cannot slip past the checks.
+
+### Changed
+- Dependencies are now checked against what the code actually imports, in
+  both directions. Thirteen packages that nothing in the source imported
+  (`sqlalchemy`, `alembic`, `prefect`, `langgraph-prebuilt`,
+  `langchain-openai`, `langchain-anthropic`, `llama-index`, `chromadb`,
+  `quantstats`, `tenacity`, `python-jose`, `passlib`, `python-multipart`)
+  are no longer installed for every user. `empyrical-reloaded` is only used
+  by the third-party metric cross-check, so it moved to the `dev` extra.
+  `lightgbm` now requires `4.6.0`, the first release without
+  `PYSEC-2024-231`.
+- The continuous integration lock file now covers the whole set of
+  declared runtime dependencies. It installs the project with `--no-deps`,
+  so a dependency missing from the lock file was never installed in the
+  pipeline: the corresponding code paths were not executed and the cases
+  that would have covered them were skipped, while the job still reported
+  success. Two new checks keep the lock file and the declaration in step.
+- Test file names are at most 130 characters long. The renamed files keep
+  their original word order and gain a short hash, so every name stays
+  unique and the tier a file belongs to is unchanged.
+- Million-scale concurrency test cases are tagged `heavy` and run in a
+  dedicated job on a schedule, keeping the regular pipeline fast:
+  `pytest tests/ -m "not heavy"` for regular cases, `pytest tests/ -m heavy`
+  for the concurrency tier. Test cases that take tens of seconds to minutes
+  for their own reasons join the same tier, so "heavy" has one definition.
+- Duplicate test modules that differed only in a version suffix were
+  consolidated. Each series keeps its earliest, middle, and latest variant.
+- Every Python source file carries the same two-line licence header.
+- The workflow writes the outcome of each job to `ci-status.json` in the
+  repository, so the state of the pipeline is a queryable fact rather than
+  something only visible on the CI page.
+- The test count in the README is now the measured value.
+- The pipeline is split into four workflows with one responsibility each
+  (security scan, Python tests, desktop UI, code quality). Each one's
+  outcome can be queried and re-run on its own, and one failing workflow
+  no longer hides the state of the others.
+
+### Fixed
+- The desktop UI workflow no longer fails at parse time. `hashFiles` is
+  only usable in a step condition; at job level it made the workflow fail
+  before it could run anything.
+- The code quality workflow no longer imports project modules that need
+  the runtime dependencies it does not install. The import check moved to
+  the test workflow, where those dependencies are present.
+- The release workflow parses again. A block of embedded Python was
+  written flush against the left margin, which ended the YAML block
+  scalar and broke the file.
+- The dependency vulnerability scan audits the project dependencies that
+  were just installed instead of the packages that come with the runner
+  image. The action referenced by name was not published under that name.
+- The test pipeline installs the dependencies listed in
+  `requirements-ci.txt`, whose versions match the combination verified
+  locally. Resolving by range installed releases above the project's own
+  upper bounds, so the code was running against a different API than it
+  was written for.
+- The pipeline keeps a record of the dependency installation and of any
+  test failure in the repository, so a cause does not have to be dug out
+  of the workflow logs.
+
+### Removed
+- Build outputs and the internal trigger file are no longer tracked in the
+  source repository.
+- The generated `next-env.d.ts` and `tsconfig.tsbuildinfo` are no longer
+  tracked. The build rewrites them on every run, which left the working tree
+  permanently dirty.
+- The packaging workflow no longer keeps every superseded build in the
+  distribution repository. Each run used to leave its own copy of the
+  distribution files behind.
+
+## [v2026.09] - 2026-09-20
+
+Initial public release.
+
+### Added
+- AI Quant Trading Agent framework with 6-agent collaborative decision pipeline
+- Multi-source data registry with 9 LLM provider routing
+- 17 backtest strategies across base, library, and extended tiers
+- MCP server with Anthropic JSON-RPC 2.0 protocol, 10 tools, 6 resources, 3 prompts
+- Observability stack: OpenTelemetry + Prometheus + structured logging
+- Desktop application via Tauri 2.11.5
+- Apache 2.0 licensed
+
+[ForgeMind]: https://github.com/bin1732/forgemind

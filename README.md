@@ -233,6 +233,142 @@ ForgeMind outputs trading signals — it does **not** connect to brokers. Use th
 
 ---
 
+## ❓ FAQ
+
+<details>
+<summary><b>Q: 安装时报 "No matching distribution found" 怎么办?</b></summary>
+
+A: 检查你用的是 `--extra-index-url` 不是 `--index-url`:
+
+```bash
+# ✅ 正确 — 默认源 (PyPI) 仍可用,只有 forgemind 走我们的索引
+pip install --extra-index-url https://bin1732.github.io/forgemind-pypi/pypi/simple/ forgemind
+
+# ❌ 错误 — 会替换默认源,fastapi / duckdb 也去我们的索引里找 → 全部失败
+pip install --index-url https://bin1732.github.io/forgemind-pypi/pypi/simple/ forgemind
+```
+
+URL 路径是 `/pypi/simple/`,**不要**再加 `/forgemind/`。
+</details>
+
+<details>
+<summary><b>Q: 桌面端启动报 "Python sidecar 未运行" 怎么办?</b></summary>
+
+A: 桌面端 (Tauri) spawn Python sidecar (forgemind.api.main),需要:
+1. 系统已装 Python 3.11+
+2. 已 `pip install forgemind` (不是只装桌面端安装包)
+3. PATH 里能找到 `forgemind` 命令
+
+验证: 终端跑 `forgemind info` 应输出版本号和 DuckDB 路径。
+</details>
+
+<details>
+<summary><b>Q: ETL 拉到 0 条数据 / 标的取不到怎么办?</b></summary>
+
+A: 检查:
+
+```bash
+# 1. 标的代码格式: 6 位纯数字 (600519),不要带 .SH/.SZ
+forgemind etl --symbols 600519,000001 --start 2024-01-01 --end 2024-12-31
+
+# 2. 日期范围不能太短 (建议至少 1 年才有 IC 统计意义)
+
+# 3. 网络可达: akshare 走东方财富 / 腾讯 / 新浪,任一可达即可
+```
+
+退出码含义见下表。
+</details>
+
+<details>
+<summary><b>Q: `forgemind backtest` 报 "symbol 不在 DuckDB" 怎么办?</b></summary>
+
+A: 先跑 ETL 把标的 K 线拉下来:
+
+```bash
+forgemind etl --symbols 600519 --start 2022-01-01 --end 2024-12-31
+forgemind backtest --symbol 600519 --start 2024-01-01 --end 2024-12-31
+```
+
+`forgemind backtest` 默认 DuckDB 真数据优先;如果库里没数据,会用模拟数据并在报告里标 "数据来源: 模拟"。
+</details>
+
+<details>
+<summary><b>Q: US 股票数据 / 因子怎么没出来?</b></summary>
+
+A: README "Free Data" 列了 US,但实际上 US 数据源全部需要 token (无免费不限流源):
+
+```bash
+export FORGEMIND_US_TOKEN=your_alpha_vantage_or_polygon_key
+forgemind etl --symbols AAPL --start 2024-01-01 --end 2024-12-31
+```
+
+没 token 跑会得到 "US 行情源未配置" 错误。`forgemind info` 显示当前 US 数据源状态。
+</details>
+
+<details>
+<summary><b>Q: 多个 test 一起跑就报 "Unique file handle conflict",分开跑又没事?</b></summary>
+
+A: 这是 DuckDB 同 path 多个 read_only + read_write 连接的已知限制。ForgeMind 用 `@lru_cache` 持有一个长连接,测试 conftest 已统一改 rw。如果你自己写 test:
+
+```python
+import forgemind.core.data.storage as sm
+sm._DUCKDB_CONN_CACHE.clear()  # 验证前清掉
+con = duckdb.connect(db_path)  # 不要再用 read_only=True
+```
+</details>
+
+
+## 🛑 错误码速查表
+
+| 退出码 | 类别 | 触发场景 | 建议动作 |
+|---|---|---|---|
+| 0 | 成功 | 正常完成 | - |
+| 1 | 一般错误 | argparse 参数错 / 用户中断 (Ctrl+C) | 检查参数 / 重跑 |
+| 2 | 资源类 | `MemoryError` (标的 × 区间一次装不下) | 缩小范围分批跑 |
+| 3 | 数据/上游类 | `TimeoutError` (上游无响应) / 0 bars (取数失败) | 重试或换源 |
+| 4 | 资源类 | `OSError errno=28` (磁盘 ENOSPC) | 清理磁盘 |
+| 5+ | 业务类 | signal / agent human-approval 拒绝 | 显式 `--yes` 跳过 |
+
+举例:
+```bash
+$ forgemind etl --symbols 600519 --start 2024-01-01 --end 2024-12-31
+# 上游 timeout
+# 退出码: 3
+# 重试: forgemind etl --symbols 600519 --start 2024-01-01 --end 2024-12-31
+
+$ forgemind agent --symbol 600519.SH
+# 等待人工审批
+# 退出码: 5
+# 重试: forgemind agent --symbol 600519.SH --yes  # 跳过审批,真落 snapshot
+```
+
+---
+
+
+## 🧪 Tests
+
+```bash
+pytest tests/ -v
+# 656 test files · 10192 tests
+
+# 常规档位:真实业务用例,起真实子进程与真实数据库
+pytest tests/ -m "not heavy"
+# 8352 cases
+
+# 重并发档位:百万级真实运算,单独用更宽的超时执行
+pytest tests/ -m heavy
+# 1840 cases
+```
+
+上面四个数字由流水线每次实跑核对,对不上就红。
+
+重并发档的规模就是设计意图,流水线上的机器跑不完全部用例,这一档在
+流水线上按文件分组抽样执行,每个文件仍有代表被执行,代码路径不漏;
+规模本身由本地与专用环境验证。
+
+流水线上的实跑结果记在 `docs/AUDIT_3_DIMENSIONS.md`,那里钉着对应的
+源码提交 —— 数字会随代码变,写进 README 只会变成一句过期的话。
+
 ## 🧪 Verify Your Install
 
 装完之后先确认包本身可用:

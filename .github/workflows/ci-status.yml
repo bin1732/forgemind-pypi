@@ -1,0 +1,57 @@
+# Copyright (c) 2026 灵感引擎工坊 (bin1732)
+# SPDX-License-Identifier: Apache-2.0
+
+name: ForgeMind CI Status
+'on':
+  push:
+    branches:
+    - main
+    - develop
+    paths-ignore:
+    - ci-status.json
+  pull_request:
+    branches:
+    - main
+    - develop
+  workflow_dispatch: null
+permissions:
+  contents: read
+jobs:
+  ci-status:
+    name: 汇总校验结论
+    runs-on: ubuntu-26.04
+    if: always()
+    continue-on-error: true
+    permissions:
+      contents: read
+      actions: read
+    steps:
+    - name: Collect workflow conclusions
+      uses: actions/github-script@v9
+      with:
+        script: |
+          const { data } = await github.rest.actions.listWorkflowRuns({
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            branch: context.ref.replace('refs/heads/', ''),
+            per_page: 30,
+          });
+          const wanted = ['ci-security.yml', 'ci-tests.yml', 'ci-ui.yml', 'ci-lint.yml'];
+          const lines = [];
+          for (const wf of wanted) {
+            const hit = data.workflow_runs.find(
+              (r) => r.path.endsWith(wf) && r.head_sha === context.sha,
+            );
+            const state = hit ? (hit.conclusion || hit.status) : 'not-started';
+            lines.push(`| ${wf} | ${state} |`);
+          }
+          const body = [
+            '### 校验结论',
+            '',
+            '| 工作流 | 结论 |',
+            '| --- | --- |',
+            ...lines,
+            '',
+            `提交: ${context.sha}`,
+          ].join('\n');
+          await core.summary.addRaw(body).write();

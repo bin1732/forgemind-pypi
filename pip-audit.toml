@@ -1,0 +1,48 @@
+# Copyright (c) 2026 灵感引擎工坊 (bin1732)
+# SPDX-License-Identifier: Apache-2.0
+
+# """依赖漏洞扫描的白名单。
+
+# 每一项写明漏洞编号与登记理由,便于复核。登记项只包含一类:修复版本
+# 需要跨越本项目声明的版本上限、升级属破坏性变更的依赖。
+#
+# 流水线镜像自带的构建工具**不登记**:流水线能自己控制的那部分
+# (比如 setuptools)一律抬到修复版本,由 requirements-ci.txt 钉住 ——
+# 能修就不该记白名单,白名单是留给修不了的那部分。
+
+# 这是白名单的唯一来源。流水线通过 scripts/pip_audit_ids.py 把编号
+# 传给 pip-audit,避免在多处维护同一份清单。
+# """
+
+ignore-vuln = [
+    # starlette: 受 fastapi 0.115.5 对 starlette 的版本区间约束,修复版本
+    # 需要连带升级 fastapi,属破坏性变更
+    "PYSEC-2026-161",
+    "PYSEC-2026-248",
+    "PYSEC-2026-249",
+    "PYSEC-2026-1941",
+    "PYSEC-2026-1942",
+    "PYSEC-2026-2280",
+    "PYSEC-2026-2281",
+    # langchain: 项目声明 langchain<1,修复版本为 1.x,升级属破坏性大版本迁移
+    "PYSEC-2026-2192",
+    # langchain-core: 项目声明 langchain-core<1,修复版本为 1.x,升级属破坏性
+    # 大版本迁移
+    "PYSEC-2026-2193",
+    "PYSEC-2026-2562",
+    # langchain-text-splitters: 由 langchain 0.3 引入,修复版本为 1.x,与
+    # langchain 的版本约束同源
+    "PYSEC-2026-77",
+    # langgraph: 项目声明 langgraph<1,修复版本为 1.x,升级属破坏性大版本迁移
+    "PYSEC-2026-83",
+    "PYSEC-2026-2194",
+    # langgraph-checkpoint: 由 langgraph 0.2 引入,修复版本为 3.x/4.x,与
+    # langgraph 的版本约束同源
+    "PYSEC-2026-1527",
+    "PYSEC-2026-2573",
+    "PYSEC-2026-2574",
+    # langgraph-sdk: 由 langgraph 0.2 引入,修复版本为 0.4.4,与 langgraph
+    # 的版本约束同源
+    "PYSEC-2026-2575",
+    "PYSEC-2026-4240",
+]

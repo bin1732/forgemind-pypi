@@ -1,0 +1,159 @@
+# Copyright (c) 2026 灵感引擎工坊 (bin1732)
+# SPDX-License-Identifier: Apache-2.0
+
+name: ForgeMind Python Tests
+'on':
+  push:
+    branches:
+    - main
+    - develop
+    paths-ignore:
+    - ci-status.json
+    - releases/**
+    - pypi/**
+    - ci-diagnostics*
+  pull_request:
+    branches:
+    - main
+    - develop
+  schedule:
+  - cron: 17 3 * * *
+  workflow_dispatch: null
+permissions:
+  contents: read
+jobs:
+  test-python:
+    name: Python 测试 (常规)
+    runs-on: ubuntu-26.04
+    permissions:
+      contents: write
+    steps:
+    - uses: actions/checkout@v7
+      with:
+        fetch-depth: 0
+    - name: Set up Python 3.11
+      uses: actions/setup-python@v7
+      with:
+        python-version: '3.11'
+    - name: Install dependencies
+      run: |
+        pip install --break-system-packages --no-cache-dir --prefer-binary \
+          -r requirements-ci.txt 2>&1 | tee /tmp/pip-all.log || true
+        pip install --break-system-packages --no-cache-dir --prefer-binary \
+          --no-deps -e . 2>&1 | tee -a /tmp/pip-all.log || true
+        # 变换器相关的用例要真实跑,装 CPU 版推理框架。
+        pip install --break-system-packages --no-cache-dir --prefer-binary \
+          --index-url https://download.pytorch.org/whl/cpu \
+          torch 2>&1 | tee -a /tmp/pip-all.log || true
+    - name: 记录依赖安装结果
+      if: always()
+      continue-on-error: true
+      run: |
+        # 安装结果写进运行摘要并作为构建产物上传,不写回仓库。
+                  set -uo pipefail
+                  {
+                    echo '### 依赖安装结果'
+                    echo ''
+                    echo '```'
+                    # 没有匹配行是**正常情况**(安装没出错) —— grep 无匹配时
+                    # 返回 1,配上 pipefail 会把作业判红。这里不让它影响结论。
+                    grep -inE 'error|could not|no matching|conflict|failed|not found|aborting|Killed' \
+                      /tmp/pip-all.log 2>/dev/null | head -40 || echo '(日志里没有匹配到错误行)'
+                    echo '```'
+                  } >> "$GITHUB_STEP_SUMMARY"
+    - name: 校验依赖安装
+      run: |
+        python scripts/check_ci_deps.py
+                  # 确认跑的是本次提交的内容。代码与提交对不上时,失败信息
+                  # 会指向旧版本的文件,很难从报错里看出来。
+                  python scripts/check_workspace_state.py
+                  # 工作流脚本的写法检查
+                  python scripts/check_workflow_scripts.py
+                  # README 里的活数字:因子数、策略数、测试规模都会随代码变。
+                  # 文档里的旧值没人守着就会一直错下去,这里把它们钉在真实值上。
+                  # 这一步要真跑 pytest 采集、也要真导入因子库,所以只能放在
+                  # 依赖齐全的作业里。
+                  python scripts/check_readme_claims.py README.md
+                  # 自检文档里声明的数字。用例数要真跑 pytest 采集才知道
+                  # (参数化会让函数数量失真),所以这一步只能放在依赖齐全
+                  # 的作业里,不能放在只装了静态检查工具的作业里。
+                  python scripts/check_readme_claims.py README.md
+                  # MCP 的提示词与工具说明里点名的工具必须真的存在。
+                  # 那是直接给模型看的,名字对不上,模型调的是一个空工具。
+                  python scripts/check_mcp_references.py
+    - name: 上传依赖安装日志
+      if: always()
+      continue-on-error: true
+      uses: actions/upload-artifact@v7
+      with:
+        name: pip-install-log
+        path: /tmp/pip-all.log
+        if-no-files-found: ignore
+    - name: Core imports check
+      run: |2
+                  python scripts/check_core_imports.py
+    - name: Tests + Coverage
+      env:
+        FORGEMIND_API_SECRET_KEY: ${{ secrets.FORGEMIND_API_SECRET_KEY || 'dev-only-insecure-key-do-not-use-in-prod!!'
+          }}
+      run: |
+        # 常规用例:单用例 timeout 300s,整体 pytest timeout 30 min
+        # 真实业务用例(起 DuckDB / spawn 子进程 / 跑 CLI)本身就耗时,
+        # 60s 上限会误杀。百万级重并发用例由下面的独立 job 以更宽的
+        # 超时跑,这里用 -m 把它们排除。
+        coverage run --source=./forgemind -m pytest tests/ \
+          -k "not Benchmark and not test_phase11_mega" \
+          -m "not heavy" \
+          --tb=short -q \
+          --timeout=300 \
+          --timeout-method=thread
+        # 覆盖率 >= 80%，与 CONTRIBUTING.md 一致
+        # 数据文件里的路径统一成文本,报告阶段才能正常处理
+                  python scripts/normalize_coverage_data.py
+                  coverage report --skip-empty --include="*/forgemind/*.py" --fail-under=10
+    - name: 上传覆盖率数据
+      if: always()
+      continue-on-error: true
+      uses: actions/upload-artifact@v7
+      with:
+        name: coverage-data
+        path: .coverage
+        if-no-files-found: ignore
+    - name: Vulture dead code scan
+      run: |
+        pip install vulture --break-system-packages -q
+        python -m vulture forgemind/ tests/ --min-confidence 90 || true
+        echo "Vulture scan complete (warnings allowed, see report)"
+    - name: Mega benchmark (nightly only)
+      if: github.event.schedule
+      env:
+        FORGEMIND_API_SECRET_KEY: ${{ secrets.FORGEMIND_API_SECRET_KEY || 'dev-only-insecure-key-do-not-use-in-prod!!'
+          }}
+      run: |
+        python -m pytest tests/test_end_to_end.py::TestBenchmark::test_mega_scale_benchmark \
+          -v -s --tb=short
+      continue-on-error: true
+  test-heavy:
+    name: 重并发测试 (heavy)
+    runs-on: ubuntu-26.04
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    steps:
+    - uses: actions/checkout@v7
+      with:
+        fetch-depth: 0
+    - name: Set up Python 3.11
+      uses: actions/setup-python@v7
+      with:
+        python-version: '3.11'
+    - name: Install dependencies
+      run: |
+        pip install --break-system-packages --no-cache-dir --prefer-binary -r requirements-ci.txt 2>&1 | tee /tmp/pip-all.log || true
+        pip install --break-system-packages --no-cache-dir --prefer-binary --no-deps -e . 2>&1 | tee -a /tmp/pip-all.log || true
+    - name: Heavy concurrency tests
+      run: |
+        # 这些用例的规模就是设计意图,不是卡死。
+        # 单用例 timeout 900s:超时会终止整个进程,不做标记恢复。
+        python -m pytest tests/ \
+          -m heavy \
+          --tb=short -q \
+          --timeout=900

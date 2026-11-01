@@ -36,23 +36,6 @@ jobs:
       - name: 读出构件来源提交
         id: source
         uses: ./.github/actions/resolve-source
-      - name: Fetch private source
-        shell: bash
-        env:
-          PRIVATE_REPO_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN }}
-          SOURCE_COMMIT: ${{ steps.source.outputs.commit }}
-        run: |
-          set -euo pipefail
-          # 切进自己的目录再 init:工作区根已经 checkout 过公开仓,
-          # 在那儿 git init 会接着用公开仓的 .git,git remote add origin
-          # 会因为 origin 已存在而失败。
-          mkdir -p src && cd src
-          git init -q
-          git remote add origin "https://x-access-token:${PRIVATE_REPO_TOKEN}@github.com/bin1732/forgemind.git"
-          git fetch -q --depth 1 origin "$SOURCE_COMMIT"
-          git checkout -q FETCH_HEAD
-          echo "private source @ $(git rev-parse --short HEAD)"
-
       - name: Install Tauri system dependencies
         run: |
           # 注意:注释不能放在反斜杠续行中间,否则 shell 会把下一行当命令执行
@@ -68,18 +51,18 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
         with:
-          workspaces: src/forgemind-ui/src-tauri
+          workspaces: forgemind-ui/src-tauri
 
       - name: cargo check
-        working-directory: src/forgemind-ui/src-tauri
+        working-directory: forgemind-ui/src-tauri
         run: cargo check --message-format=short
 
       - name: cargo test (unit tests of the command logic)
-        working-directory: src/forgemind-ui/src-tauri
+        working-directory: forgemind-ui/src-tauri
         run: cargo test --lib --message-format=short
 
       - name: Show test results
-        working-directory: src/forgemind-ui/src-tauri
+        working-directory: forgemind-ui/src-tauri
         run: |
           grep -E "^test result|running [0-9]+ test" -A 1 || true
 
@@ -93,24 +76,6 @@ jobs:
     steps:
       - name: 检出公开仓
         uses: actions/checkout@v7
-      - name: 取私人仓的检查器
-        shell: bash
-        env:
-          PRIVATE_REPO_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN }}
-        run: |
-          set -euo pipefail
-          # 这里要的是**工具**,不是产品源码:判据表要跟着平台公告更新,
-          # 用最新的那份才准。取私人仓的 main 而不是清单里记的那一份 ——
-          # 钉在发布提交上,清单一落后这道检查就会静默跳过。
-          mkdir -p tool && cd tool
-          git init -q
-          git remote add origin "https://x-access-token:${PRIVATE_REPO_TOKEN}@github.com/bin1732/forgemind.git"
-          git fetch -q --depth 1 origin main
-          git checkout -q FETCH_HEAD
-          if [ ! -f scripts/check_runner_labels.py ]; then
-            echo "私人仓 main 上没有 scripts/check_runner_labels.py" >&2
-            exit 1
-          fi
       - uses: actions/setup-python@v7
         with:
           python-version: '3.11'
@@ -160,22 +125,6 @@ jobs:
       - name: 读出构件来源提交
         id: source
         uses: ./.github/actions/resolve-source
-      - name: Fetch private source
-        shell: bash
-        env:
-          PRIVATE_REPO_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN }}
-          SOURCE_COMMIT: ${{ steps.source.outputs.commit }}
-        run: |
-          set -euo pipefail
-          # 切进自己的目录再 init:工作区根已经 checkout 过公开仓,
-          # 在那儿 git init 会接着用公开仓的 .git,git remote add origin
-          # 会因为 origin 已存在而失败。
-          mkdir -p src && cd src
-          git init -q
-          git remote add origin "https://x-access-token:${PRIVATE_REPO_TOKEN}@github.com/bin1732/forgemind.git"
-          git fetch -q --depth 1 origin "$SOURCE_COMMIT"
-          git checkout -q FETCH_HEAD
-
       - uses: actions/setup-node@v7
         with:
           node-version: '22'
@@ -198,10 +147,10 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
         with:
-          workspaces: src/forgemind-ui/src-tauri
+          workspaces: forgemind-ui/src-tauri
 
       - name: Assert lockfile matches package.json
-        working-directory: src/forgemind-ui
+        working-directory: forgemind-ui
         shell: bash
         run: |
           set -euo pipefail
@@ -238,14 +187,14 @@ jobs:
           '
 
       - name: Install web deps
-        working-directory: src/forgemind-ui
+        working-directory: forgemind-ui
         run: |
           npm ci --no-audit --no-fund --registry=https://registry.npmjs.org
           npx tsc --noEmit
           npm test --silent
 
       - name: Build Next.js
-        working-directory: src/forgemind-ui
+        working-directory: forgemind-ui
         run: npx next build
 
       - name: Download the RELEASED binary (what users actually get)
@@ -435,11 +384,11 @@ jobs:
           exit "$RC"
 
       - name: cargo build (desktop binary)
-        working-directory: src/forgemind-ui/src-tauri
+        working-directory: forgemind-ui/src-tauri
         run: cargo build --release --message-format=short
 
       - name: Show artifact
-        working-directory: src/forgemind-ui/src-tauri
+        working-directory: forgemind-ui/src-tauri
         shell: bash
         run: |
           ls -lh target/release/forgemind-desktop* 2>/dev/null || true
@@ -449,7 +398,7 @@ jobs:
         shell: bash
         run: |
           set -uo pipefail
-          BIN=src/forgemind-ui/src-tauri/target/release/forgemind-desktop
+          BIN=forgemind-ui/src-tauri/target/release/forgemind-desktop
           # GitHub 默认 shell 已带 -e,timeout 返回 124(存活超时)会终止脚本,
           # 必须用 || code=$? 吃掉
           code=0
@@ -472,7 +421,7 @@ jobs:
         shell: bash
         run: |
           set -uo pipefail
-          BIN=src/forgemind-ui/src-tauri/target/release/forgemind-desktop
+          BIN=forgemind-ui/src-tauri/target/release/forgemind-desktop
           # macOS 没有 GNU coreutils 的 timeout 命令,这里用后台进程 + sleep + kill
           code=0
           "$PWD/$BIN" > app.log 2>&1 &
@@ -506,7 +455,7 @@ jobs:
         run: |
           set -uo pipefail
           # Git Bash 会吞掉反斜杠路径,统一用正斜杠
-          BIN=./src/forgemind-ui/src-tauri/target/release/forgemind-desktop.exe
+          BIN=./forgemind-ui/src-tauri/target/release/forgemind-desktop.exe
           # Windows 没有 GNU timeout;用后台进程 + 轮询存活 + 强杀。
           #
           # 两个坑:
@@ -555,7 +504,7 @@ jobs:
         with:
           name: forgemind-desktop-${{ matrix.name }}
           path: |
-            src/forgemind-ui/src-tauri/target/release/forgemind-desktop
-            src/forgemind-ui/src-tauri/target/release/forgemind-desktop.exe
+            forgemind-ui/src-tauri/target/release/forgemind-desktop
+            forgemind-ui/src-tauri/target/release/forgemind-desktop.exe
           if-no-files-found: error
           retention-days: 7

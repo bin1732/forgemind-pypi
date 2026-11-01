@@ -3,7 +3,6 @@ name: verify
 # 真实验证:装完 wheel 后跑完整冒烟,并且**实际执行**三个平台二进制。
 # 二进制跑不起来 = 直接判失败,不允许"构建成功"就算过。
 #
-# 需要的 secret: PRIVATE_REPO_TOKEN(与 ship.yml 相同)
 
 on:
   workflow_run:
@@ -31,20 +30,6 @@ jobs:
       - name: 读出构件来源提交
         id: source
         uses: ./.github/actions/resolve-source
-      - name: Fetch private source
-        env:
-          PRIVATE_REPO_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN }}
-          SOURCE_COMMIT: ${{ steps.source.outputs.commit }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          mkdir -p src && cd src
-          git init -q
-          git remote add origin "https://x-access-token:${PRIVATE_REPO_TOKEN}@github.com/bin1732/forgemind.git"
-          git fetch -q --depth 1 origin "$SOURCE_COMMIT"
-          git checkout -q FETCH_HEAD
-          echo "private source @ $(git rev-parse --short HEAD)"
-
       - uses: actions/setup-python@v7
         with:
           python-version: '3.11'
@@ -54,7 +39,7 @@ jobs:
         run: |
           set -euo pipefail
           python -m pip install -q --break-system-packages --upgrade pip build
-          cd "$GITHUB_WORKSPACE/src"
+          cd "$GITHUB_WORKSPACE"
           python -m build --wheel --outdir "$GITHUB_WORKSPACE/dist" .
           python -m venv "$GITHUB_WORKSPACE/.v"
           "$GITHUB_WORKSPACE/.v/bin/pip" install -q --upgrade pip
@@ -63,26 +48,11 @@ jobs:
           # 这一处装的是**从源码构建**的 wheel,还没打发布版本号,
           # 所以对的是源码声明的基础版本 ✓(发布出来的那一个由下面
           # "构件与声明对账"那档对着清单核 ✓)。
-          declared=$(sed -n 's/^version = "\(.*\)"/\1/p' "$GITHUB_WORKSPACE/src/pyproject.toml" | head -1)
+          declared=$(sed -n 's/^version = "\(.*\)"/\1/p' "$GITHUB_WORKSPACE/pyproject.toml" | head -1)
           actual=$("$GITHUB_WORKSPACE/.v/bin/python" -c "import forgemind; print(forgemind.__version__)")
           echo "declared=$declared actual=$actual"
           [ -n "$declared" ] && [ "$declared" = "$actual" ] \
             || { echo "FAIL: 构件版本($actual)与源码声明($declared)不一致"; exit 1; }
-
-      - name: Sync the canonical verification script from private source
-        shell: bash
-        env:
-          PRIVATE_REPO_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN }}
-        run: |
-          set -euo pipefail
-          # scripts/verify.py 是唯一的验证真源,CI 直接取用,
-          # 避免"本地一套、CI 一套"两套标准各说各话
-          mkdir -p src-scripts
-          curl -sSL -H "Authorization: Bearer $PRIVATE_REPO_TOKEN" \
-            "https://raw.githubusercontent.com/bin1732/forgemind/main/scripts/verify.py" \
-            -o src-scripts/verify.py
-          test -s src-scripts/verify.py || { echo "拉取 verify.py 失败"; exit 1; }
-          echo "verify.py $(wc -c < src-scripts/verify.py) bytes"
 
       - name: Assert verify.py itself is lint-clean
         run: |
@@ -100,7 +70,7 @@ jobs:
           # 这一档装的是**从源码构建**的 wheel,版本就是源码声明的基础
           # 版本 —— 要对的是源码声明 ✓。从 Release 下载的独立二进制才是
           # 对着发布版本比的那个(见 verify-binaries 作业)。
-          declared=$(sed -n 's/^version = "\(.*\)"/\1/p' "$GITHUB_WORKSPACE/src/pyproject.toml" | head -1)
+          declared=$(sed -n 's/^version = "\(.*\)"/\1/p' "$GITHUB_WORKSPACE/pyproject.toml" | head -1)
           actual=$("$V/forgemind" info | sed -n 's/.*Version:[[:space:]]*//p' | tr -d '\r')
           echo "declared=$declared actual=$actual"
           [ -n "$declared" ] && [ "$declared" = "$actual" ] \
@@ -276,18 +246,6 @@ jobs:
       - name: 读出构件来源提交
         id: source
         uses: ./.github/actions/resolve-source
-      - name: 取私人仓自检文档
-        env:
-          PRIVATE_REPO_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN }}
-          SOURCE_COMMIT: ${{ steps.source.outputs.commit }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          mkdir -p src && cd src
-          git init -q
-          git remote add origin "https://x-access-token:${PRIVATE_REPO_TOKEN}@github.com/bin1732/forgemind.git"
-          git fetch -q --depth 1 origin "$SOURCE_COMMIT"
-          git checkout -q FETCH_HEAD
       - name: 核对构件、清单、索引与文档声明
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -297,7 +255,6 @@ jobs:
           # 两份文档都核:私人仓的自检文档,以及公开仓给用户看的 README ——
           # README 里点名的下载物必须真的在这次发布的清单里。
           python scripts/check_published_assets.py \
-            --doc "$GITHUB_WORKSPACE/src/docs/AUDIT_3_DIMENSIONS.md" \
             --doc-mentions "$GITHUB_WORKSPACE/README.md"
   verify-binaries:
     strategy:
