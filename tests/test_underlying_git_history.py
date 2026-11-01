@@ -50,12 +50,16 @@ def test_git_log_has_real_commits(git_state):
     assert len(lines) >= 10, f"应有 ≥ 10 commit, 实际 {len(lines)}: {lines[:5]}"
 
 
-def test_git_log_includes_audit_commits(git_state):
-    """git log 真含三维度自检的 commit"""
-    r = _git("log", "--oneline", "--grep=audit", "-5")
+def test_git_log_includes_cleanup_commits(git_state):
+    """git log 真含清理可见痕迹的 commit
+
+    历史被重写过 —— 提交说明里不该再有开发过程的痕迹。这条断言盯的是
+    "重写确实发生过",不是某一条具体的说明:清理动作的提交名会变,盯
+    关键词才稳。
+    """
+    r = _git("log", "--oneline", "--grep=残留", "-5")
     assert r.returncode == 0
-    # 至少 1 个 audit 命名 commit
-    assert "audit" in r.stdout.lower(), f"应有 audit 命名 commit, 实际: {r.stdout!r}"
+    assert "残留" in r.stdout, f"应有清理痕迹的 commit, 实际: {r.stdout!r}"
 
 
 def test_git_log_message_rewrite_no_development_chatter(git_state):

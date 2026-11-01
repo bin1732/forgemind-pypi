@@ -147,11 +147,13 @@ class TestJobGraph:
             "  a:\n"
             "    runs-on: ubuntu-26.04\n"
             "    steps:\n"
+            "      - uses: actions/checkout@v7\n"
             "      - run: echo a\n"
             "  b:\n"
             "    needs: a\n"
             "    runs-on: ubuntu-26.04\n"
             "    steps:\n"
+            "      - uses: actions/checkout@v7\n"
             "      - run: echo b\n",
         )
         assert cws.main(repo) == 0

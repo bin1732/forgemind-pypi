@@ -75,7 +75,10 @@ class TestQueriesNormaliseBeforeLookingUp:
             src = p.read_text(encoding="utf-8")
             for m in re.finditer(r"WHERE symbol = \?[^\n]*\n(?:\s*\n)?\s*(\[[^\]]*\])", src):
                 args = m.group(1)
-                if "bare_symbol(" not in args and "symbol" in args:
+                # 按标识符判断,不用子串:归一化后的变量名里常带着 symbol
+                # (db_symbol、bare_symbol),子串匹配会把正确的写法也判成错的。
+                names = re.findall(r"[A-Za-z_][A-Za-z0-9_]*", args)
+                if "bare_symbol" not in names and "symbol" in names:
                     bad.append(f"{p.relative_to(root.parent)}: {args}")
         assert not bad, "这些查询把未归一化的 symbol 送进了 WHERE:\n  " + "\n  ".join(bad)
 
