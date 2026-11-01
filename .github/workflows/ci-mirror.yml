@@ -124,13 +124,19 @@ jobs:
                 # 复盘措辞、构建产物、诊断产物、过期副本与许可证头。
                 # 工作区应当是干净的,所以先提交再检查。
                 python scripts/check_repo_cleanliness.py .
+    - name: 检出公开仓
+      uses: actions/checkout@v7
+      with:
+        path: public
     - name: 公开仓残留扫描
       working-directory: .
       shell: bash
       run: |
         # 上面那条查的是私人仓的源码树。公开仓自己的残留没人查 ——
         # 构建产物、诊断文件、开发过程的复盘措辞,同样不能留在交付物里。
-        python src/scripts/check_repo_cleanliness.py .
+        # 这一步要公开仓自己的检出:残留扫描要看的是提交历史与工作区状态,
+        # 没有检出就没有可核对的东西。
+        python src/scripts/check_repo_cleanliness.py public --public
     - name: 自检文档与测试对账
       run: |
                 # 自检文档里每条结论都点名了对应的回归测试。
