@@ -209,7 +209,22 @@ def cmd_backtest(args):
             print(f"  {name:26} {kind}")
         return
 
-    print(f"Running backtest: {args.strategy} fast={args.fast} slow={args.slow}")
+    # 先看这个策略在这个命令里跑不跑得起来,再动手取数:让用户先等一轮
+    # 取数、然后才被告知跑不了,是在浪费他的时间。
+    from forgemind.core.strategies.library import needs_multiple_symbols
+
+    if needs_multiple_symbols(args.strategy):
+        print(f"⚠️  {args.strategy} 是多标的策略,当前命令只喂一支标的,算出来的结果没有意义。")
+        print("   多标的策略要跨标的比较,需要自己准备多支标的的行情表:")
+        print("     from forgemind.core.backtest.engine import SimpleBacktestEngine")
+        print("     SimpleBacktestEngine().run(MyStrategy(), 多标的的行情表)")
+        sys.exit(1)
+
+    # 参数只有一部分策略用得上(fast/slow 是双均线的),别把不相关的参数
+    # 印在命令行里 —— 那会让读的人以为这个策略用了它们。
+    _takes_ma_params = args.strategy in ("ma_cross", "mean_reversion")
+    _params_note = f" fast={args.fast} slow={args.slow}" if _takes_ma_params else ""
+    print(f"Running backtest: {args.strategy}{_params_note}")
 
     # 优先查 DuckDB 真实数据;指定 --symbol 后查到就用,查不到降级
     price_df = None

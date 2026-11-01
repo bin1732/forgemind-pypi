@@ -270,13 +270,66 @@ def get_extended_strategy(name: str, **params):
     return build_extended_strategy(name, **params)
 
 
+# 策略类别的说法。这是给用户看的:命令行的策略清单、报错信息都用它。
+# 原来的 "on_bar 策略" / "批量策略" 是内部叫法,读的人看不出这些策略
+# 到底在做什么,更看不出哪些当前跑不了。
+CATEGORY_LABELS = {
+    "on_bar": "单标的策略:在一支标的的 K 线上产生买卖信号",
+    "momentum": "动量类:按过去一段时间的涨跌幅排序或择时",
+    "stat_arb": "统计套利类:用价差关系找机会",
+    "portfolio": "组合类:在多支标的上分配权重(当前命令只喂一支标的,跑不了)",
+    "event": "事件类:需要基本面或事件数据",
+    "ml": "机器学习类:需要训练好的模型",
+    "mean_reversion": "均值回复类:价格偏离均值后回归",
+}
+
+# 需要多支标的的类别:命令一次只喂一支,这些策略在那种输入下算出来的
+# 权重没有意义 —— 实测有两个组合策略在单标的上给出逐位相同的结果,
+# 看着像结论,其实是退化了。
+MULTI_SYMBOL_CATEGORIES = ("portfolio",)
+
+
+def strategy_category(name: str) -> str:
+    """策略的类别。查不到就返回空串。"""
+    from forgemind.core.strategies.extended_library import list_strategies
+
+    if name in STRATEGY_REGISTRY:
+        return "on_bar"
+    cls = list_strategies().get(name)
+    return getattr(cls, "category", "") if cls is not None else ""
+
+
+def needs_multiple_symbols(name: str) -> bool:
+    """这个策略是不是必须有多支标的。
+
+    先看策略自己打的标记,再看类别 —— 横截面动量归在"动量类",但它同样
+    要跨标的比较。靠类别猜会漏掉这一类,而这类策略在单标的上算出来的
+    结果看着像结论,其实是退化了(实测有两个策略在单标的上给出逐位相同
+    的结果)。
+    """
+    from forgemind.core.strategies.extended_library import list_strategies
+
+    cls = list_strategies().get(name)
+    if cls is not None and getattr(cls, "requires_multiple_symbols", False):
+        return True
+    return strategy_category(name) in MULTI_SYMBOL_CATEGORIES
+
+
 def available_strategies() -> dict:
     """全部可用策略名 → 说明(CLI --help / 报错都用它)"""
     from forgemind.core.strategies.extended_library import list_strategies
 
     out = {}
     for k in STRATEGY_REGISTRY:
-        out[k] = "on_bar 策略"
+        out[k] = CATEGORY_LABELS["on_bar"]
     for k in list_strategies():
-        out[k] = _EXTENDED_STRATEGY_PARAMS.get(k, "批量策略")
+        hint = _EXTENDED_STRATEGY_PARAMS.get(k)
+        if hint:
+            out[k] = hint
+            continue
+        cat = strategy_category(k)
+        label = CATEGORY_LABELS.get(cat, "策略")
+        if needs_multiple_symbols(k):
+            label = "需要多支标的:" + label
+        out[k] = label
     return out
