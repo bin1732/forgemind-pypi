@@ -321,13 +321,17 @@ jobs:
           run info        info
           # 发布出去的二进制报的版本必须与源码声明的一致。版本对不上,
           # 用户拿到的和发布出去的就不是同一份东西,而表面看不出来。
-          declared=$(sed -n 's/^version = "\(.*\)"/\1/p' src/pyproject.toml | head -1)
+          # 这一步跑的是**已发布**的二进制 —— 要对的是清单里记的发布版本,
+          # 不是源码里的基础版本(源码那份由 verify.yml 的 wheel 档核对)。
+          published=$(curl -sS --max-time 60 \
+            https://raw.githubusercontent.com/bin1732/forgemind-pypi/main/releases/builds/manifest.json \
+            | jq -r '.published_version // ""')
           actual=$(sed -n 's/.*Version:[[:space:]]*//p' rel_info.log | tr -d '\r')
-          echo "  declared=$declared actual=$actual"
-          if [ -n "$declared" ] && [ "$declared" = "$actual" ]; then
-            echo "  PASS 发布物版本与源码一致"
+          echo "  published=$published actual=$actual"
+          if [ -n "$published" ] && [ "$published" = "$actual" ]; then
+            echo "  PASS 发布物版本与这次发布的版本一致"
           else
-            echo "  FAIL 发布物版本($actual)与源码声明($declared)不一致"; RC=1
+            echo "  FAIL 发布物版本($actual)与这次发布的版本($published)不一致"; RC=1
           fi
           run signal      signal
           run router-demo router-demo
@@ -365,13 +369,17 @@ jobs:
           grep -q "Total Return" rel_backtest___start_2024_01.log \
             || { echo "FAIL: backtest 无指标输出"; exit 1; }
           # 发布出去的二进制报的版本必须与源码声明的一致
-          declared=$(sed -n 's/^version = "\(.*\)"/\1/p' src/pyproject.toml | head -1)
+          # 这一步跑的是**已发布**的二进制 —— 要对的是清单里记的发布版本,
+          # 不是源码里的基础版本(源码那份由 verify.yml 的 wheel 档核对)。
+          published=$(curl -sS --max-time 60 \
+            https://raw.githubusercontent.com/bin1732/forgemind-pypi/main/releases/builds/manifest.json \
+            | jq -r '.published_version // ""')
           actual=$(sed -n 's/.*Version:[[:space:]]*//p' rel_info.log | tr -d '\r')
-          echo "  declared=$declared actual=$actual"
-          if [ -n "$declared" ] && [ "$declared" = "$actual" ]; then
-            echo "  PASS 发布物版本与源码一致"
+          echo "  published=$published actual=$actual"
+          if [ -n "$published" ] && [ "$published" = "$actual" ]; then
+            echo "  PASS 发布物版本与这次发布的版本一致"
           else
-            echo "  FAIL 发布物版本($actual)与源码声明($declared)不一致"; RC=1
+            echo "  FAIL 发布物版本($actual)与这次发布的版本($published)不一致"; RC=1
           fi
           exit "$RC"
 
@@ -395,13 +403,17 @@ jobs:
           done
           grep -q "ForgeMind Config" rel_info.log || { echo "FAIL: info 无正常输出"; exit 1; }
           # 发布出去的二进制报的版本必须与源码声明的一致
-          declared=$(sed -n 's/^version = "\(.*\)"/\1/p' src/pyproject.toml | head -1)
+          # 这一步跑的是**已发布**的二进制 —— 要对的是清单里记的发布版本,
+          # 不是源码里的基础版本(源码那份由 verify.yml 的 wheel 档核对)。
+          published=$(curl -sS --max-time 60 \
+            https://raw.githubusercontent.com/bin1732/forgemind-pypi/main/releases/builds/manifest.json \
+            | jq -r '.published_version // ""')
           actual=$(sed -n 's/.*Version:[[:space:]]*//p' rel_info.log | tr -d '\r')
-          echo "  declared=$declared actual=$actual"
-          if [ -n "$declared" ] && [ "$declared" = "$actual" ]; then
-            echo "  PASS 发布物版本与源码一致"
+          echo "  published=$published actual=$actual"
+          if [ -n "$published" ] && [ "$published" = "$actual" ]; then
+            echo "  PASS 发布物版本与这次发布的版本一致"
           else
-            echo "  FAIL 发布物版本($actual)与源码声明($declared)不一致"; RC=1
+            echo "  FAIL 发布物版本($actual)与这次发布的版本($published)不一致"; RC=1
           fi
           exit "$RC"
 
