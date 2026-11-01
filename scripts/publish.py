@@ -317,6 +317,22 @@ def sync_release_assets(rel: dict, files, publish_version: str, call) -> tuple[l
     return uploaded, asset_sizes
 
 
+def _release_body(publish_version: str) -> str:
+    """发布说明。正文与版本号一起生成,措辞单独放在一处便于检查。"""
+    import subprocess
+    import sys
+
+    script = pathlib.Path(__file__).resolve().parent / "build_release_body.py"
+    proc = subprocess.run(
+        [sys.executable, str(script), publish_version],
+        capture_output=True,
+        text=True,
+    )
+    if proc.returncode == 0 and proc.stdout.strip():
+        return proc.stdout
+    return f"ForgeMind {publish_version}\n\nApache-2.0"
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="把这次构建发布出去")
     parser.add_argument("--api", default=DEFAULT_API, help="仓库 API 地址")
@@ -345,7 +361,7 @@ def main() -> int:
             {
                 "tag_name": "continuous",
                 "name": "Continuous Builds",
-                "body": "Auto-built from private source.",
+                "body": _release_body(args.publish_version),
                 "prerelease": True,
             },
         )

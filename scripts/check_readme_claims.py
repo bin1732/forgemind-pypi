@@ -134,18 +134,12 @@ def _measure_test_scale(repo: Path) -> dict | None:
 
     不是 git 仓就返回 None。
     """
-    try:
-        files = len(
-            subprocess.run(
-                ["git", "ls-files", "tests/test_*.py"],
-                cwd=repo,
-                capture_output=True,
-                text=True,
-                check=True,
-            ).stdout.splitlines()
-        )
-    except (subprocess.CalledProcessError, FileNotFoundError):
+    # 数磁盘上的测试文件,不数 git 跟踪的文件:新加的测试文件在提交之前
+    # 就不该被漏掉。跟踪与否是提交状态,不是这个数字该关心的事。
+    tests_dir = repo / "tests"
+    if not tests_dir.is_dir():
         return None
+    files = len(list(tests_dir.glob("test_*.py")))
     # 采集时要**关掉抽样**:CI 里 conftest 会按文件分组抽样重并发用例
     # (默认留十分之一),采到的数就不是声明里那个规模了。
     # 声明的数字对应的是完整规模,测量也得按完整规模来。
@@ -330,16 +324,7 @@ def main() -> int:
                 )
             # 仓里的测试文件必须真被 pytest 收集 —— 没被收集的文件里那些
             # 用例从来没跑过,而文件数照旧算在里面,数字就虚了。
-            tracked = {
-                Path(line).name
-                for line in subprocess.run(
-                    ["git", "ls-files", "tests/test_*.py"],
-                    cwd=code,
-                    capture_output=True,
-                    text=True,
-                    check=True,
-                ).stdout.splitlines()
-            }
+            tracked = {p.name for p in (code / "tests").glob("test_*.py")}
             missed = sorted(tracked - real["collected"])
             if missed:
                 problems.append(

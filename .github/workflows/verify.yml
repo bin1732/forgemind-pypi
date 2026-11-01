@@ -45,6 +45,9 @@ jobs:
           "$GITHUB_WORKSPACE/.v/bin/pip" install -q --upgrade pip
           "$GITHUB_WORKSPACE/.v/bin/pip" install -q "$GITHUB_WORKSPACE"/dist/*.whl
           "$GITHUB_WORKSPACE/.v/bin/python" -c "import forgemind; print('import ok', forgemind.__version__)"
+          # 装出来的 wheel 与源码要对得上:构建配置漏掉一个子包,用户装上
+          # 之后 import 才报错 —— 源码树里那个模块明明在,测试也跑得过。
+          python scripts/check_wheel_contents.py "$GITHUB_WORKSPACE"/dist/*.whl "$GITHUB_WORKSPACE"
           # 这一处装的是**从源码构建**的 wheel,还没打发布版本号,
           # 所以对的是源码声明的基础版本 ✓(发布出来的那一个由下面
           # "构件与声明对账"那档对着清单核 ✓)。

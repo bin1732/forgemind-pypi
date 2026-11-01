@@ -13,11 +13,16 @@ import sys
 
 TEMPLATE = """# ForgeMind {version}
 
-See [CHANGELOG.md](https://github.com/bin1732/forgemind/blob/main/CHANGELOG.md) for details.
+See [CHANGELOG.md](https://github.com/bin1732/forgemind-pypi/blob/main/CHANGELOG.md) for details.
 
 ## Install
 ```
-pip install --break-system-packages forgemind
+pip install --extra-index-url https://bin1732.github.io/forgemind-pypi/pypi/simple/ forgemind
+```
+
+装好之后,一条命令就能看到真实结果:
+```
+forgemind demo
 ```
 
 ## License

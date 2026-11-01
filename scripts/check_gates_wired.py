@@ -23,6 +23,7 @@ NOT_A_GATE = {
     "feature_inventory.py": "本地盘点用的工具,不是门禁",
     "list_coverage_files.py": "本地查覆盖率文件用的工具,不是门禁",
     "dispatch.py": "手动触发流水线的工具,不是门禁",
+    "build_release_body.py": "由发布脚本调用,生成发布说明正文,不是流水线直接调的门禁",
     "research_demo.py": "给使用者跑的研究示例,不是门禁",
     "audit_release.py": "本地汇总自检;各项检查在流水线里各自跑",
     "verify3.py": "三视角验证的本地入口,流水线里由 verify.yml 覆盖",
