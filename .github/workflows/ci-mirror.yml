@@ -234,8 +234,10 @@ jobs:
                     echo '### 依赖安装结果'
                     echo ''
                     echo '```'
+                    # 没有匹配行是**正常情况**(安装没出错) —— grep 无匹配时
+                    # 返回 1,配上 pipefail 会把作业判红。这里不让它影响结论。
                     grep -inE 'error|could not|no matching|conflict|failed|not found|aborting|Killed' \
-                      /tmp/pip-all.log 2>/dev/null | head -40
+                      /tmp/pip-all.log 2>/dev/null | head -40 || echo '(日志里没有匹配到错误行)'
                     echo '```'
                   } >> "$GITHUB_STEP_SUMMARY"
     - name: 校验依赖安装
@@ -327,8 +329,10 @@ jobs:
                     echo '### 依赖安装结果'
                     echo ''
                     echo '```'
+                    # 没有匹配行是**正常情况**(安装没出错) —— grep 无匹配时
+                    # 返回 1,配上 pipefail 会把作业判红。这里不让它影响结论。
                     grep -inE 'error|could not|no matching|conflict|failed|not found|aborting|Killed' \
-                      /tmp/pip-all.log 2>/dev/null | head -40
+                      /tmp/pip-all.log 2>/dev/null | head -40 || echo '(日志里没有匹配到错误行)'
                     echo '```'
                   } >> "$GITHUB_STEP_SUMMARY"
     - name: 校验依赖安装
