@@ -57,9 +57,21 @@ def asset_kind(name: str) -> str:
     return re.sub(r"\d+\.\d+\.\d+(?:\.post\d+)?|<[^>]*>", "*", name)
 
 
+# 带版本号的独立二进制:forgemind-<版本>-linux / -macos / -windows-x64.exe
+VERSIONED_BINARY = re.compile(r"^forgemind-(?:<[^>]*>|[\d.]+)-(?:linux|macos|windows-x64\.exe)$")
+
+
 def is_asset(name: str) -> bool:
-    """清单里的资产名。"""
-    return name.endswith(ASSET_SUFFIXES) or name in ("forgemind-linux", "forgemind-macos")
+    """清单里的资产名。
+
+    独立二进制的资产名带发布版本(每次发布都变,名字不变的话 CDN 会继续
+    发旧副本),所以按形态认,不能只认固定的那两个名字。
+    """
+    return (
+        name.endswith(ASSET_SUFFIXES)
+        or name in ("forgemind-linux", "forgemind-macos")
+        or bool(VERSIONED_BINARY.match(name))
+    )
 
 
 def remote_manifest(token: str | None) -> dict | None:

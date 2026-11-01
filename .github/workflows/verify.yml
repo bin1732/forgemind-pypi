@@ -333,9 +333,13 @@ jobs:
           fi
           if [ "${{ matrix.os }}" = "windows-2025" ]; then
             NAME="forgemind-${version}-windows-x64.exe"
+            LOCAL="forgemind-windows-x64.exe"
           else
             NAME="forgemind-${version}-${{ matrix.name }}"
+            LOCAL="forgemind-${{ matrix.name }}"
           fi
+          # 下载用带版本号的名字(CDN 才没有旧副本可发),落盘后改回稳定名 ——
+          # 后面执行时用的还是那个名字。
           # release 资产 URL 不变时会被 CDN 缓存,必须破坏缓存才能验到新版
           URL="https://github.com/bin1732/forgemind-pypi/releases/download/continuous/${NAME}?cb=${GITHUB_RUN_ID}"
           # ship.yml 为绕开"同名上传 422"会先删旧资产再上传同名资产,
@@ -352,8 +356,9 @@ jobs:
             sleep 15
           done
           if [ "$ok" != "1" ]; then echo "FAIL 下载失败(重试已耗尽)"; exit 1; fi
-          SIZE=$(wc -c < "$NAME")
-          echo "downloaded $NAME ($SIZE bytes)"
+          mv "$NAME" "$LOCAL"
+          SIZE=$(wc -c < "$LOCAL")
+          echo "downloaded $LOCAL ($SIZE bytes)"
           if [ "$SIZE" -lt 1000000 ]; then
             echo "FAIL: 文件过小($SIZE),很可能拿到的是错误页而不是二进制"
             head -c 200 "$NAME"

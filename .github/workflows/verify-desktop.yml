@@ -262,12 +262,17 @@ jobs:
           if [ -z "$version" ]; then
             echo "FAIL: 清单里没有 published_version"; exit 1
           fi
+          # 下载用带版本号的名字(CDN 才没有旧副本可发),落盘后改回稳定名 ——
+          # 后面执行时用的还是那个名字。
           if [ "${{ runner.os }}" = "Windows" ]; then
             NAME="forgemind-${version}-windows-x64.exe"
+            LOCAL="forgemind-windows-x64.exe"
           elif [ "${{ runner.os }}" = "macOS" ]; then
             NAME="forgemind-${version}-macos"
+            LOCAL="forgemind-macos"
           else
             NAME="forgemind-${version}-linux"
+            LOCAL="forgemind-linux"
           fi
           mkdir -p released
           code=0
@@ -290,8 +295,9 @@ jobs:
             echo "FAIL: 无法下载发布物 $NAME (curl=$code)"
             exit 1
           fi
-          ls -lh "released/$NAME"
-          file "released/$NAME" 2>/dev/null || true
+          mv "released/$NAME" "released/$LOCAL"
+          ls -lh "released/$LOCAL"
+          file "released/$LOCAL" 2>/dev/null || true
 
       - name: Run the RELEASED binary - all subcommands (Linux / Xvfb)
         if: runner.os == 'Linux'
