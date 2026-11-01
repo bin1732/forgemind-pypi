@@ -1,22 +1,22 @@
 {
   "version": "latest",
   "assets": [
-    "forgemind-2026.9.3.post23-linux",
-    "forgemind-2026.9.3.post23-macos",
-    "forgemind-2026.9.3.post23-py3-none-any.whl",
-    "forgemind-2026.9.3.post23-windows-x64.exe",
-    "forgemind-2026.9.3.post23.tar.gz"
+    "forgemind-2026.9.3.post24-linux",
+    "forgemind-2026.9.3.post24-macos",
+    "forgemind-2026.9.3.post24-py3-none-any.whl",
+    "forgemind-2026.9.3.post24-windows-x64.exe",
+    "forgemind-2026.9.3.post24.tar.gz"
   ],
   "sizes": {
-    "forgemind-2026.9.3.post23-linux": 209938176,
-    "forgemind-2026.9.3.post23-macos": 137226528,
-    "forgemind-2026.9.3.post23-py3-none-any.whl": 210460,
-    "forgemind-2026.9.3.post23-windows-x64.exe": 165849480,
-    "forgemind-2026.9.3.post23.tar.gz": 1267101
+    "forgemind-2026.9.3.post24-linux": 209937768,
+    "forgemind-2026.9.3.post24-macos": 137227248,
+    "forgemind-2026.9.3.post24-py3-none-any.whl": 210461,
+    "forgemind-2026.9.3.post24-windows-x64.exe": 165849679,
+    "forgemind-2026.9.3.post24.tar.gz": 1267299
   },
-  "build_id": "41341733688",
+  "build_id": "41342085338",
   "source_repo": "bin1732/forgemind",
-  "source_commit": "a91c87f11ff5404e1585c624270e124b534a9493",
-  "published_version": "2026.9.3.post23",
+  "source_commit": "738256f8c9860ebb4a6461618dfa1af5e0ea217c",
+  "published_version": "2026.9.3.post24",
   "install": "pip install --extra-index-url https://bin1732.github.io/forgemind-pypi/pypi/simple/ forgemind"
 }
