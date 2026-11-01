@@ -337,8 +337,11 @@ ForgeMind 自己用的就是读写连接,所以正常用不会遇到。你自己
 数据库用读写方式就行:
 
 ```python
+import pathlib
+
 import duckdb
 
+pathlib.Path("data").mkdir(exist_ok=True)
 con = duckdb.connect("data/forgemind.duckdb")  # 不要加 read_only=True
 con.close()
 ```
