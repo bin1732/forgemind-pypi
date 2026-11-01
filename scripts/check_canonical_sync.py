@@ -39,8 +39,22 @@ def compare(public: Path, canonical: Path) -> tuple[list[str], int]:
 
 
 def main() -> int:
+    import argparse
+
+    parser = argparse.ArgumentParser(description="核对两仓同名的脚本")
+    parser.add_argument(
+        "--canonical",
+        type=Path,
+        default=None,
+        help="私人仓真源脚本目录(默认是紧挨着公开仓的 src/scripts)",
+    )
+    args = parser.parse_args()
+
     public = Path(__file__).resolve().parent
-    canonical = public.parent / "src" / "scripts"
+    # 真源默认在**紧挨着**公开仓的那个 src/ 里:镜像作业把私人仓 checkout
+    # 到 src/,公开仓 checkout 到 public/,两者同级 —— src/scripts 就是真源。
+    # 也可显式指定,免得靠"猜同级目录"。
+    canonical = (args.canonical or public.parent / "src" / "scripts").resolve()
     problems, unverifiable = compare(public, canonical)
     if problems:
         print("公开仓的脚本与私人仓真源对不上:")

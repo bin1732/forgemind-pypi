@@ -129,28 +129,34 @@ jobs:
       with:
         path: public
     - name: 公开仓工作流写法检查
-      working-directory: .
+      working-directory: public
       shell: bash
       run: |
         # 公开仓自己的工作流也要过写法检查:重复键会让整个工作流不被
         # 执行,那种失败只在工作流页面上,不查就会漏掉。
+        #
+        # 工作目录是 public/(公开仓被 checkout 到那里):检查器按**自己所在
+        # 的仓**解析工作目录,在哪儿就在查哪儿的仓 —— 查错对象却报绿,
+        # 比不查更坏。
         python scripts/check_workflow_scripts.py
     - name: 公开仓脚本与私人仓真源一致
-      working-directory: .
+      working-directory: public
       shell: bash
       run: |
         # 两边各存一份的检查器,改了一边忘了另一边,两个仓会给出不同结论
         # 而且没人发现 —— 逐字对一遍,不一致就红。
-        python scripts/check_canonical_sync.py
+        # 真源是同级目录里的 src/(私人仓的检出),显式指出来,不用猜。
+        python scripts/check_canonical_sync.py --canonical ../src/scripts
     - name: 公开仓残留扫描
-      working-directory: .
+      working-directory: public
       shell: bash
       run: |
         # 上面那条查的是私人仓的源码树。公开仓自己的残留没人查 ——
         # 构建产物、诊断文件、开发过程的复盘措辞,同样不能留在交付物里。
-        # 这一步要公开仓自己的检出:残留扫描要看的是提交历史与工作区状态,
-        # 没有检出就没有可核对的东西。
-        python src/scripts/check_repo_cleanliness.py public --public
+        #
+        # 脚本取自私人仓(那是它的真源),查的对象是**当前目录**这个公开仓:
+        # 残留扫描要看的是提交历史与工作区状态,查错对象却报绿,比不查更坏。
+        python ../src/scripts/check_repo_cleanliness.py . --public
     - name: 自检文档与测试对账
       run: |
                 # 自检文档里每条结论都点名了对应的回归测试。
