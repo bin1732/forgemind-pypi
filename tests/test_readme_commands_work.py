@@ -24,9 +24,26 @@ ROOT = Path(__file__).resolve().parent.parent
 README = ROOT / "README.md"
 
 
-def _readme_commands(prefix="pip install"):
+# 标了这句话的命令是**故意写错的示范**,不参与核对
+ERROR_EXAMPLE_MARK = "错误示范"
+
+
+def _readme_commands(prefix="pip install", include_error_examples: bool = False):
+    """README 里的命令行。
+
+    FAQ 里有一条故意写错的安装命令(示范 --index-url 为什么不行)。
+    它不参与核对 —— 但它必须**确实是错的**,否则那条警告就白写了。
+    """
     text = README.read_text(encoding="utf-8")
-    return [x.strip() for x in text.splitlines() if x.strip().startswith(prefix)]
+    out = []
+    for line in text.splitlines():
+        stripped = line.strip()
+        if not stripped.startswith(prefix):
+            continue
+        if ERROR_EXAMPLE_MARK in stripped and not include_error_examples:
+            continue
+        out.append(stripped)
+    return out
 
 
 class TestReadmeInstallCommand:

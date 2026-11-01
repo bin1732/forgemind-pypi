@@ -148,39 +148,63 @@ echo '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":
 
 ## 🚀 Quick Start
 
-```python
-from forgemind.core.agents.stock_picker import StockPickerAgent
-from forgemind.core.data.akshare_etl import AKShareETL
-from forgemind.core.backtest.engine import SimpleBacktestEngine
-
-# 1. Pull free A-share data
-etl = AKShareETL()
-await etl.run(symbols=["600519", "000001"], start="2024-01-01")
-
-# 2. Screen with multi-factor agent
-picker = StockPickerAgent()
-picks = await picker.pick(universe=["600519", "000001"], top_n=5)
-
-# 3. Backtest
-from forgemind.core.strategies.base import MovingAverageCrossStrategy
-engine = SimpleBacktestEngine(initial_capital=100_000)
-result = engine.run(MovingAverageCrossStrategy(), price_df)
-print(result.sharpe, result.total_return, result.max_drawdown)
-
-# 4. AI decision (Claude / GPT / Ollama)
-from forgemind.core.agents.portfolio_context import run_decision
-state = await run_decision(symbol="600519.SH", portfolio=PortfolioContext(...))
-```
-
-Or via CLI:
+装好之后,一条命令就能看到结果 —— 不需要密钥、不需要配置文件、不需要先
+准备数据:
 
 ```bash
-# etl / pick 需要 A 股数据源,先确保装了 [cn] extra(akshare)
-forgemind etl --symbols 600519,000001 --start 2024-01-01
-forgemind pick --top-n 5
-forgemind backtest --strategy ma_cross
-forgemind agent --symbol 600519.SH
+pip install --extra-index-url https://bin1732.github.io/forgemind-pypi/pypi/simple/ "forgemind[cn]"
+forgemind demo
 ```
+
+`forgemind demo` 会取真实行情、跑一次双均线回测,并把收益、夏普、回撤
+与进出次数打印出来。取不到实时行情时,它用包内置的真实历史行情
+(600519 在 2024 年的日线,见 `forgemind/data/README.md`),**不会**用随机数
+凑一份数据糊弄你。
+
+拿不准某条命令做什么,先看帮助:
+
+```bash
+forgemind --help
+forgemind backtest --list-strategies   # 有哪些策略
+forgemind info                         # 版本、数据源与连接状态
+```
+
+也可以写成 Python:
+
+```python
+from forgemind.core.backtest.engine import SimpleBacktestEngine
+from forgemind.core.data import bundled_sample_path
+from forgemind.core.strategies.library import STRATEGY_REGISTRY
+import pandas as pd
+
+prices = pd.read_csv(bundled_sample_path(), parse_dates=["date"]).set_index("date")
+strategy = STRATEGY_REGISTRY["ma_cross"]()
+strategy.validate_parameters()
+
+result = SimpleBacktestEngine(initial_capital=100_000).run(strategy, prices)
+print(f"总收益 {result.total_return:+.2%} · 夏普 {result.sharpe:.2f} · 进出 {result.n_trades} 次")
+```
+
+常见的几条命令:
+
+```bash
+# 取 A 股日线(免费数据源,需要上面的 [cn] 额外依赖)
+forgemind etl --symbols 600519,000001 --start 2024-01-01 --end 2024-12-31
+
+# 多因子选股
+forgemind pick --symbol 600519.SH --top-n 5
+
+# 回测
+forgemind backtest --strategy ma_cross --symbol 600519
+
+# AI 决策(需要配一个模型服务的密钥)
+forgemind agent --symbol 600519.SH
+
+# 以 MCP 服务的方式启动,给 Claude Desktop / Cursor 用
+forgemind mcp
+```
+
+装不上、报错、看不懂输出,先看 [FAQ](#-faq) 与[错误码速查表](#-错误码速查表)。
 
 ---
 
@@ -245,7 +269,7 @@ A: 检查你用的是 `--extra-index-url` 不是 `--index-url`:
 pip install --extra-index-url https://bin1732.github.io/forgemind-pypi/pypi/simple/ forgemind
 
 # ❌ 错误 — 会替换默认源,fastapi / duckdb 也去我们的索引里找 → 全部失败
-pip install --index-url https://bin1732.github.io/forgemind-pypi/pypi/simple/ forgemind
+pip install --index-url https://bin1732.github.io/forgemind-pypi/pypi/simple/ forgemind  # 错误示范(故意写错,别照抄)
 ```
 
 URL 路径是 `/pypi/simple/`,**不要**再加 `/forgemind/`。
@@ -308,12 +332,15 @@ forgemind etl --symbols AAPL --start 2024-01-01 --end 2024-12-31
 <details>
 <summary><b>Q: 多个 test 一起跑就报 "Unique file handle conflict",分开跑又没事?</b></summary>
 
-A: 这是 DuckDB 同 path 多个 read_only + read_write 连接的已知限制。ForgeMind 用 `@lru_cache` 持有一个长连接,测试 conftest 已统一改 rw。如果你自己写 test:
+A: 这是 DuckDB 的已知限制:同一个数据文件不能同时被一个只读连接和一个读写连接打开。
+ForgeMind 自己用的就是读写连接,所以正常用不会遇到。你自己写测试时,打开
+数据库用读写方式就行:
 
 ```python
-import forgemind.core.data.storage as sm
-sm._DUCKDB_CONN_CACHE.clear()  # 验证前清掉
-con = duckdb.connect(db_path)  # 不要再用 read_only=True
+import duckdb
+
+con = duckdb.connect("data/forgemind.duckdb")  # 不要加 read_only=True
+con.close()
 ```
 </details>
 
@@ -349,11 +376,11 @@ $ forgemind agent --symbol 600519.SH
 
 ```bash
 pytest tests/ -v
-# 656 test files · 10192 tests
+# 658 test files · 10213 tests
 
 # 常规档位:真实业务用例,起真实子进程与真实数据库
 pytest tests/ -m "not heavy"
-# 8352 cases
+# 8373 cases
 
 # 重并发档位:百万级真实运算,单独用更宽的超时执行
 pytest tests/ -m heavy
