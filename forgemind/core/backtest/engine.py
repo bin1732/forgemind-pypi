@@ -32,6 +32,25 @@ class BacktestResult:
     extra: dict = field(default_factory=dict)
 
 
+def _as_bool_signals(series) -> np.ndarray:
+    """把一列信号变成严格的布尔数组。
+
+    缺失(NaN/None)按"没有信号"处理 —— 缺一个信号不等于要买入。
+    """
+    import pandas as pd
+
+    if not isinstance(series, pd.Series):
+        series = pd.Series(series)
+    if series.dtype == bool:
+        return series.to_numpy()
+    try:
+        # 可空布尔:缺失变成 NA,再填 False —— NaN 不会被当成真
+        return series.astype("boolean").fillna(False).to_numpy(dtype=bool)
+    except (TypeError, ValueError):
+        # 0/1 这类数值列:非零即真
+        return (series.fillna(0) != 0).to_numpy(dtype=bool)
+
+
 def sortino_ratio(returns, periods: int = 252) -> float:
     """Sortino:分母是**下行偏差**而非负收益子集的标准差
 
@@ -171,6 +190,12 @@ class SimpleBacktestEngine:
                 f"Strategy {strategy.name}.generate_signals must return DataFrame with "
                 "'entries' and 'exits' boolean columns"
             )
+        # 信号在这里统一处理成严格布尔,后面模拟成交与提取交易都用这一份。
+        # 早先两处各自读原始列,于是模拟按 NaN 当真、提取交易按另一套口径,
+        # 两边对不上 —— 指标算成垃圾,交易数也是错的。
+        signals = signals.copy()
+        signals["entries"] = _as_bool_signals(signals["entries"])
+        signals["exits"] = _as_bool_signals(signals["exits"])
 
         # 2. 模拟成交 + equity curve
         equity_curve = self._simulate_equity(price_df, signals)
@@ -212,6 +237,7 @@ class SimpleBacktestEngine:
             prices_open = price_df["close"].values
 
         closes = price_df["close"].values
+        # 信号在 run() 里已经统一处理成严格布尔,这里直接取用。
         entries = signals["entries"].values
         exits = signals["exits"].values
 
@@ -323,6 +349,27 @@ class SimpleBacktestEngine:
         params: dict,
     ) -> BacktestResult:
         """计算所有回测指标"""
+        # 权益曲线为空:策略在这段数据里没有产生任何可成交的点。
+        # 这不是错误,而是一个合法结论(比如均线在这段行情里没有交叉)。
+        # 早先这里直接取 iloc[-1],空曲线会抛 IndexError —— 用户看到的是
+        # 一整段 Python 栈回溯,而不是"这段时间没有产生交易"。
+        if equity_curve is None or len(equity_curve) == 0:
+            return BacktestResult(
+                total_return=0.0,
+                sharpe=0.0,
+                sortino=0.0,
+                max_drawdown=0.0,
+                calmar=0.0,
+                win_rate=0.0,
+                profit_factor=0.0,
+                expectancy=0.0,
+                n_trades=len(trades or []),
+                equity_curve=(equity_curve if equity_curve is not None else pd.Series(dtype=float)),
+                signals=signals,
+                params=dict(params or {}),
+                extra={"no_tradable_signal": True},
+            )
+
         # 总收益
         total_return = float((equity_curve.iloc[-1] / equity_curve.iloc[0]) - 1)
 

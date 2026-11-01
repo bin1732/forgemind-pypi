@@ -6,6 +6,8 @@ import numpy as np
 import pandas as pd
 import pytest
 
+from forgemind.core.backtest.engine import SimpleBacktestEngine
+
 
 def _make_price_df(n: int = 252, start_price: float = 100.0, seed: int = 42):
     """生成 mock K 线"""
@@ -17,19 +19,22 @@ def _make_price_df(n: int = 252, start_price: float = 100.0, seed: int = 42):
     low = close * (1 - np.abs(np.random.randn(n) * 0.01))
     volume = np.random.randint(1_000_000, 10_000_000, n)
 
-    return pd.DataFrame({
-        "date": dates,
-        "open": open_,
-        "high": high,
-        "low": low,
-        "close": close,
-        "volume": volume,
-    }).set_index("date")
+    return pd.DataFrame(
+        {
+            "date": dates,
+            "open": open_,
+            "high": high,
+            "low": low,
+            "close": close,
+            "volume": volume,
+        }
+    ).set_index("date")
 
 
 class TestSimpleBacktestEngine:
     def test_create(self):
         from forgemind.core.backtest.engine import SimpleBacktestEngine
+
         e = SimpleBacktestEngine()
         assert e.initial_capital == 100_000.0
         assert e.fees == 0.001
@@ -37,6 +42,7 @@ class TestSimpleBacktestEngine:
 
     def test_create_with_custom_params(self):
         from forgemind.core.backtest.engine import SimpleBacktestEngine
+
         e = SimpleBacktestEngine(
             initial_capital=500_000,
             fees=0.0003,
@@ -111,6 +117,7 @@ class TestSimpleBacktestEngine:
         class BadStrategy:
             name = "BadStrategy"
             parameters = {}
+
             def generate_signals(self, df):
                 return pd.DataFrame({"foo": [1] * len(df)})  # 没有 entries/exits
 
@@ -189,6 +196,7 @@ class TestBacktestResult:
         import pandas as pd
 
         from forgemind.core.backtest.engine import BacktestResult
+
         r = BacktestResult(
             total_return=0.1,
             sharpe=1.5,
@@ -221,10 +229,16 @@ class TestBacktestMetricsTypes:
         n = 200
         dates = pd.date_range("2024-01-01", periods=n, freq="D")
         close = 100 * np.exp(np.cumsum(np.random.normal(0.0005, 0.02, n)))
-        df = pd.DataFrame({
-            "open": close, "high": close, "low": close, "close": close,
-            "volume": [1_000_000] * n,
-        }, index=dates)
+        df = pd.DataFrame(
+            {
+                "open": close,
+                "high": close,
+                "low": close,
+                "close": close,
+                "volume": [1_000_000] * n,
+            },
+            index=dates,
+        )
 
         engine = SimpleBacktestEngine()
         result = engine.run(
@@ -233,10 +247,14 @@ class TestBacktestMetricsTypes:
         )
 
         # 全部应为原生 float
-        assert isinstance(result.total_return, float), f"total_return is {type(result.total_return)}"
+        assert isinstance(result.total_return, float), (
+            f"total_return is {type(result.total_return)}"
+        )
         assert isinstance(result.sharpe, float), f"sharpe is {type(result.sharpe)}"
         assert isinstance(result.sortino, float), f"sortino is {type(result.sortino)}"
-        assert isinstance(result.max_drawdown, float), f"max_drawdown is {type(result.max_drawdown)}"
+        assert isinstance(result.max_drawdown, float), (
+            f"max_drawdown is {type(result.max_drawdown)}"
+        )
         assert isinstance(result.calmar, float), f"calmar is {type(result.calmar)}"
         assert isinstance(result.win_rate, float), f"win_rate is {type(result.win_rate)}"
         assert isinstance(result.expectancy, float), f"expectancy is {type(result.expectancy)}"
@@ -254,10 +272,16 @@ class TestBacktestMetricsTypes:
             n = 200
             dates = pd.date_range("2024-01-01", periods=n, freq="D")
             close = 100 * np.exp(np.cumsum(np.random.normal(0.0005, 0.02, n)))
-            return pd.DataFrame({
-                "open": close, "high": close, "low": close, "close": close,
-                "volume": [1_000_000] * n,
-            }, index=dates)
+            return pd.DataFrame(
+                {
+                    "open": close,
+                    "high": close,
+                    "low": close,
+                    "close": close,
+                    "volume": [1_000_000] * n,
+                },
+                index=dates,
+            )
 
         engine = SimpleBacktestEngine()
         strategy = MovingAverageCrossStrategy(parameters={"fast_period": 5, "slow_period": 20})
@@ -269,3 +293,70 @@ class TestBacktestMetricsTypes:
         # 三次应 sharpe 完全一致(无随机性)
         assert r1.sharpe == r2.sharpe == r3.sharpe, f"{r1.sharpe} {r2.sharpe} {r3.sharpe}"
         assert r1.total_return == r2.total_return == r3.total_return
+
+
+class TestNoTradableSignal:
+    """策略在这段数据里没有产生任何进出时,引擎给结论而不是抛异常。
+
+    早先这里直接取权益曲线的首尾,空曲线会抛 IndexError —— 用户看到的是
+    一整段 Python 栈回溯,而不是"这段时间没有产生交易"。这个问题是在
+    `forgemind demo` 跑真实历史行情时才暴露的:合成数据恰好不会走到
+    空曲线那条路。
+    """
+
+    def test_empty_price_frame_does_not_raise(self):
+        """价格表为空时不能抛栈回溯 —— 要给结论
+
+        真实触发路径:库里查不到数据时,拿到的就是一张空表。早先引擎
+        直接取权益曲线的首尾,空曲线抛 IndexError,用户看到的是一整段
+        Python 栈回溯。
+        """
+        from forgemind.core.strategies.base import MovingAverageCrossStrategy
+
+        empty = pd.DataFrame(
+            columns=["open", "high", "low", "close", "volume"],
+            index=pd.DatetimeIndex([]),
+        )
+        result = SimpleBacktestEngine().run(MovingAverageCrossStrategy(), empty)
+        assert result.total_return == 0.0
+        assert result.sharpe == 0.0
+        assert result.n_trades == 0
+        assert len(result.equity_curve) == 0
+
+    def test_strategy_with_no_signals_gives_zero_result(self):
+        import pandas as pd
+
+        class NeverTrades:
+            name = "never"
+
+            def __init__(self):
+                self.parameters = {}
+
+            def validate_parameters(self):
+                pass
+
+            def generate_signals(self, price_df):
+                n = len(price_df)
+                return pd.DataFrame(
+                    {
+                        "entries": pd.Series([False] * n),
+                        "exits": pd.Series([False] * n),
+                    },
+                    index=price_df.index,
+                )
+
+        dates = pd.date_range("2024-01-02", periods=30, freq="D")
+        price_df = pd.DataFrame(
+            {
+                "open": [10.0] * 30,
+                "high": [10.5] * 30,
+                "low": [9.5] * 30,
+                "close": [10.0] * 30,
+                "volume": [100.0] * 30,
+            },
+            index=dates,
+        )
+        result = SimpleBacktestEngine().run(NeverTrades(), price_df)
+        assert result.total_return == 0.0
+        assert result.sharpe == 0.0
+        assert result.n_trades == 0
