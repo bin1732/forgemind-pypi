@@ -29,6 +29,11 @@ jobs:
       commit: ${{ steps.resolve.outputs.commit }}
       publish_version: ${{ steps.version.outputs.version }}
     steps:
+      # 源码就在这个仓里:构建用的副本是从本次发布的提交 archive 出来的。
+      # 完整历史是必需的 —— 浅克隆拿不到那个提交。
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
       - name: Resolve source commit
         id: resolve
         shell: bash
@@ -63,6 +68,11 @@ jobs:
     needs: resolve-source
     runs-on: ubuntu-26.04
     steps:
+      # 源码就在这个仓里:构建用的副本是从本次发布的提交 archive 出来的。
+      # 完整历史是必需的 —— 浅克隆拿不到那个提交。
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
       - name: 取出构建用的源码副本
         shell: bash
         env:
@@ -116,6 +126,11 @@ jobs:
             name: macos
     runs-on: ${{ matrix.os }}
     steps:
+      # 源码就在这个仓里:构建用的副本是从本次发布的提交 archive 出来的。
+      # 完整历史是必需的 —— 浅克隆拿不到那个提交。
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
       - name: 取出构建用的源码副本
         shell: bash
         env:

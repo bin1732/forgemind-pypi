@@ -272,6 +272,7 @@ jobs:
             name: macos
     runs-on: ${{ matrix.os }}
     steps:
+      - uses: actions/checkout@v7
       - name: Download the released binary
         shell: bash
         run: |

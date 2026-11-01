@@ -280,6 +280,21 @@ def check_job_graph(path: Path, data: dict, repo_root: Path) -> list[str]:
             elif not (target / "action.yml").is_file() and not (target / "action.yaml").is_file():
                 problems.append(f"{path.name}: 本地 action {ref} 里没有 action.yml")
 
+    # 作业里只要有 run 步骤,就说明它要在工作区里读写东西 —— 那它必须
+    # 先把仓库检出出来。少了这一步,作业会在一个空工作区里跑,报出来
+    # 的却是"某个文件读不到",与真实原因无关。
+    for name, job in jobs.items():
+        if not isinstance(job, dict):
+            continue
+        steps = [s for s in (job.get("steps") or []) if isinstance(s, dict)]
+        if not steps:
+            continue
+        if not any("run" in s for s in steps):
+            # 纯 action 组成的作业不碰工作区,不必检出
+            continue
+        if not any("actions/checkout" in str(s.get("uses", "")) for s in steps):
+            problems.append(f"{path.name}: 作业 {name} 有 run 步骤却没有检出仓库")
+
     # 作业依赖成环
     state: dict[str, int] = {}
 
