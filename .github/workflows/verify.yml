@@ -44,7 +44,9 @@ jobs:
           python -m venv "$GITHUB_WORKSPACE/.v"
           "$GITHUB_WORKSPACE/.v/bin/pip" install -q --upgrade pip
           "$GITHUB_WORKSPACE/.v/bin/pip" install -q "$GITHUB_WORKSPACE"/dist/*.whl
-          "$GITHUB_WORKSPACE/.v/bin/python" -c "import forgemind; print('import ok', forgemind.__version__)"
+          # 同样要避开当前目录:仓库根有源码树,导入会优先命中它,量的
+          # 就不是装出来的那份了。
+          (cd "$(mktemp -d)" && "$GITHUB_WORKSPACE/.v/bin/python" -c "import forgemind; print('import ok', forgemind.__version__)")
           # 装出来的 wheel 与源码要对得上:构建配置漏掉一个子包,用户装上
           # 之后 import 才报错 —— 源码树里那个模块明明在,测试也跑得过。
           python scripts/check_wheel_contents.py "$GITHUB_WORKSPACE"/dist/*.whl "$GITHUB_WORKSPACE"
@@ -52,7 +54,7 @@ jobs:
           # 所以对的是源码声明的基础版本 ✓(发布出来的那一个由下面
           # "构件与声明对账"那档对着清单核 ✓)。
           declared=$(sed -n 's/^version = "\(.*\)"/\1/p' "$GITHUB_WORKSPACE/pyproject.toml" | head -1)
-          actual=$("$GITHUB_WORKSPACE/.v/bin/python" -c "import forgemind; print(forgemind.__version__)")
+          actual=$(cd "$(mktemp -d)" && "$GITHUB_WORKSPACE/.v/bin/python" -c "import forgemind; print(forgemind.__version__)")
           echo "declared=$declared actual=$actual"
           [ -n "$declared" ] && [ "$declared" = "$actual" ] \
             || { echo "FAIL: 构件版本($actual)与源码声明($declared)不一致"; exit 1; }

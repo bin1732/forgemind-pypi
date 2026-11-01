@@ -178,7 +178,9 @@ jobs:
           # 构件的字节数与校验值都是对的,只有版本号不对。
           want="${{ needs.resolve-source.outputs.publish_version }}"
           src=$(sed -n 's/^__version__ = "\(.*\)"/\1/p' here/forgemind/__init__.py | head -1)
-          installed=$(python3 -c "import forgemind; print(forgemind.__version__)")
+          # 在没有源码树的目录里导入:仓库根现在就有 forgemind/,当前目录
+          # 优先于已安装的包,那样量到的会是源码树,不是装出来的那份。
+          installed=$(cd "$(mktemp -d)" && python3 -c "import forgemind; print(forgemind.__version__)")
           echo "want=$want src=$src installed=$installed"
           if [ "$src" != "$want" ] || [ "$installed" != "$want" ]; then
             echo "FAIL: 构建用的版本号对不上(期望 $want / 源码 $src / 装出来的 $installed)"
