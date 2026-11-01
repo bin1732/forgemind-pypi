@@ -181,16 +181,22 @@ def check_shell_syntax(name: str, run: str) -> list[str]:
     return [f"{name}: shell 语法错误 —— {message}"]
 
 
-def check_script_exists(label: str, run: str, workdir: str | None) -> tuple[list[str], int]:
+def check_script_exists(
+    label: str, run: str, workdir: str | None, repo_root: Path
+) -> tuple[list[str], int]:
     """run 里调用的仓库脚本,必须真的存在于那个作业的工作目录下。
 
     作业可以指定 working-directory,也可以用 defaults.run.working-directory
     统一指定。脚本路径写对了、文件却不在那个目录下时,流水线会在这里
     失败 —— 而且是在跑了一堆别的之后才失败,不容易看出是路径问题。
 
-    返回 (问题列表, 没查的条数)。工作目录在本地不存在时(镜像工作流要把
-    私人源码 checkout 到 src/,本地没 checkout 过),无从判断脚本在不在 ——
-    这时只记"没查",不报"缺失"。把"查不到"当成"没有",会让检查在本地恒红,
+    工作目录一律相对**被检查的那个仓根**解析,不相对进程的当前目录。
+    相对当前目录的话,同一份工作流在本地跑和在流水线里跑会得出不同结论
+    (流水线把私人源码 checkout 到 src/,本地没有),检查就成了看运气 ——
+    本地永远说"查不到",就永远查不到。
+
+    返回 (问题列表, 没查的条数)。工作目录本身不在时无从判断脚本在不在 ——
+    这时只记"没查",不报"缺失"。把"查不到"当成"没有",会让检查恒红,
     而红的原因与工作流本身无关,反倒把真问题淹了。
     """
     problems: list[str] = []
@@ -199,22 +205,32 @@ def check_script_exists(label: str, run: str, workdir: str | None) -> tuple[list
     matches = list(re.finditer(r"\bpython3?\s+(?:-[^\s]+\s+)*([\w./-]+\.py)\b", run))
     if not matches:
         return problems, skipped
-    base = Path(workdir) if workdir else Path(".")
+    base = (repo_root / workdir) if workdir else repo_root
     if not base.is_dir():
         # 工作目录本身不在,脚本在不在没法验证
         return problems, len(matches)
+    repo_base = repo_root.resolve()
     for match in matches:
         rel = match.group(1)
-        if rel.startswith("/") or ".." in rel:
+        if rel.startswith("/"):
             continue
-        if not (base / rel).is_file():
-            problems.append(f"{label}: 调用的脚本 {rel} 在工作目录 {base} 下不存在")
+        # 相对工作目录解析,包括 "../scripts/xxx.py" 这种写法 —— 基准目录
+        # 是知道的,没有理由不核对。解析完还要确认落点仍在被检查的仓里,
+        # 跑出仓外的路径不归这道检查管。
+        target = (base / rel).resolve()
+        if repo_base not in target.parents and target != repo_base:
+            continue
+        if not target.is_file():
+            problems.append(
+                f"{label}: 调用的脚本 {rel} 在工作目录 {base} 下不存在"
+            )
     return problems, skipped
 
 
 def main() -> int:
     """检查工作流目录,返回进程退出码。"""
-    root = Path(__file__).resolve().parent.parent / ".github" / "workflows"
+    repo_root = Path(__file__).resolve().parent.parent
+    root = repo_root / ".github" / "workflows"
     if not root.is_dir():
         print(f"找不到工作流目录: {root}", file=sys.stderr)
         return 1
@@ -244,12 +260,14 @@ def main() -> int:
                     continue
                 label = f"{path.name}:{job_name}:{step.get('name', step.get('uses', '?'))}"
                 problems.extend(check_run(label, run))
+                # 步骤上的 working-directory 是**覆盖**作业默认,不是拼接。
+                # 活证据:镜像作业里那步写的是 "working-directory: ." 加
+                # "python src/scripts/xxx.py",若把 "." 拼到作业默认 "src"
+                # 后面,脚本路径就变成 src/src/scripts/xxx.py,那步在流水线里
+                # 根本跑不起来 —— 而它是跑通过的。
                 step_wd = step.get("working-directory")
-                if step_wd:
-                    workdir = str(Path(job_wd) / step_wd) if job_wd else str(step_wd)
-                else:
-                    workdir = job_wd
-                found, missed = check_script_exists(label, run, workdir)
+                workdir = str(step_wd) if step_wd else job_wd
+                found, missed = check_script_exists(label, run, workdir, repo_root)
                 problems.extend(found)
                 unverified += missed
 
