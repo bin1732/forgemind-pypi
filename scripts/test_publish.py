@@ -203,7 +203,6 @@ class TestManifestShape:
         assert json.loads(json.dumps(manifest))["sizes"]["forgemind-linux"] == 10
 
 
-
 class TestReleaseAssetOrder:
     """Release 资产的更新顺序:先传新的,再删旧的。
 
@@ -249,9 +248,7 @@ class TestReleaseAssetOrder:
         old = {"name": "forgemind-2026.9.3.post10-linux", "url": "https://api/assets/1"}
         f = self._tmp_file("forgemind-2026.9.3.post11-linux")
         seq, call = self._recorder()
-        publish.sync_release_assets(
-            self._rel([old]), [f], "2026.9.3.post11", call
-        )
+        publish.sync_release_assets(self._rel([old]), [f], "2026.9.3.post11", call)
         kinds = [k for k, _ in seq]
         assert kinds == ["POST", "DELETE"], f"顺序不对: {seq}"
         assert seq[0][0] == "POST", "新资产必须先传上去"
@@ -262,19 +259,14 @@ class TestReleaseAssetOrder:
         same = {"name": "forgemind-2026.9.3.post11-linux", "url": "https://api/assets/9"}
         f = self._tmp_file("forgemind-2026.9.3.post11-linux")
         seq, call = self._recorder()
-        publish.sync_release_assets(
-            self._rel([same]), [f], "2026.9.3.post11", call
-        )
+        publish.sync_release_assets(self._rel([same]), [f], "2026.9.3.post11", call)
         kinds = [k for k, _ in seq]
         assert kinds == ["DELETE", "POST"], f"顺序不对: {seq}"
 
     def test_asset_name_carries_the_publish_version(self):
         """资产名必须带上这次的版本号"""
         f = self._tmp_file("forgemind-linux")
-        assert (
-            publish.asset_name(f, "2026.9.3.post11")
-            == "forgemind-2026.9.3.post11-linux"
-        )
+        assert publish.asset_name(f, "2026.9.3.post11") == "forgemind-2026.9.3.post11-linux"
 
 
 if __name__ == "__main__":

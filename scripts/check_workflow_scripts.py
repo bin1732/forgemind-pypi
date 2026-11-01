@@ -227,9 +227,7 @@ def check_script_exists(
             if rel.startswith("src/") and not (repo_root / "src").is_dir():
                 skipped += 1
                 continue
-            problems.append(
-                f"{label}: 调用的脚本 {rel} 在工作目录 {base} 下不存在"
-            )
+            problems.append(f"{label}: 调用的脚本 {rel} 在工作目录 {base} 下不存在")
     return problems, skipped
 
 
@@ -263,7 +261,7 @@ def check_job_graph(path: Path, data: dict, repo_root: Path) -> list[str]:
             problems.append(f"{path.name}: 作业 {name} 既没有 runs-on 也没有 uses")
 
     # 本地 action:./ 开头指的就是仓里的目录,它必须真的在
-    for name, job in jobs.items():
+    for job in jobs.values():
         if not isinstance(job, dict):
             continue
         refs = []

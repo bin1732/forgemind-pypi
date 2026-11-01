@@ -318,9 +318,7 @@ def main() -> int:
     print(f"release id={rel.get('id')}")
 
     files = [f for f in sorted(art_dir.rglob("*")) if f.is_file() and f.name != "manifest.json"]
-    uploaded, asset_sizes = sync_release_assets(
-        rel, files, args.publish_version, call
-    )
+    uploaded, asset_sizes = sync_release_assets(rel, files, args.publish_version, call)
 
     # 2) 仓库里的构件 + 索引 + 清单:**一个提交**。
     #
