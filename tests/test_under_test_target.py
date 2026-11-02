@@ -20,17 +20,29 @@ import subprocess
 import sys
 from pathlib import Path
 
-from _path_setup import REPO_ROOT, child_env, testing_installed_package
+from _path_setup import (
+    REPO_ROOT,
+    child_env,
+    is_installed_package,
+    source_package_path,
+    testing_installed_package,
+)
 
 
 def _assert_target(where: Path, source: str) -> None:
     if testing_installed_package():
-        assert "site-packages" in where.parts, (
-            f"这一档要测装出来的发行包,{source}命中的却是源码树:{where}"
+        # 装出来的发行包:落在 site-packages 里,且不是仓里那个源码包。
+        # 判据不能只看"是不是在仓根底下" —— 流水线上的虚拟环境就建在
+        # 仓里,按仓根判会把装好的发行包误判成源码树。
+        assert is_installed_package(where), (
+            f"这一档要测装出来的发行包,{source}命中的却是 {where}"
+        )
+        assert where != source_package_path(), (
+            f"这一档要测装出来的发行包,{source}命中的却是仓里的源码包:{where}"
         )
     else:
-        assert REPO_ROOT in where.parents, (
-            f"常规档要测源码树,{source}命中的却是别处:{where}"
+        assert where == source_package_path(), (
+            f"常规档要测源码树,{source}命中的却是 {where}"
         )
 
 

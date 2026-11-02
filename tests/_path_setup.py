@@ -33,6 +33,23 @@ def testing_installed_package() -> bool:
     return os.environ.get(INSTALLED_PACKAGE_ENV) == "1"
 
 
+# 装出来的包会落在这两个目录之一里。判据要精确到"落在哪",不能只看
+# "是不是在仓根底下" —— 流水线上的虚拟环境就建在仓里
+# ($GITHUB_WORKSPACE/v/lib/python3.11/site-packages),按仓根判会把
+# 装好的发行包误判成源码树。
+INSTALLED_DIR_NAMES = ("site-packages", "dist-packages")
+
+
+def is_installed_package(where: Path) -> bool:
+    """这个路径是不是装出来的发行包。"""
+    return any(part in INSTALLED_DIR_NAMES for part in where.parts)
+
+
+def source_package_path() -> Path:
+    """仓里那个源码包的位置。"""
+    return (REPO_ROOT / "forgemind" / "__init__.py").resolve()
+
+
 def prefer_source_tree() -> None:
     """让 import 命中源码树 —— 除非这一档要验装出来的那份。
 
@@ -86,9 +103,9 @@ def lock_installed_package() -> None:
         ) from exc
 
     where = Path(module.__file__).resolve()
-    if REPO_ROOT in where.parents:
+    if not is_installed_package(where):
         raise RuntimeError(
-            f"import forgemind 命中的是源码树({where}),不是装出来的发行包"
+            f"import forgemind 命中的是 {where},不是装出来的发行包"
         )
     sys.modules["forgemind"] = module
 
@@ -96,6 +113,11 @@ def lock_installed_package() -> None:
     # 默认把 cwd 塞进 sys.path —— 那样它照样会 import 到源码树。
     # 读解释器启动选项的环境变量对当前进程已经晚了,对子进程正好。
     os.environ["PYTHONSAFEPATH"] = "1"
+
+    # 这一档里,环境里的 PYTHONPATH 也不能留着 —— 它可能指着源码树,
+    # 子进程继承了就又测回源码去了。没指向源码树时摘掉也没有损失:
+    # 装好的发行包在 site-packages 里,不需要 PYTHONPATH。
+    os.environ.pop("PYTHONPATH", None)
 
 
 def child_env(base: dict | None = None, **extra: str) -> dict:
@@ -113,6 +135,10 @@ def child_env(base: dict | None = None, **extra: str) -> dict:
         env["PYTHONPATH"] = os.pathsep.join(
             [str(REPO_ROOT), env.get("PYTHONPATH", "")],
         ).rstrip(os.pathsep)
+    else:
+        # 发行包档:路径上不许有源码树。环境里原有的 PYTHONPATH 可能
+        # 正指着仓根,继承下去子进程就又测回源码了。
+        env.pop("PYTHONPATH", None)
     env["PYTHONSAFEPATH"] = "1"
     env.update(extra)
     return env
