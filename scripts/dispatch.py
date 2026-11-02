@@ -4,9 +4,8 @@
 """触发工作流并盯作业:用 --workflow 指定,--event dispatch 或 schedule。
 
 用法:
-    python scripts/dispatch.py ci-mirror.yml dispatch
-    python scripts/dispatch.py ci-mirror.yml schedule
-    python scripts/dispatch.py ship.yml dispatch
+    python scripts/dispatch.py ci-tests.yml dispatch
+    python scripts/dispatch.py ship.yml schedule
 """
 
 import json

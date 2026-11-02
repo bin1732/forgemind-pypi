@@ -3,15 +3,17 @@
 
 """扫描仓库里的残留。
 
-两个仓对"干净"的要求不一样:私人仓是源码真源,公开仓只放用户层内容。
-这个脚本按各自的标准检查,发现残留时以非零退出码结束,可以直接挂进
-流水线。
+源码搬进仓里之后,"干净"的判断合成了同一条:源码完整且唯一、构建产物与
+诊断产物不入仓、开发过程的复盘措辞不出现在对外的文字里。这个脚本按这
+条标准检查,发现残留时以非零退出码结束,可以直接挂进流水线。
 
 检查项:
   * 开发过程的复盘措辞 —— 交付物里不该出现指向开发过程的话
   * 构建产物与诊断产物
   * 过期副本与索引幽灵条目
   * 许可证头缺失
+  * 凭据与私钥
+  * 第二份源码副本
   * 工作区是否有未提交的改动
 
 用法:
@@ -66,14 +68,29 @@ ARTIFACT_PATTERNS = (
 # 许可证头
 HEADER_MARK = "SPDX-License-Identifier: Apache-2.0"
 
-# 公开仓不该出现的东西
+# 公开仓里不该出现的东西。
+#
+# 架构变过一次:源码原先在私人仓,公开仓只是个发布面。现在源码就在公开
+# 仓里,它是唯一的真源 —— 于是"公开仓不该带源码"这条判据过期了,它把
+# 真正的源码当成了泄漏。
+#
+# 现在要守的是:源码只有一份(不能有第二份副本),该藏的东西没进仓。
 PUBLIC_FORBIDDEN = (
-    "forgemind/core/",
-    "forgemind/mcp/",
-    "forgemind/api/",
-    "forgemind/cli.py",
-    "tests/test_",
+    "src/forgemind/",  # 旧布局留下的副本
+    "backup/",
+    "private/",
 )
+
+# 凭据与私钥。按文件名精确匹配 —— ".env" 若用包含匹配,会误伤
+# ".env.example"(那是给用户照着抄的模板,应当进仓)。
+SECRET_FILE_NAMES = (
+    ".env",
+    "id_rsa",
+    "id_ed25519",
+    "secrets.json",
+    "credentials.json",
+)
+SECRET_FILE_SUFFIXES = (".pem", ".key", ".p12")
 
 # 这两个脚本自带检测词表,不能被当成残留
 SELF_EXEMPT = (
@@ -189,6 +206,39 @@ def check_public_layout(repo: Path, files: list[Path]) -> list[str]:
     return problems
 
 
+def check_secret_files(repo: Path, files: list[Path]) -> list[str]:
+    """凭据与私钥不该进仓。
+
+    这条不限于"公开仓"模式:任何仓都不该把凭据提交进去。
+    """
+    problems = []
+    for path in files:
+        rel = str(path.relative_to(repo))
+        if path.name in SECRET_FILE_NAMES or path.suffix in SECRET_FILE_SUFFIXES:
+            problems.append(f"凭据不该进仓: {rel}")
+    return problems
+
+
+def check_duplicate_source_copy(repo: Path, files: list[Path]) -> list[str]:
+    """源码只能有一份。
+
+    源码在仓根的 forgemind/ 下。第二份副本(旧布局的 src/forgemind/、
+    备份目录里的拷贝)会让读的人分不清哪份是真的,改动也容易只改一份 ——
+    而两份不一样时,流水线跑的是哪一份就成了说不清的事。
+    """
+    problems = []
+    for path in files:
+        rel = str(path.relative_to(repo))
+        if path.suffix != ".py":
+            continue
+        dirs = rel.split("/")[:-1]
+        if not dirs or dirs[0] == "forgemind":
+            continue
+        if "forgemind" in dirs:
+            problems.append(f"仓里有第二份源码副本: {rel}")
+    return problems
+
+
 # 仓库根目录允许出现的文件。根目录是用户第一眼看到的地方,一份过期的
 # 发布说明放在那儿,比放在 docs/ 里碍眼得多 —— 里面写着的用例数与流水线
 # 状态很快就过期了,而没人会再去更新它。
@@ -206,9 +256,6 @@ ALLOWED_ROOT_FILES = {
     "pyproject.toml",
     # 两个仓的代码风格配置都在根目录,位置一致。
     "ruff.toml",
-    # 镜像作业把私人仓的源码检到这个目录 —— 它是流水线跑出来的工作目录,
-    # 不是仓库里的东西。留着它,那道残留扫描就永远红。
-    "src",
     "requirements-ci.txt",
 }
 
@@ -270,9 +317,8 @@ def main() -> int:
     parser.add_argument("--public", action="store_true", help="按公开仓的标准检查")
     args = parser.parse_args()
 
-    # 路径可以不给:不给就查本脚本所在的那个仓。镜像工作流里公开仓被
-    # checkout 到 public/,私人仓在 src/ —— 不给路径时本脚本属于哪一个,
-    # 就查哪一个,不会查错对象还报绿。
+    # 路径可以不给:不给就查本脚本所在的那个仓 —— 不给路径时本脚本属于
+    # 哪一个仓,就查哪一个,不会查错对象还报绿。
     repo = (
         args.repo if args.repo is not None else Path(__file__).resolve().parent.parent
     ).resolve()
@@ -287,6 +333,8 @@ def main() -> int:
     problems += check_root_files(repo)
     problems += check_license_headers(repo, files)
     problems += check_commit_messages(repo)
+    problems += check_secret_files(repo, files)
+    problems += check_duplicate_source_copy(repo, files)
     if args.public:
         problems += check_public_layout(repo, files)
     problems += check_dirty_worktree(repo)

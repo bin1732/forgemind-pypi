@@ -1,7 +1,7 @@
 name: ship
 
-# 公开仓只做打包/测试场:源码在私人仓 bin1732/forgemind,CI 由此处拉取后构建。
-# 需要的 secret: PRIVATE_REPO_TOKEN(对私人仓有 contents:read 权限的 PAT)
+# 打包与发布:源码就在这个仓里,构建用的副本从本次发布的提交 archive
+# 出来。三个构建(轮子与三个平台的二进制)全部钉在同一个提交上。
 
 on:
   push:

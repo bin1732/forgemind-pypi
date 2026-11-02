@@ -5,10 +5,7 @@
 """每个检查器都要真的被流水线调用,否则它只是一段没人跑的代码。
 
 检查脚本写成、放着、没人调用 —— 看起来门禁齐了,实际上一道都没生效。
-这个脚本把两仓的检查器与工作流对照一遍,列出没人调用的那些。
-
-跨仓引用要算进来:私人仓的检查器由公开仓的镜像工作流调用,路径写成
-src/scripts/xxx.py。
+这个脚本把仓里的检查器与工作流对照一遍,列出没人调用的那些。
 """
 
 import argparse
@@ -30,7 +27,7 @@ NOT_A_GATE = {
     "verify_three_angles.py": "同上",
     "capture_desktop_evidence.py": (
         "采集桌面端界面证据的脚本:要浏览器 + 真行情数据,按需在本地跑。"
-        "它与真实现对得上这件事由私人仓的 tests/test_desktop_evidence_contract.py 盯着"
+        "它与真实现对得上这件事由 tests/test_desktop_evidence_contract.py 盯着"
     ),
 }
 
@@ -55,27 +52,18 @@ def _called(scripts: list[pathlib.Path], workflows_text: str) -> set[str]:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="核对检查器都接进了流水线")
-    parser.add_argument(
-        "--public", type=pathlib.Path, default=pathlib.Path("."), help="公开仓根目录"
-    )
-    parser.add_argument(
-        "--private", type=pathlib.Path, default=None, help="私人仓源码目录(镜像里的 src/)"
-    )
+    parser.add_argument("--public", type=pathlib.Path, default=pathlib.Path("."), help="仓根目录")
     args = parser.parse_args()
 
     public = args.public.resolve()
-    private = args.private.resolve() if args.private else None
 
     workflow_texts = []
     for workflow in sorted((public / ".github/workflows").glob("*.yml")):
         workflow_texts.append(workflow.read_text(encoding="utf-8"))
-    if private and (private / ".github/workflows").is_dir():
-        for workflow in sorted((private / ".github/workflows").glob("*.yml")):
-            workflow_texts.append(workflow.read_text(encoding="utf-8"))
     workflows_text = "\n".join(workflow_texts)
 
     problems: list[str] = []
-    for root, label in ((public, "公开仓"), (private, "私人仓")):
+    for root, label in ((public, "本仓"),):
         if root is None or not (root / "scripts").is_dir():
             continue
         scripts = sorted((root / "scripts").glob("*.py"))

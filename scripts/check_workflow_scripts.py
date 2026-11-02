@@ -192,7 +192,7 @@ def check_script_exists(
 
     工作目录一律相对**被检查的那个仓根**解析,不相对进程的当前目录。
     相对当前目录的话,同一份工作流在本地跑和在流水线里跑会得出不同结论
-    (流水线把私人源码 checkout 到 src/,本地没有),检查就成了看运气 ——
+    (流水线把源码 checkout 到别的目录,本地没有),检查就成了看运气 ——
     本地永远说"查不到",就永远查不到。
 
     返回 (问题列表, 没查的条数)。工作目录本身不在时无从判断脚本在不在 ——
@@ -221,12 +221,6 @@ def check_script_exists(
         if repo_base not in target.parents and target != repo_base:
             continue
         if not target.is_file():
-            # 公开仓的镜像工作流引用的是**私人仓**的脚本(src/scripts/...):
-            # 那棵树只在流水线里 checkout 出来。本地没有 src/ 时无从核对 ——
-            # 只记"没查",不报"缺失"。把"查不到"当成"没有",会让本地恒红。
-            if rel.startswith("src/") and not (repo_root / "src").is_dir():
-                skipped += 1
-                continue
             problems.append(f"{label}: 调用的脚本 {rel} 在工作目录 {base} 下不存在")
     return problems, skipped
 
@@ -236,8 +230,8 @@ def check_job_graph(path: Path, data: dict, repo_root: Path) -> list[str]:
 
     needs 指向一个不存在的作业,或者用了 ./ 开头却不在仓里的本地 action,
     GitHub 会把整个工作流判为无效 —— 那个工作流一个作业都不会跑,而
-    失败信息只出现在工作流页面上。私人仓自己的流水线一旦没有 runner,
-    这类错误就完全没人看得见:仓库里一切正常,只是那条流水线从来没跑过。
+    失败信息只出现在工作流页面上。仓库里一切正常,只是那条流水线从来
+    没跑过,这种失败最难被发现。
 
     作业依赖成环同样无效。
     """

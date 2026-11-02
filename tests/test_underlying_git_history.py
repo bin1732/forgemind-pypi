@@ -142,11 +142,13 @@ def test_pytest_works_under_repo_root(git_state):
     assert "passed" in r.stdout, f"应有 passed, 实际: {r.stdout[-200:]}"
 
 
-def test_git_remote_url_is_private_repo(git_state):
-    """private remote URL 真指向 bin1732/forgemind (私人仓)"""
+def test_git_remote_url_points_to_this_repo(git_state):
+    """remote 指向的就是这个仓本身 —— 源码在这里,发布也从这里出"""
     r = _git("remote", "-v")
     assert r.returncode == 0
-    assert "bin1732/forgemind" in r.stdout, f"private remote 应是 bin1732/forgemind, 实际: {r.stdout!r}"
+    assert "bin1732/forgemind-pypi" in r.stdout, (
+        f"remote 应指向 bin1732/forgemind-pypi, 实际: {r.stdout!r}"
+    )
     # 推送用的凭据由本地 git 配置提供,URL 形态随环境不同,这里只核对
     # 它指向的仓库位置。
 

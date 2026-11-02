@@ -538,35 +538,43 @@ print("__RESULT__", json.dumps(fails, ensure_ascii=False))
 
 
 def s_repo_consistency() -> tuple[bool, str]:
-    """私人仓与公开仓的源码必须一致(公开仓不含源码时跳过)"""
+    """发布出去的构件必须出自这个仓的某一次提交。
+
+    架构变过一次:源码原先在私人仓,公开仓只是发布面,这一档比的是两仓
+    的文件是否一致。现在源码就在公开仓里,是唯一的真源 —— 该核对的
+    换成了:用户下载到的构件,是不是真的出自这个仓、并且在 main 的
+    历史里。出自别处或出自一条断掉的分支,都说不清用户拿到的是哪份代码。
+    """
     token = os.environ.get("GITHUB_TOKEN")
     if not token:
         return True, "无 GITHUB_TOKEN,跳过"
     try:
+        import base64
         import urllib.request
 
-        def tree(repo):
+        def api(path: str):
             req = urllib.request.Request(
-                f"https://api.github.com/repos/bin1732/{repo}/git/trees/main?recursive=1",
+                f"https://api.github.com{path}",
                 headers={
                     "Authorization": f"token {token}",
                     "Accept": "application/vnd.github+json",
                 },
             )
-            data = json.loads(urllib.request.urlopen(req, timeout=30).read())
-            return {x["path"]: x["sha"] for x in data.get("tree", []) if x["type"] == "blob"}
+            return json.loads(urllib.request.urlopen(req, timeout=30).read())
 
-        priv, pub = tree("forgemind"), tree("forgemind-pypi")
-        skip = ("artifacts/", "pypi/", "releases/")
-        common = [p for p in priv if p in pub and not p.startswith(skip)]
-        # .gitignore / README 等托管仓自有文件本就允许不同
-        allow = {".gitignore", "NOTICE", "README.md", "CHANGELOG.md", ".env.example"}
-        diff = [p for p in sorted(common) if priv[p] != pub[p] and p not in allow]
-        return not diff, (
-            f"两仓共有 {len(common)} 文件,源码不一致 {len(diff)}: {diff}"
-            if diff
-            else f"两仓共有 {len(common)} 文件,源码一致"
-        )
+        manifest = api("/repos/bin1732/forgemind-pypi/contents/releases/builds/manifest.json")
+        published = json.loads(base64.b64decode(manifest["content"]).decode())
+        commit = published.get("source_commit", "")
+        if not commit:
+            return False, "清单里没有 source_commit —— 构件出自哪里说不清"
+        commit_info = api(f"/repos/bin1732/forgemind-pypi/commits/{commit}")
+        if commit_info.get("sha") != commit:
+            return False, f"提交 {commit[:10]} 在仓里找不到"
+        compare = api(f"/repos/bin1732/forgemind-pypi/compare/{commit}...main")
+        status = compare.get("status")
+        if status not in ("ahead", "identical"):
+            return False, f"发布出去的提交不在 main 的历史里({status})"
+        return True, f"发布出去的构件出自本仓提交 {commit[:10]}(main 的祖先)"
     except Exception as exc:
         return True, f"跳过: {exc}"
 

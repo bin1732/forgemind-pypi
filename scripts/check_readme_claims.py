@@ -14,7 +14,7 @@ README 里的因子数、策略数、测试规模都是**会随代码变的事�
 - 测试规模(文件数 / 用例总数 / 常规档 / 重并发档)
 
 **写了才核** —— README 没写的项直接跳过,不会硬套。代码不在同一个目录
-时用 --code 指过去(公开仓的 README 也要核,代码在私人仓)。
+时用 --code 指过去。
 
 用法:
     python scripts/check_readme_claims.py README.md

@@ -2,7 +2,7 @@ name: verify-desktop
 
 # Tauri 桌面端的真实编译验证。
 # 沙箱缺 GTK/WebKit 系统库,只有 CI runner 能真正 cargo check / build。
-# 源码同样来自私人仓。
+# 源码就在这个仓里,验的是已发布的那一份。
 
 on:
   workflow_run:

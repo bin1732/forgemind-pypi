@@ -143,10 +143,24 @@ def test_wheel_install_path(tmp_path):
             assert dep in metadata, f"wheel METADATA 应声明 {dep}"
 
 
-def test_public_repo_no_private_source():
-    """公开仓 forgemind-pypi 真不包含 forgemind/ 源码"""
-    import urllib.request
+def test_public_repo_carries_the_only_complete_source():
+    """公开仓带的是完整且唯一的一份源码,没有该藏的东西
+
+    架构变过一次:源码原先在私人仓,公开仓只是个发布面。现在源码就在
+    公开仓里,它是唯一的真源 —— 于是"公开仓不含源码"这条判据早就过期
+    了,它把真正的源码当成了泄漏。
+
+    现在要守的是:
+
+    - 源码完整:核心模块、界面、测试、门禁脚本都在;
+    - 源码唯一:没有第二份副本;
+    - 该藏的没进仓:凭据与私钥。
+    """
     import json
+    import urllib.request
+
+    sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
+    from check_repo_cleanliness import SECRET_FILE_NAMES, SECRET_FILE_SUFFIXES
 
     url = "https://api.github.com/repos/bin1732/forgemind-pypi/git/trees/HEAD?recursive=1"
     try:
@@ -157,18 +171,32 @@ def test_public_repo_no_private_source():
         pytest.skip(f"沙箱网络受限: {e}")
 
     paths = {n["path"] for n in data.get("tree", []) if n.get("type") == "blob"}
-    # 关键: 不能有 forgemind/ 或 forgemind-ui/ 源码
-    private_paths = [p for p in paths if p.startswith("forgemind/") and not p.startswith("forgemind-")
-                     and "/" in p]  # 排除 forgemind-2026.9.3-py3-none-any.whl (在 releases/ 下)
-    # 直接查
-    private = [p for p in paths if (
-        p.startswith("forgemind/__init__.py") or
-        p.startswith("forgemind/cli.py") or
-        p.startswith("forgemind/api/") or
-        p.startswith("forgemind/mcp/") or
-        p.startswith("forgemind/core/") or
-        p.startswith("forgemind-ui/") and not p.startswith("forgemind-ui-2026.9.3")
-    )]
-    assert not private, (
-        f"公开仓不应含私人源码, 实际泄漏: {private[:5]}"
-    )
+
+    # 源码完整:核心模块、界面、测试、门禁脚本都得在
+    for required in (
+        "forgemind/__init__.py",
+        "forgemind/cli.py",
+        "forgemind/api/main.py",
+        "forgemind/mcp/server.py",
+        "forgemind/core/data/storage.py",
+        "forgemind-ui/package.json",
+        "scripts/check_repo_cleanliness.py",
+    ):
+        assert required in paths, f"公开仓缺 {required}"
+    assert any(p.startswith("tests/") for p in paths), "公开仓缺测试"
+
+    # 源码唯一:根一级之外不该再有第二份源码包
+    duplicates = [
+        p for p in paths
+        if p.endswith(".py")
+        and "forgemind" in p.split("/")[:-1]
+        and p.split("/")[0] != "forgemind"
+    ]
+    assert not duplicates, f"公开仓里有第二份源码副本: {sorted(duplicates)[:5]}"
+
+    # 该藏的没进仓
+    leaked = [
+        p for p in paths
+        if p.rsplit("/", 1)[-1] in SECRET_FILE_NAMES or p.endswith(SECRET_FILE_SUFFIXES)
+    ]
+    assert not leaked, f"凭据不该进仓: {sorted(leaked)[:5]}"
