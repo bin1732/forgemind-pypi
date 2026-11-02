@@ -17,7 +17,11 @@ import sys
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(REPO))
+# 直接跑的时候要把仓根放进导入路径(环境里可能装过同名旧副本)。
+# 但只在直接跑时放:被用例当模块导入时也放的话,源码树会压过装好的
+# 发行包 —— "跑在发布出去的 wheel 上"那一档就悄悄测回源码树了。
+if __name__ == "__main__":
+    sys.path.insert(0, str(REPO))
 
 import pandas as pd  # noqa: E402
 

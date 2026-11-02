@@ -13,8 +13,11 @@ from pathlib import Path
 
 # 优先用本仓库的源码树。环境里若装过同名旧副本,导入会捡到旧代码,
 # 检查的就不是本仓库的东西了。
+#
+# 只在直接跑的时候放:被用例当模块导入时也放的话,源码树会压过装好的
+# 发行包 —— "跑在发布出去的 wheel 上"那一档就悄悄测回源码树了。
 _REPO_ROOT = Path(__file__).resolve().parent.parent
-if str(_REPO_ROOT) not in sys.path:
+if __name__ == "__main__" and str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 
 
