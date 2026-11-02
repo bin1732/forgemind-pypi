@@ -63,6 +63,7 @@ ARTIFACT_PATTERNS = (
     ".egg-info",
     "dist/",
     "build/",
+    ".v/",
 )
 
 # 许可证头

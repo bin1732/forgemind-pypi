@@ -365,7 +365,7 @@ jobs:
             exit 1
           fi
 
-      - name: Actually execute the binary - all 8 subcommands
+      - name: Actually execute the binary - all 9 subcommands
         shell: bash
         run: |
           set -uo pipefail
@@ -393,6 +393,10 @@ jobs:
           run agent           agent --yes --symbol 600519.SH --cash 100000 --position-qty 5 --position-price 1600
           run mcp             mcp
           run pick            pick --symbol 600519.SH
+          # demo 用的是包内置的真实历史行情(取不到实时行情时的兜底)。
+          # 二进制里能跑通 demo,顺带说明那份数据真被打进了构件里 ——
+          # 少打一个文件,这个子命令就会当场找不到数据。
+          run demo             demo --symbol 600519 --start 2024-01-01 --end 2024-12-31
           # etl 需要联网拉行情,失败是预期内;只要求它不要崩溃到无法退出
           if "./$BIN" etl --symbols 600519 > out.etl.log 2>&1; then
             echo "PASS etl(拉到数据)"
