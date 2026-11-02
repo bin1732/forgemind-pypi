@@ -353,11 +353,11 @@ con.close()
 | 退出码 | 类别 | 触发场景 | 建议动作 |
 |---|---|---|---|
 | 0 | 成功 | 正常完成 | - |
-| 1 | 一般错误 | argparse 参数错 / 用户中断 (Ctrl+C) | 检查参数 / 重跑 |
-| 2 | 资源类 | `MemoryError` (标的 × 区间一次装不下) | 缩小范围分批跑 |
-| 3 | 数据/上游类 | `TimeoutError` (上游无响应) / 0 bars (取数失败) | 重试或换源 |
-| 4 | 资源类 | `OSError errno=28` (磁盘 ENOSPC) | 清理磁盘 |
-| 5+ | 业务类 | signal / agent human-approval 拒绝 | 显式 `--yes` 跳过 |
+| 1 | 一般错误 | PM 节点已经跑过、仍按审批规则拒绝落盘 | 检查状态再重跑 |
+| 2 | 参数与审批类 | argparse 用法错误、策略名不存在、这个命令喂不了该策略、非交互模式未传 `--yes`;一次装不下(`MemoryError`)也归这里 | 照提示改参数,或缩小标的范围分批跑 |
+| 3 | 数据/上游类 | `TimeoutError`(上游无响应)/ 0 bars(取数失败) | 重试或换源 |
+| 4 | 资源类 | `OSError errno=28`(磁盘 ENOSPC) | 清理磁盘 |
+| 130 | 用户中断 | 按了 Ctrl+C | 重跑 |
 
 举例:
 ```bash
@@ -368,7 +368,7 @@ $ forgemind etl --symbols 600519 --start 2024-01-01 --end 2024-12-31
 
 $ forgemind agent --symbol 600519.SH
 # 等待人工审批
-# 退出码: 5
+# 退出码: 2
 # 重试: forgemind agent --symbol 600519.SH --yes  # 跳过审批,真落 snapshot
 ```
 
@@ -379,11 +379,11 @@ $ forgemind agent --symbol 600519.SH
 
 ```bash
 pytest tests/ -v
-# 662 test files · 10234 tests
+# 663 test files · 10237 tests
 
 # 常规档位:真实业务用例,起真实子进程与真实数据库
 pytest tests/ -m "not heavy"
-# 8394 cases
+# 8397 cases
 
 # 重并发档位:百万级真实运算,单独用更宽的超时执行
 pytest tests/ -m heavy
