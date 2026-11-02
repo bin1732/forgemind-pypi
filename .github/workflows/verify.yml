@@ -89,14 +89,19 @@ jobs:
           echo "$out" | grep -q "snapshot saved" && echo "PASS agent(+snapshot)" \
             || { echo "FAIL agent: output=$out"; exit 1; }
 
-      - name: Smoke - 12 strategies produce results
+      - name: Smoke - 每个能跑的策略都跑得出结果
         shell: bash
         run: |
           set -euo pipefail
           V="$GITHUB_WORKSPACE/.v/bin"
-          for s in ma_cross mean_reversion momentum bollinger buy_hold \
-                   TimeSeriesMomentum CrossSectionalMomentum MomentumRotation \
-                   OrnsteinUhlenbeck RSIReversion MaxSharpe RiskParity; do
+          # 清单从代码里推导,不要在流水线里另列一份 —— 另列的那份会与
+          # 命令真正能跑的那份漂移,漂移了就有人照着清单挑一个跑不了的策略。
+          # 需要多支标的的策略由下面那一档单独验(它用 Python API 喂多标的)。
+          mapfile -t strategies < <("$V/python" -c "
+          from forgemind.core.strategies.library import cli_runnable_strategies
+          print(*sorted(cli_runnable_strategies()), sep='\n')
+          ")
+          for s in "${strategies[@]}"; do
             out=$("$V/forgemind" backtest --strategy "$s" --start 2024-01-01 --end 2024-12-31 2>&1)
             echo "$out" | grep -q "Total Return" \
               && echo "PASS $s" || { echo "FAIL $s: $(echo "$out" | tail -1)"; exit 1; }

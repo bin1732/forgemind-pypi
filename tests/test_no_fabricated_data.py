@@ -15,6 +15,7 @@ import asyncio
 import json
 
 import pytest
+from _path_setup import child_env
 
 from forgemind.core.strategies.extended_library import list_strategies
 from forgemind.mcp.server import ForgeMindMCPServer
@@ -314,12 +315,10 @@ class TestMCPStdioTransport:
     def _rpc(reqs):
         """起子进程,按行发 JSON-RPC,返回 (stdout 行, stderr, 退出码)"""
         import json
-        import os
         import subprocess
         import sys
 
-        env = dict(os.environ)
-        env["PYTHONPATH"] = os.pathsep.join(sys.path)
+        env = child_env()
         payload = "".join(json.dumps(r, ensure_ascii=False) + "\n" for r in reqs)
         proc = subprocess.run(
             [sys.executable, "-m", "forgemind.mcp.server"],
@@ -368,12 +367,10 @@ class TestMCPStdioTransport:
 
     def test_invalid_json_returns_parse_error(self):
         import json
-        import os
         import subprocess
         import sys
 
-        env = dict(os.environ)
-        env["PYTHONPATH"] = os.pathsep.join(sys.path)
+        env = child_env()
         proc = subprocess.run(
             [sys.executable, "-m", "forgemind.mcp.server"],
             input="{not json}\n", capture_output=True, text=True, timeout=60, env=env,

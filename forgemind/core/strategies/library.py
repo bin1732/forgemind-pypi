@@ -231,11 +231,22 @@ STRATEGY_REGISTRY = {
     "buy_hold": BuyAndHoldStrategy,
 }
 
-# 需要参数、无法零参实例化的扩展策略 → 给出用户可读的提示
+# 这些策略的构造参数就缺东西 —— 不是行情数据的问题,是调用方要自己准备。
+# 每条写两件事:缺什么(理由)、怎么自己用(用法)。命令的拒绝消息、策略清单
+# 的说明、能不能跑的判定,三处都从这里取 —— 分开写三遍,必然会有一处先漂掉。
 _EXTENDED_STRATEGY_PARAMS = {
-    "LightGBMStrategy": "需要先训练好的模型:LightGBMStrategy(model=<已训练模型>)",
-    "OnlineLearningStrategy": "需要模型工厂:OnlineLearningStrategy(model_factory=<callable>)",
-    "PairsTrading": "需要两个标的:PairsTrading().generate_signal(df_a, df_b)",
+    "LightGBMStrategy": {
+        "reason": "需要先训练好的模型",
+        "usage": "LightGBMStrategy(model=<已训练模型>)",
+    },
+    "OnlineLearningStrategy": {
+        "reason": "需要模型工厂",
+        "usage": "OnlineLearningStrategy(model_factory=<callable>)",
+    },
+    "PairsTrading": {
+        "reason": "需要两个标的",
+        "usage": "PairsTrading().generate_signal(df_a, df_b)",
+    },
 }
 
 
@@ -249,6 +260,9 @@ __all__ = [
     "get_strategy_class",
     "get_extended_strategy",
     "available_strategies",
+    "cli_runnable_strategies",
+    "strategy_unusable_reason",
+    "strategy_usage_hint",
 ]
 
 
@@ -299,6 +313,78 @@ def strategy_category(name: str) -> str:
     return getattr(cls, "category", "") if cls is not None else ""
 
 
+def strategy_unusable_reason(name: str) -> str | None:
+    """这个策略在这个命令里跑不了的原因;跑得了的返回 None。
+
+    这是唯一的判据来源。命令的拒绝消息、策略清单里的说明、能不能跑的
+    判定,三处都从这里取 —— 分开写三遍,必然会有一处先漂掉,而漂掉的那处
+    会直接变成一句骗人的话(把"存在但跑不了"说成"未知策略")。
+
+    跑不了有四种,每一种都要说清是哪一种:
+
+    - 名字根本不存在:不是"跑不了",是没这个策略 —— 这里返回 None,
+      由调用方按"未知策略"处理。
+    - 需要多支标的:横截面与组合类策略要在多支标的之间比较,命令一次只喂
+      一支,算出来的权重没有意义。
+    - 构造参数就缺东西:模型、模型工厂、第二个标的 —— 不是行情数据的问题。
+    - 需要行情表里没有的数据列:事件类策略要基本面字段,日线表里没有。
+    """
+    if name in STRATEGY_REGISTRY:
+        return None
+
+    from forgemind.core.strategies.extended_library import list_strategies
+
+    cls = list_strategies().get(name)
+    if cls is None:
+        return None
+
+    if needs_multiple_symbols(name):
+        return "多标的策略需要多支标的的行情,当前命令一次只喂一支标的"
+
+    extra = _EXTENDED_STRATEGY_PARAMS.get(name)
+    if extra:
+        return extra["reason"]
+
+    required = getattr(cls, "required_columns", ())
+    if required:
+        return "需要行情表里没有的数据列:" + ", ".join(required)
+
+    return None
+
+
+def strategy_usage_hint(name: str) -> str:
+    """这个策略怎么自己用。命令跑不了时,得给用户一条走得通的路。"""
+    extra = _EXTENDED_STRATEGY_PARAMS.get(name)
+    if extra:
+        return extra["usage"]
+    return ""
+
+
+def cli_runnable_strategies() -> dict[str, str]:
+    """这个命令行真正跑得起来的策略 → 说明。
+
+    判据是"这条命令能不能把它喂出结果",不是"它在不在基础注册表里":
+    扩展策略里有单标的的那些,经适配器一样能跑(实测 TimeSeriesMomentum、
+    MomentumRotation、OrnsteinUhlenbeck、RSIReversion 都能跑出结果),
+    把它们划进"跑不了"同样是虚报。
+
+    判据本身在 strategy_unusable_reason 里 —— 那里是唯一解释"为什么跑不了"
+    的地方。
+    """
+    from forgemind.core.strategies.extended_library import list_strategies
+
+    out: dict[str, str] = {}
+    for name in STRATEGY_REGISTRY:
+        out[name] = CATEGORY_LABELS["on_bar"]
+    for name, cls in list_strategies().items():
+        if name in out:
+            continue
+        if strategy_unusable_reason(name) is not None:
+            continue
+        out[name] = CATEGORY_LABELS.get(getattr(cls, "category", ""), "策略")
+    return out
+
+
 def needs_multiple_symbols(name: str) -> bool:
     """这个策略是不是必须有多支标的。
 
@@ -316,20 +402,20 @@ def needs_multiple_symbols(name: str) -> bool:
 
 
 def available_strategies() -> dict:
-    """全部可用策略名 → 说明(CLI --help / 报错都用它)"""
+    """全部可用策略名 → 说明(CLI --help / 报错都用它)
+
+    跑不了的那些,说明写的就是跑不了的原因 —— 与命令拒绝时说的话是同一
+    句(都取自 strategy_unusable_reason)。
+    """
     from forgemind.core.strategies.extended_library import list_strategies
 
     out = {}
     for k in STRATEGY_REGISTRY:
         out[k] = CATEGORY_LABELS["on_bar"]
     for k in list_strategies():
-        hint = _EXTENDED_STRATEGY_PARAMS.get(k)
-        if hint:
-            out[k] = hint
-            continue
-        cat = strategy_category(k)
-        label = CATEGORY_LABELS.get(cat, "策略")
-        if needs_multiple_symbols(k):
-            label = "需要多支标的:" + label
-        out[k] = label
+        reason = strategy_unusable_reason(k)
+        if reason:
+            out[k] = reason
+        else:
+            out[k] = CATEGORY_LABELS.get(strategy_category(k), "策略")
     return out

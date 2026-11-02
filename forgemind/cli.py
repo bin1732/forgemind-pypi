@@ -46,6 +46,49 @@ def _force_utf8_stdio() -> None:
 _force_utf8_stdio()
 
 
+def refuse_unusable_strategy(name: str) -> None:
+    """这个策略在这个命令里跑不出有意义的结果 —— 明确拒绝,并说清怎么走得通。
+
+    三种情况,消息不能混:
+
+    - 名字根本不存在:就是不存在,别装懂。
+    - 存在但这个命令喂不了它:说清缺什么、怎么自己用。把这种说成"未知
+      策略"是骗人 —— 同一个命令的策略清单里明明列着它,用户照着清单挑
+      一个却被告知没听说过,两处说法自相矛盾。
+    - 能跑:放行。
+
+    拒绝要发生在动手取数之前:让用户先等一轮取数、再被告知跑不了,是在
+    浪费他的时间。
+    """
+    from forgemind.core.strategies.library import (
+        available_strategies,
+        cli_runnable_strategies,
+        strategy_unusable_reason,
+        strategy_usage_hint,
+    )
+
+    runnable = cli_runnable_strategies()
+    if name in runnable:
+        return
+
+    if name not in available_strategies():
+        print(f"❌ 未知策略 {name}")
+        print(f"   这个命令能跑的:{', '.join(sorted(runnable))}")
+        print("   想看全部可用策略:forgemind backtest --list-strategies")
+        raise SystemExit(2)
+
+    reason = strategy_unusable_reason(name) or "这个命令喂不了它"
+    print(f"⚠️  {name} 这个命令跑不了:{reason}")
+    usage = strategy_usage_hint(name)
+    if usage:
+        print(f"   自己用:{usage}")
+    else:
+        print("   自己准备多支标的的行情表,用引擎直接跑:")
+        print("     from forgemind.core.backtest.engine import SimpleBacktestEngine")
+        print("     SimpleBacktestEngine().run(MyStrategy(), 多标的的行情表)")
+    raise SystemExit(2)
+
+
 def cmd_demo(args):
     """一条命令看到真实结果:取数 → 回测 → 落库
 
@@ -72,6 +115,9 @@ def cmd_demo(args):
     symbol = args.symbol
     start, end = args.start, args.end
     db_symbol = bare_symbol(symbol)
+
+    # 先看这个策略在这个命令里跑不跑得起来,再动手取数
+    refuse_unusable_strategy(args.strategy)
 
     print("ForgeMind 演示 —— 一条命令看到结果")
     print(f"  标的 {symbol} · 区间 {start} → {end} · 策略 {args.strategy}")
@@ -137,11 +183,7 @@ def cmd_demo(args):
 
     assert_ohlc(price_df, "演示用的行情数据")
 
-    # 回测:按名字真的选策略
-    if args.strategy not in STRATEGY_REGISTRY:
-        print(f"❌ 未知策略 {args.strategy}")
-        print(f"   可选:{', '.join(sorted(STRATEGY_REGISTRY))}")
-        raise SystemExit(2)
+    # 回测:按名字真的选策略(能不能跑已经在开头拒过了)
     strategy = STRATEGY_REGISTRY[args.strategy]()
     strategy.validate_parameters()
 
@@ -202,23 +244,31 @@ def cmd_backtest(args):
     from forgemind.core.strategies.base import MovingAverageCrossStrategy  # noqa: F401
 
     if getattr(args, "list_strategies", False):
-        from forgemind.core.strategies.library import available_strategies
+        from forgemind.core.strategies.library import (
+            available_strategies,
+            cli_runnable_strategies,
+            strategy_unusable_reason,
+        )
 
-        print("=== 可用策略 ===")
-        for name, kind in available_strategies().items():
-            print(f"  {name:26} {kind}")
+        # 清单是一份承诺:列出来的就要能跑。跑不了的另列一节,写明原因 ——
+        # 混在一起列,用户照着挑一个,得到的是"未知策略"。
+        # 第二节的理由与拒绝时说的话取自同一处(strategy_unusable_reason),
+        # 两边不会各说各话。
+        runnable = cli_runnable_strategies()
+        print("=== 这个命令能跑的策略 ===")
+        for name in sorted(runnable):
+            print(f"  {name:26} {runnable[name]}")
+        others = [n for n in sorted(available_strategies()) if n not in runnable]
+        if others:
+            print("\n=== 存在但这个命令跑不了的 ===")
+            for name in others:
+                why = strategy_unusable_reason(name) or available_strategies()[name]
+                print(f"  {name:26} {why}")
         return
 
     # 先看这个策略在这个命令里跑不跑得起来,再动手取数:让用户先等一轮
     # 取数、然后才被告知跑不了,是在浪费他的时间。
-    from forgemind.core.strategies.library import needs_multiple_symbols
-
-    if needs_multiple_symbols(args.strategy):
-        print(f"⚠️  {args.strategy} 是多标的策略,当前命令只喂一支标的,算出来的结果没有意义。")
-        print("   多标的策略要跨标的比较,需要自己准备多支标的的行情表:")
-        print("     from forgemind.core.backtest.engine import SimpleBacktestEngine")
-        print("     SimpleBacktestEngine().run(MyStrategy(), 多标的的行情表)")
-        sys.exit(1)
+    refuse_unusable_strategy(args.strategy)
 
     # 参数只有一部分策略用得上(fast/slow 是双均线的),别把不相关的参数
     # 印在命令行里 —— 那会让读的人以为这个策略用了它们。

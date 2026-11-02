@@ -17,6 +17,7 @@ import math
 from datetime import date, timedelta
 
 import pytest
+from _path_setup import child_env, inline_path_setup
 from fastapi.testclient import TestClient
 
 from forgemind.api.main import app
@@ -129,7 +130,7 @@ class TestPipelineIsDeterministic:
         repo = Path(__file__).resolve().parent.parent
         script = (
             "import json, sys;"
-            f"sys.path.insert(0, {str(repo)!r});"
+            f"{inline_path_setup()}"
             "from fastapi.testclient import TestClient;"
             "from forgemind.api.main import app;"
             "c = TestClient(app);"
@@ -139,8 +140,7 @@ class TestPipelineIsDeterministic:
             "print(json.dumps([d.get('sharpe'), d.get('max_drawdown'),"
             "d.get('n_bars')]))"
         )
-        env = {"PYTHONHASHSEED": "random", "PATH": "/usr/bin:/bin",
-               "PYTHONPATH": str(repo)}
+        env = child_env({"PYTHONHASHSEED": "random", "PATH": "/usr/bin:/bin"})
         outs = []
         for _ in range(2):
             proc = subprocess.run([sys.executable, "-c", script],

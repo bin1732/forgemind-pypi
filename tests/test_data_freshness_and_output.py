@@ -17,6 +17,8 @@ import datetime as dt
 import io
 from contextlib import redirect_stdout
 
+from _path_setup import child_env
+
 
 class TestDataFreshness:
     def test_today(self):
@@ -137,13 +139,10 @@ class TestTerminalOutputIsNotMarkdown:
 
     def test_markdown_is_converted_in_a_real_terminal(self):
         """端到端:TTY 里跑确实会产出 markdown 的命令,确认终端看到的是 ANSI"""
-        import os
-        import pathlib
         import subprocess
         import sys
 
-        env = {**os.environ, "FORGEMIND_LOG_LEVEL": "WARNING",
-               "PYTHONPATH": str(pathlib.Path(__file__).resolve().parent.parent)}
+        env = child_env({"FORGEMIND_LOG_LEVEL": "WARNING"})
         p = subprocess.run(
             ["script", "-qec",
              f"{sys.executable} -m forgemind.cli pick --top-n 1", "/dev/null"],

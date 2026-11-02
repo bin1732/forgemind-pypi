@@ -14,6 +14,7 @@ import time
 from pathlib import Path
 
 import pytest
+from _path_setup import inline_path_setup
 
 
 @pytest.fixture
@@ -119,7 +120,7 @@ def test_duckdb_file_locked_by_fcntl_blocks_init(tmp_path):
 import os
 os.environ['FORGEMIND_DUCKDB_PATH'] = {str(db_path)!r}
 import sys
-sys.path.insert(0, '/workspace/quantmind')
+{inline_path_setup()}
 try:
     from forgemind.core.data.storage import init_duckdb
     init_duckdb()
@@ -143,7 +144,7 @@ def test_duckdb_open_wal_creates_sidecar(tmp_path):
 import os
 os.environ['FORGEMIND_DUCKDB_PATH'] = {str(db_path)!r}
 import sys
-sys.path.insert(0, '/workspace/quantmind')
+{inline_path_setup()}
 from forgemind.core.data.storage import init_duckdb
 init_duckdb()
 import duckdb

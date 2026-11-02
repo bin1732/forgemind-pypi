@@ -13,13 +13,15 @@
 一样,那就是欺骗 —— 哪怕它报的数"好看"。
 """
 import argparse
-import sys
 from pathlib import Path
 
 import pytest
 
 REPO = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(REPO))
+
+from _path_setup import prefer_source_tree  # noqa: E402
+
+prefer_source_tree()
 
 from forgemind.cli import cmd_demo  # noqa: E402
 

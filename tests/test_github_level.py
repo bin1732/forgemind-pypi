@@ -1,12 +1,12 @@
 # Copyright (c) 2026 灵感引擎工坊 (bin1732)
 # SPDX-License-Identifier: Apache-2.0
 
-import sys
 from pathlib import Path
 
 import pytest
+from _path_setup import prefer_source_tree
 
-sys.path.insert(0, str(Path(__file__).parent.parent))
+prefer_source_tree()
 
 
 class TestAKShareETL:

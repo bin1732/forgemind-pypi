@@ -27,6 +27,7 @@ from datetime import date, timedelta
 from pathlib import Path
 
 import pytest
+from _path_setup import child_env, inline_path_setup
 
 REPO = Path(__file__).resolve().parent.parent
 
@@ -74,7 +75,9 @@ RESOURCE_URIS = [
 
 
 def _server():
-    sys.path.insert(0, str(REPO))
+    from _path_setup import prefer_source_tree
+
+    prefer_source_tree()
     from forgemind.mcp.server import ForgeMindMCPServer
     return ForgeMindMCPServer()
 
@@ -311,7 +314,7 @@ class TestRunBacktestDataSource:
         """声明"确定性"就要跨进程也一致。字符串 hash 每个进程加盐,不行。"""
         script = (
             "import asyncio, json, sys;"
-            f"sys.path.insert(0, {str(REPO)!r});"
+            f"{inline_path_setup()}"
             "from forgemind.mcp.server import ForgeMindMCPServer;"
             "srv = ForgeMindMCPServer();"
             "r = asyncio.run(srv.handle_request({'jsonrpc':'2.0','id':1,"
@@ -320,8 +323,7 @@ class TestRunBacktestDataSource:
             "'end':'2024-06-30'}}}));"
             "print(json.loads(r['result']['content'][0]['text'])['sharpe'])"
         )
-        env = {"PYTHONHASHSEED": "random", "PATH": "/usr/bin:/bin",
-               "PYTHONPATH": str(REPO)}
+        env = child_env({"PYTHONHASHSEED": "random", "PATH": "/usr/bin:/bin"})
         outs = []
         for _ in range(2):
             proc = subprocess.run([sys.executable, "-c", script], capture_output=True,

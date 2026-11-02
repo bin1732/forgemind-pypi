@@ -23,6 +23,7 @@ import sys
 import threading
 
 import pytest
+from _path_setup import child_env
 
 from forgemind.mcp.server import _render_prompt
 
@@ -57,10 +58,8 @@ class TestPromptsGetOverStdio:
 
     @pytest.fixture
     def mcp(self):
-        import os
 
-        env = {**os.environ, "PYTHONPATH": str(__import__("pathlib").Path(
-            __file__).resolve().parent.parent)}
+        env = child_env()
         proc = subprocess.Popen(
             [sys.executable, "-m", "forgemind.cli", "mcp"], stdin=subprocess.PIPE,
             stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True, env=env,

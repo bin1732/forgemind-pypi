@@ -3,10 +3,8 @@
 
 import os as _os
 import re as _re
-import sys as _sys
 
 import pytest
-
 
 # 重并发测试的 timeout 豁免。这些测试故意在单个用例里跑百万级真实
 # 运算(真 fork / 真 subprocess / 真 DuckDB catalog),单用例耗时天然
@@ -176,24 +174,24 @@ except ImportError:
     pass
 
 
-# ===== 防止测试跑的是 site-packages 里的旧副本 =====
+# ===== 测试导入路径由一处决定 =====
 #
-# 本项目在开发时 venv 里存在同名安装包,若不在测试开始时把源码树
-# 置于 sys.path 首位,pytest 极可能 import 到已安装的旧版本,
-# 于是"我改了代码但测试结果没变",白排查很久。
-_SRC_ROOT = _os.path.dirname(_os.path.abspath(__file__))
-_pkg_root = _os.path.dirname(_SRC_ROOT)
-if _pkg_root in _sys.path:
-    _sys.path.remove(_pkg_root)
-_sys.path.insert(0, _pkg_root)
+# 同一批用例有两种跑法,要求正好相反:常规档要测源码树(改了代码必须测
+# 新代码),"跑在发布出去的 wheel 上"那一档要测装出来的那份。把源码树
+# 顶到 sys.path 首位只对前一种成立 —— 后一种要是也这么摆,测的还是
+# 源码,那一档就白跑了。
+#
+# 开关与实现都在 tests/_path_setup.py,各测试文件不再各插一遍。
+from _path_setup import (  # noqa: E402
+    lock_installed_package,
+    prefer_source_tree,
+    testing_installed_package,
+)
 
-# 子进程也要指向源码树。只改 sys.path 只对当前进程有效:
-# 测试里 spawn 出来的 subprocess(sys.executable -c ...)会重新初始化
-# sys.path,于是 import 到 venv 里那份**旧的**已安装副本。已验证已修复:
-# site-packages 里的 models/__init__.py 早于惰性加载改造,导致
-# "import 包不拉重依赖" 这条测试时绿时红,取决于 CWD。
-_os.environ["PYTHONPATH"] = _os.pathsep.join(
-    [_pkg_root, _os.environ.get("PYTHONPATH", "")]).rstrip(_os.pathsep)
+if testing_installed_package():
+    lock_installed_package()
+else:
+    prefer_source_tree()
 
 def pytest_terminal_summary(terminalreporter, exitstatus, config):
     """把本次运行的失败摘要写进运行摘要。

@@ -12,6 +12,7 @@ import time
 from pathlib import Path
 
 import pytest
+from _path_setup import inline_path_setup
 
 
 def test_kill_minus_9_during_write_duckdb_recovery(tmp_path):
@@ -77,7 +78,7 @@ def test_kill_during_init_duckdb_does_not_corrupt(tmp_path):
     db_path = str(db)
     script = f"""
 import sys, time, os
-sys.path.insert(0, '/workspace/quantmind')
+{inline_path_setup()}
 print(f"PID={{os.getpid()}}", flush=True)
 from forgemind.core.data.storage import init_duckdb, _do_init_duckdb_ddl
 # 真跑 DDL
@@ -101,6 +102,7 @@ time.sleep(60)
     # 走 env 切 db path (init_duckdb 不接参数, 读 settings)
     os.environ['FORGEMIND_DUCKDB_PATH'] = db_path
     import importlib
+
     import forgemind.core.config.settings as _sm
     _sm.get_settings.cache_clear()
     _singleton = _sm.get_settings()
@@ -181,7 +183,7 @@ def test_subprocess_count_changes_after_open(tmp_path):
     db_path = str(db)
     script = f"""
 import sys, os
-sys.path.insert(0, '/workspace/quantmind')
+{inline_path_setup()}
 import forgemind.core.data.storage as storage
 storage._DUCKDB_CONN_CACHE.clear()
 os.environ['FORGEMIND_DUCKDB_PATH'] = {db_path!r}

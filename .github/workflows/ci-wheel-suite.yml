@@ -1,0 +1,135 @@
+# Copyright (c) 2026 灵感引擎工坊 (bin1732)
+# SPDX-License-Identifier: Apache-2.0
+
+name: 全量测试跑在发布出去的 wheel 上
+
+# 这一档是"同一份代码的两条独立路径"的第二条:
+# 第一条在源码树上跑,这一条在**用户真正装到手上的那个 wheel** 上跑。
+#
+# 差别不是形式:源码树里有的模块,构建配置漏掉一个子包,用户装上之后
+# import 就报错 —— 源码树里那个模块明明在,第一条路径也全绿。
+#
+# 为什么挂在发布之后跑:被测的构件必须与被测的测试同代。发布要十几
+# 分钟,而测试若在 push 后立刻起,拿到的会是上一代的 wheel —— 红的是
+# "版本对不上",不是构件坏了,那样的红没有意义。
+#
+# 所以这一档等 ship 发布完成再起,并且核对清单里记的源码提交就是这一
+# 次被测的提交。对不上就报错:用户下载到的与 main 不是同一份,这是值
+# 得报的事,不是可以放过去的事。
+
+on:
+  workflow_run:
+    workflows:
+    - ship
+    types:
+    - completed
+  workflow_dispatch: null
+  schedule:
+  - cron: '43 4 * * *'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: wheel-suite-${{ github.event.workflow_run.head_sha || github.ref }}
+  cancel-in-progress: true
+
+env:
+  # 被测的提交:挂在发布之后跑时是那次发布的提交;手动触发与定时跑时
+  # 是当前分支的提交。
+  SOURCE_COMMIT: ${{ github.event.workflow_run.head_sha || github.sha }}
+
+jobs:
+  wheel-suite:
+    name: 全量测试跑在发布出去的 wheel 上
+    runs-on: ubuntu-26.04
+    steps:
+    - uses: actions/checkout@v7
+      with:
+        # 钉在被测的那个提交上:构件与源码必须同代,拿别的提交比没有意义。
+        ref: ${{ env.SOURCE_COMMIT }}
+        # 完整历史:要跑的用例里有 git 历史相关的,要翻到很早的提交。
+        fetch-depth: 0
+    - uses: actions/setup-python@v7
+      with:
+        python-version: '3.11'
+    - name: Install dependencies
+      run: |
+        pip install --break-system-packages --no-cache-dir --prefer-binary -r requirements-ci.txt 2>&1 | tee /tmp/pip-all.log || true
+    - name: 发布这一次失败了就不必再测
+      if: ${{ github.event.workflow_run.conclusion == 'failure' }}
+      run: |
+        echo "FAIL: 发布这一次的构件没成功 —— 用户下载到的与 main 不是同一份"
+        exit 1
+    - name: 核对发布出去的构件对应的就是这一次的提交
+      shell: bash
+      run: |
+        set -euo pipefail
+        manifest=$(curl -sS --max-time 60 --retry 3 \
+          https://raw.githubusercontent.com/bin1732/forgemind-pypi/main/releases/builds/manifest.json)
+        got=$(printf '%s' "$manifest" | python3 -c "import json,sys; print(json.load(sys.stdin).get('source_commit',''))")
+        echo "清单里的源码提交: ${got:-无}"
+        echo "这一档被测的提交: $SOURCE_COMMIT"
+        if [ -z "$got" ]; then
+          echo "FAIL: 清单里读不到 source_commit"; exit 1
+        fi
+        if [ "$got" != "$SOURCE_COMMIT" ]; then
+          echo "FAIL: 发布出去的构件不是这一次的提交做的 —— 拿它跑这一代的测试没有意义"
+          exit 1
+        fi
+    - name: 把发布出去的那一个 wheel 装进干净环境
+      shell: bash
+      run: |
+        set -euo pipefail
+        mkdir -p "$GITHUB_WORKSPACE/dist"
+        # 索引与清单是发布时同一个提交写下的,两者必然一致。
+        # 索引从线上读:这一档挂在发布之后跑,checkout 里的那份可能还没
+        # 跟上发布 —— 拿旧的索引去下载,测的就不是刚发布的那一个构件。
+        index=$(curl -sS --max-time 60 --retry 3 \
+          https://raw.githubusercontent.com/bin1732/forgemind-pypi/main/pypi/simple/forgemind/index.html)
+        url=$(printf '%s' "$index" | python3 -c "import re,sys;t=sys.stdin.read();print(re.search(r'href=\"([^\"]+)\"',t).group(1))")
+        sha=$(printf '%s' "$index" | python3 -c "import re,sys;t=sys.stdin.read();print(re.search(r'sha256=([0-9a-f]{64})',t).group(1))")
+        # 存成原名:pip 认的是规范文件名(名称-版本-解释器-abi-平台),
+        # 随手改个名会被判成 Invalid wheel filename。
+        # 索引里的链接带 #sha256= 片段,先剥掉再取文件名。
+        url=${url%%#*}
+        name=$(basename "$url")
+        echo "下载 $url"
+        curl -sSL --retry 5 --retry-delay 5 -o "$GITHUB_WORKSPACE/dist/$name" "$url"
+        echo "$sha  $GITHUB_WORKSPACE/dist/$name" | sha256sum -c -
+        # 核对 wheel 里的模块与源码一个不少:构建配置漏掉一个子包,
+        # 用户装上之后 import 才报错 —— 源码树里那个模块明明在。
+        python scripts/check_wheel_contents.py "$GITHUB_WORKSPACE/dist/$name" .
+        python -m venv "$GITHUB_WORKSPACE/v"
+        "$GITHUB_WORKSPACE/v/bin/pip" install -q --upgrade pip
+        # 连依赖一起装,跟真实用户一样
+        "$GITHUB_WORKSPACE/v/bin/pip" install -q "$GITHUB_WORKSPACE/dist/$name"
+        "$GITHUB_WORKSPACE/v/bin/pip" install -q pytest pytest-asyncio pytest-timeout
+        # 发布出去的那个 wheel 报的版本,必须与清单里记的发布版本一致。
+        # 清单写的是"这次发布用的版本号"(基础版本 + post 号),而 wheel
+        # 的文件名里也是它 —— 两者对不上,说明发布出去的与清单说的不是
+        # 同一份东西。
+        published=$(curl -sS --max-time 60 --retry 3 \
+          https://raw.githubusercontent.com/bin1732/forgemind-pypi/main/releases/builds/manifest.json \
+          | python3 -c "import json,sys; print(json.load(sys.stdin).get('published_version',''))")
+        actual=$(cd "$RUNNER_TEMP" && "$GITHUB_WORKSPACE/v/bin/python" -c "import forgemind; print(forgemind.__version__)")
+        echo "published=$published actual=$actual"
+        if [ -z "$published" ]; then
+          echo "FAIL: 清单里没有 published_version —— 这次发布不是用新流程发的"; exit 1
+        fi
+        [ "$published" = "$actual" ] || {
+          echo "FAIL: 发布出去的 wheel 版本($actual)与清单记的($published)不一致"; exit 1; }
+    - name: 全量测试跑在这个环境上
+      env:
+        # 这一档要验的是用户装到手上的那一份。置 1 之后,测试不再把
+        # 源码树顶到导入路径前面 —— 那样测的还是源码,这一档就白跑了。
+        # tests/test_under_test_target.py 会核对 import 命中的是不是
+        # site-packages 里的发行包,对不上直接报错。
+        FORGEMIND_TEST_INSTALLED_PACKAGE: '1'
+      run: |
+        # PYTHONSAFEPATH:不让 `python -m` 把当前目录塞进 sys.path。
+        # 塞进去的话 import forgemind 命中的是源码树,不是装出来的轮子 ——
+        # 那测的就还是源码,这一档白跑。
+        PYTHONSAFEPATH=1 "$GITHUB_WORKSPACE/v/bin/python" -m pytest tests/ \
+          -k "not Benchmark and not test_phase11_mega" \
+          -m "not heavy" --tb=short -q --timeout=300

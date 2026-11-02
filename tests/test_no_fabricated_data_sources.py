@@ -21,6 +21,7 @@ import re
 from pathlib import Path
 
 import pytest
+from _path_setup import child_env
 
 ROOT = Path(__file__).resolve().parent.parent
 SRC = ROOT / "forgemind"
@@ -193,7 +194,7 @@ class TestDemoResultsAreLabelled:
             [sys.executable, "-m", "forgemind.cli", "backtest",
              "--strategy", "ma_cross", "--start", "2024-01-01", "--end", "2024-02-01"],
             capture_output=True, text=True, timeout=300,
-            env={**__import__("os").environ, "PYTHONPATH": str(ROOT)})
+            env=child_env())
         out = r.stdout + r.stderr
         assert "Total Return" in out, "回测应仍能跑出结果"
         assert re.search(r"模拟|合成|demo|Demo|非真实|随机", out), (

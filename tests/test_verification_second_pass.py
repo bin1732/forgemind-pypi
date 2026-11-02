@@ -27,21 +27,20 @@ from pathlib import Path
 import pytest
 
 ROOT = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(ROOT))
+
+from _path_setup import child_env, prefer_source_tree  # noqa: E402
+
+prefer_source_tree()
 
 
 def _child_env(**extra):
-    """子进程环境:把源码树放在最前
+    """子进程环境:按统一策略摆好导入路径。
 
-    否则子进程 import 的是 venv 里已安装的旧副本,拿它的输出来跟源码断言
-    比对,会得出"版本号不一致"之类的假结论 —— 本轮就被这个坑过。
+    默认把源码树放在最前,否则子进程 import 的是 venv 里已安装的旧副本,
+    拿它的输出来跟源码断言比对,会得出"版本号不一致"之类的假结论。
+    "验装出来的那份"那一档反过来 —— 子进程也该 import 到装好的发行包。
     """
-    import os
-
-    env = dict(os.environ)
-    env["PYTHONPATH"] = str(ROOT) + os.pathsep + env.get("PYTHONPATH", "")
-    env.update(extra)
-    return env
+    return child_env(**extra)
 
 
 def run_cli(*args, timeout=120):

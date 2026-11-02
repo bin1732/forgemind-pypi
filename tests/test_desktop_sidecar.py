@@ -25,6 +25,7 @@ import urllib.request
 from pathlib import Path
 
 import pytest
+from _path_setup import child_env
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -36,8 +37,7 @@ def _free_port() -> int:
 
 
 def _env():
-    e = dict(os.environ)
-    e["PYTHONPATH"] = str(ROOT) + os.pathsep + e.get("PYTHONPATH", "")
+    e = child_env()
     e["FORGEMIND_API_SECRET_KEY"] = "a" * 32
     return e
 

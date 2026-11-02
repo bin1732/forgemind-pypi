@@ -411,7 +411,9 @@ def main() -> int:
         # 指向的"是同一份产物 —— 两者不是同一份时,清单里的字节数与文件
         # 对不上是必然的,而不是出了错。
         "build_id": build_id,
-        "source_repo": "bin1732/forgemind",
+        # 源码仓。源码就在这个公开仓里 —— 指着一个已经冻结、不再改动的
+        # 旧仓,会让人以为要去那边找代码,那是条对不上的声明。
+        "source_repo": "bin1732/forgemind-pypi",
         "source_commit": args.source_commit,
         # 这次发布实际用的版本号。源码里的基础版本不变(那是维护者抬大
         # 版本的地方),每次发布另给一个 post 号 —— 同一个版本号下内容变了,

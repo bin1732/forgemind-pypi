@@ -16,7 +16,6 @@
 """
 
 import json
-import os
 import re
 import subprocess
 import sys
@@ -28,8 +27,10 @@ from pathlib import Path
 import pytest
 
 ROOT = Path(__file__).resolve().parent.parent
-if str(ROOT) not in sys.path:
-    sys.path.insert(0, str(ROOT))
+
+from _path_setup import child_env, prefer_source_tree  # noqa: E402
+
+prefer_source_tree()
 
 NS = {"ns": "http://www.w3.org/2000/xml/1999/xhtml"}
 
@@ -37,10 +38,7 @@ NS = {"ns": "http://www.w3.org/2000/xml/1999/xhtml"}
 # ---------- 通用工具 ----------
 
 def env(**extra):
-    e = dict(os.environ)
-    e["PYTHONPATH"] = str(ROOT) + os.pathsep + e.get("PYTHONPATH", "")
-    e.update(extra)
-    return e
+    return child_env(**extra)
 
 
 def cli(*args, timeout=180, cwd="/tmp", **kw):

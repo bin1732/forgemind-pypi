@@ -40,9 +40,9 @@ class TimeSeriesMomentum(BaseStrategy):
 
 class CrossSectionalMomentum(BaseStrategy):
     """截面动量: 买入过去 N 天收益最高的, 卖出最低的"""
+
     # 横截面/组合类策略要在多支标的上比较,只喂一支标的算出来的结果没有意义。
     requires_multiple_symbols = True
-
 
     name = "CrossSectionalMomentum"
     category = "momentum"
@@ -570,9 +570,9 @@ def _weights_to_row_signal(weights: pd.DataFrame, df: pd.DataFrame) -> pd.Series
 
 class MaxSharpe(BaseStrategy):
     """最大夏普组合 (切线组合 w ∝ Σ⁻¹μ)。"""
+
     # 横截面/组合类策略要在多支标的上比较,只喂一支标的算出来的结果没有意义。
     requires_multiple_symbols = True
-
 
     name = "MaxSharpe"
     category = "portfolio"
@@ -620,9 +620,9 @@ class MaxSharpe(BaseStrategy):
 
 class RiskParity(BaseStrategy):
     """风险平价 — 每资产贡献相同风险(权重 ∝ 1/波动率)"""
+
     # 横截面/组合类策略要在多支标的上比较,只喂一支标的算出来的结果没有意义。
     requires_multiple_symbols = True
-
 
     name = "RiskParity"
     category = "portfolio"
