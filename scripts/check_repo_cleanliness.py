@@ -92,18 +92,14 @@ SECRET_FILE_NAMES = (
 )
 SECRET_FILE_SUFFIXES = (".pem", ".key", ".p12")
 
-# 这两个脚本自带检测词表,不能被当成残留
+# 自带检测词表的文件不能被当成残留
 SELF_EXEMPT = (
     "scripts/check_repo_cleanliness.py",
-    "scripts/clean_wording.py",
-    # 自检文档本身要说明检查范围,会引用到检测词
-    "docs/AUDIT_3_DIMENSIONS.md",
     # 这两个文件自带检查词表
     "scripts/verify3.py",
     "tests/test_underlying_git_history.py",
     # 这两个脚本的说明里会引用检测词
     "scripts/check_ui_data_driven.py",
-    "scripts/check_audit_references.py",
 )
 
 

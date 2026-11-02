@@ -89,6 +89,30 @@ jobs:
           echo "$out" | grep -q "snapshot saved" && echo "PASS agent(+snapshot)" \
             || { echo "FAIL agent: output=$out"; exit 1; }
 
+      - name: Smoke - 门面命令与研究示例
+        shell: bash
+        run: |
+          set -euo pipefail
+          V="$GITHUB_WORKSPACE/.v/bin"
+          # demo 是 README 上的门面命令:一条命令看到真实结果。它取不到
+          # 实时行情时会退到包内置的真实历史行情,离线也跑得起来。
+          out=$("$V/forgemind" demo --symbol 600519 --start 2024-01-01 --end 2024-12-31 2>&1)
+          echo "$out" | grep -q "3/3 结果" \
+            && echo "PASS demo" || { echo "FAIL demo: $(echo "$out" | tail -3)"; exit 1; }
+          # 结果里必须声明数据是真实价格 —— 这一句是给用户的承诺
+          echo "$out" | grep -q "真实价格,不是模拟数据" \
+            || { echo "FAIL demo: 没有声明数据来源"; exit 1; }
+          # 研究示例:README 上给用户的另一个入口。它对着**已安装的**包跑。
+          "$V/python" scripts/research_demo.py --data-source mock --no-wfo --no-mc --json \
+            > "$RUNNER_TEMP/research.json" \
+            || { echo "FAIL research_demo 跑不起来"; exit 1; }
+          # NaN 与 Infinity 不是合法 JSON,严格的下游解析器会直接报错
+          if grep -q "NaN\|Infinity" "$RUNNER_TEMP/research.json"; then
+            echo "FAIL research_demo: 结果里有 NaN/Infinity,那不是合法 JSON"; exit 1
+          fi
+          "$V/python" -c "import json;d=json.load(open('$RUNNER_TEMP/research.json'));assert d['数据']['K 线数']>0;print('PASS research_demo')" \
+            || { echo "FAIL research_demo: 结果不完整"; exit 1; }
+
       - name: Smoke - 每个能跑的策略都跑得出结果
         shell: bash
         run: |

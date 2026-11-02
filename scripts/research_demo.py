@@ -37,6 +37,29 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
+def _json_safe(value):
+    """把结果整理成能直接写进 JSON 的值。
+
+    两件事:
+
+    - numpy 的标量换成 Python 原生类型 —— 它们不是 json 能写的,
+      少这一步,`--json` 就崩在 dumps 上,这个选项等于没有。
+    - NaN 与无穷换成 null —— json 默认会写出 NaN/Infinity,那不是合法
+      JSON,严格解析的下游直接报错。算不出来的值本来就该是"没有值"。
+    """
+    if isinstance(value, dict):
+        return {k: _json_safe(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_json_safe(v) for v in value]
+    if isinstance(value, float):
+        if value != value or value in (float("inf"), float("-inf")):
+            return None
+        return value
+    if hasattr(value, "item") and getattr(value, "shape", None) == ():
+        return _json_safe(value.item())
+    return value
+
+
 def main() -> int:
     args = parse_args()
     symbols = [s.strip() for s in args.symbols.split(",") if s.strip()]
@@ -49,6 +72,15 @@ def main() -> int:
     except ImportError as exc:
         print(f"未装好 ForgeMind,先按 README 的安装说明安装: {exc}", file=sys.stderr)
         return 2
+
+    # 日志走 stderr,stdout 只留结果 —— `--json` 的用处就是给程序读,
+    # stdout 里混着日志行,下游一解析就报错。
+    try:
+        from forgemind.core.observability.logging import setup_logging
+
+        setup_logging()
+    except Exception:  # noqa: BLE001 — 日志配不上不该让示例跑不起来
+        pass
 
     pipeline = EndToEndPipeline(
         symbols=symbols,
@@ -91,8 +123,10 @@ def main() -> int:
         "信号数": len(result.signals),
     }
 
+    summary = _json_safe(summary)
+
     if args.json:
-        print(json.dumps(summary, ensure_ascii=False, indent=2))
+        print(json.dumps(summary, ensure_ascii=False, indent=2, allow_nan=False))
         return 0
 
     print("=== 数据 ===")
