@@ -708,7 +708,10 @@ def cmd_etl(args):
         elif not init_failed:
             # 取数跑了、只是没数据 → 才有可能是代码格式或区间的问题
             print("   代码格式应为 6 位(如 600519),而非 600519.SH")
-        sys.exit(1)
+        # 退出码 3(数据类):跑完了但一条数据没取到 —— 与"0 bars 属于数据类"
+        # 说的是同一件事。退 1 会让退出码表里的 1 混进两种毫不相干的情况。
+        print("\n   exit code: 3 (3=数据, 4=资源)")
+        sys.exit(3)
 
 
 def cmd_broker_test(args):

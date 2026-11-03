@@ -53,6 +53,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   treats an empty set as a failure.
 - The manifest named the frozen private repository as the source of the
   published artifacts.
+- The ETL exited with 1 when it finished without fetching a single row
+  and had no failure to classify. One means "the approval was refused",
+  so the same code covered two unrelated situations, and the table in the
+  README could not tell the reader which one had happened.
 - The backtest said "no symbol was given" while the user had given one.
   Both the case where a symbol was passed and the case where it was not
   fell into the same branch, and the branch printed the wording of the
