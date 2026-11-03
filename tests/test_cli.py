@@ -200,9 +200,23 @@ class TestMain:
 
 class TestCLIMainEntry:
     def test_module_level_main(self):
-        """if __name__ == '__main__'"""
-        # __main__ 入口测试很难,跳过
-        pass
+        """python -m forgemind.cli 这条入口要真能跑起来
+
+        入口坏了的症状很隐蔽:装出来的包里 __main__.py 没打进去时,只有
+        `python -m forgemind.cli` 这条路会失败,而 `forgemind` 命令照常能用
+        —— 文档与流水线里却全是这条命令。
+        """
+        import subprocess
+        import sys as _sys
+
+        result = subprocess.run(
+            [_sys.executable, "-m", "forgemind.cli", "--help"],
+            capture_output=True,
+            text=True,
+            timeout=120,
+        )
+        assert result.returncode == 0, f"模块入口跑不起来:\n{result.stderr[-300:]}"
+        assert "backtest" in result.stdout, "帮助里没有列子命令"
 
 
 class TestETLResourceFailures:
