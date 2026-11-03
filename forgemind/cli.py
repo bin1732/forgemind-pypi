@@ -776,6 +776,9 @@ def cmd_info(args):
     print(f"  PG: {settings.pg_host}:{settings.pg_port}")
     print(f"  ClickHouse: {settings.ch_host}:{settings.ch_port}")
     print(f"  Data dir: {settings.data_dir}")
+    # DuckDB 的实际位置:库是从 data_dir 派生的,用户问"数据在哪"时要看
+    # 的是这个路径,不是上一行那个目录。
+    print(f"  DuckDB: {settings.duckdb_path}")
     # US 数据源状态:让用户一眼看到「我现在能不能拉美股」
     us_token = os.environ.get("FORGEMIND_US_TOKEN", "").strip()
     if us_token:

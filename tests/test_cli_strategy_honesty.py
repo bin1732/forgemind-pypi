@@ -146,6 +146,20 @@ class TestCliRefusesWhatItCannotRun:
         assert "多标的" not in output, f"单标的策略不该被当成多标的拒绝:\n{output}"
 
 
+class TestInfoShowsWhereTheDataLives:
+    """info 要报出 DuckDB 的实际位置
+
+    README 说"跑 forgemind info 应输出版本号和 DuckDB 路径" —— 原本只
+    印了数据目录,没印库文件在哪。用户照着做的时候找不到该看的地方。
+    """
+
+    def test_info_prints_the_duckdb_path(self):
+        out = _run_cli("info")
+        text = out.stdout + out.stderr
+        assert "DuckDB" in text, f"info 没报 DuckDB 的位置:\n{text}"
+        assert ".db" in text, f"报的不是库文件路径:\n{text}"
+
+
 class TestHelpDoesNotPromiseWhatTheCommandRefuses:
     """帮助里点名的策略,命令必须真跑得起来。
 

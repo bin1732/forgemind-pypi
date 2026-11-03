@@ -31,8 +31,13 @@ class TestMojibakeCheck:
         return path
 
     def test_replacement_character_is_reported(self, tmp_path):
-        """带坏字符的文件要报出来"""
-        bad = self._file(tmp_path, "a.py", "x = '好的' + '�' + '话'\n")
+        """带坏字符的文件要报出来
+
+        坏字符用 chr(0xFFFD) 构造:文件里不能出现字面的替换字符 ——
+        那正是这条检查要报的东西,自己带一个就永远报自己。
+        """
+        bad_char = chr(0xFFFD)
+        bad = self._file(tmp_path, "a.py", f"x = '好的' + '{bad_char}' + '话'\n")
         problems = cleanliness.check_mojibake(tmp_path, [bad])
         assert len(problems) == 1, problems
         assert "a.py" in problems[0]
