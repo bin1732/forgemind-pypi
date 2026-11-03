@@ -187,10 +187,13 @@ def test_readme_faq_and_exit_codes_present():
     readme = Path("README.md").read_text(encoding="utf-8")
     assert "## ❓ FAQ" in readme, "README 缺 FAQ 区块"
     assert "## 🛑 错误码速查表" in readme, "README 缺错误码速查表"
-    # 错误码表必须包含 2/3/4, 5+ 业务类特殊
-    for code in (2, 3, 4):
+    # 错误码表必须包含这些码。
+    #
+    # 原来这里还要求表里有"5+ (业务类)"—— 那个码从来不准:agent 拒绝
+    # 审批时退出的是 2,与 argparse 的用法错误撞在同一个码上,读的人
+    # 无从判断该做什么。表按真实行为改过,这里也跟着改。
+    for code in (0, 1, 2, 3, 4, 130):
         assert f"| {code} |" in readme, f"README 错误码表应包含 {code}"
-    assert "5+" in readme, "README 错误码表应包含 5+ (业务类)"
     # FAQ 必须包含 6 个 Q (加的)
     faq_q_count = readme.count("<summary><b>Q:")
     assert faq_q_count >= 6, f"FAQ 应至少 6 个 Q, 实际: {faq_q_count}"
