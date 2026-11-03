@@ -146,6 +146,37 @@ class TestCliRefusesWhatItCannotRun:
         assert "多标的" not in output, f"单标的策略不该被当成多标的拒绝:\n{output}"
 
 
+class TestHelpDoesNotPromiseWhatTheCommandRefuses:
+    """帮助里点名的策略,命令必须真跑得起来。
+
+    帮助是用户读到的第一份承诺。它点名了哪个策略,用户就会照着挑一个 ——
+    命令要是拒绝它,用户拿到的就是一句"未知策略",而他明明是照帮助选的。
+    """
+
+    def test_help_lists_only_runnable_strategies(self):
+        from forgemind.core.strategies.library import (
+            available_strategies,
+            cli_runnable_strategies,
+        )
+
+        out = _run_cli("backtest", "--help")
+        text = out.stdout + out.stderr
+        runnable = set(cli_runnable_strategies())
+        refused = set(available_strategies()) - runnable
+        assert refused, "没有跑不了的策略,这条断言就没有意义"
+        for name in refused:
+            assert name not in text, (
+                f"帮助里点名了 {name},而这条命令跑不了它 —— 照着选的用户会被拒"
+            )
+
+    def test_help_keeps_no_internal_wording(self):
+        """内部叫法不进帮助 —— 读的人看不出这些策略在做什么"""
+        out = _run_cli("backtest", "--help")
+        text = out.stdout + out.stderr
+        for phrase in ("on_bar", "批量策略"):
+            assert phrase not in text, f"帮助里还有内部叫法:{phrase}"
+
+
 class TestTheReasonIsOneReason:
     """跑不了的理由只有一份,清单与拒绝时说的是同一句。
 

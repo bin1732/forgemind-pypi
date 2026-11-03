@@ -142,7 +142,7 @@ def main() -> int:
         imported |= collect_imports(path)
 
     stdlib = set(sys.stdlib_module_names)
-    # 本仓自己的模块:包本体,以及 scripts/ 下各脚本互��导入
+    # 本仓自己的模块:包本体,以及 scripts/ 下各脚本互相导入
     first_party = {"forgemind", SCRIPTS.name}
     first_party |= {p.stem for p in SCRIPTS.glob("*.py")}
 

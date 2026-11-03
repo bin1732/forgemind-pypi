@@ -203,6 +203,24 @@ def check_public_layout(repo: Path, files: list[Path]) -> list[str]:
     return problems
 
 
+# 替换字符(U+FFFD)是编码被打断的痕迹:某次写入用了错的编码,或者写到
+# 一半断了。读者看到的是方块或问号,不是字。
+REPLACEMENT_CHAR = "\ufffd"
+
+
+def check_mojibake(repo: Path, files: list[Path]) -> list[str]:
+    """文件里不该有替换字符。"""
+    problems = []
+    for path in files:
+        try:
+            text = path.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError):
+            continue
+        if REPLACEMENT_CHAR in text:
+            problems.append(f"文件里有坏字符(U+FFFD): {path.relative_to(repo)}")
+    return problems
+
+
 def check_secret_files(repo: Path, files: list[Path]) -> list[str]:
     """凭据与私钥不该进仓。
 
@@ -330,6 +348,7 @@ def main() -> int:
     problems += check_root_files(repo)
     problems += check_license_headers(repo, files)
     problems += check_commit_messages(repo)
+    problems += check_mojibake(repo, files)
     problems += check_secret_files(repo, files)
     problems += check_duplicate_source_copy(repo, files)
     if args.public:

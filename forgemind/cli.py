@@ -801,14 +801,21 @@ def build_parser() -> argparse.ArgumentParser:
 
     # backtest
     parser_bt = subparsers.add_parser("backtest", help="Run backtest")
+    # 这条命令能跑哪些策略,由判据本身说了算 —— 手写一份清单,迟早与
+    # 命令真正接受的那份漂移,而漂移了就有人照着挑一个跑不了的策略。
+    # 跨标的的策略(横截面动量、组合类)这条命令喂不了,帮助里就不该
+    # 出现它们。
+    from forgemind.core.strategies.library import cli_runnable_strategies
+
+    _runnable = sorted(cli_runnable_strategies())
     parser_bt.add_argument(
         "--strategy",
         default="ma_cross",
         help=(
-            "策略名。可选:ma_cross / mean_reversion / momentum / bollinger / buy_hold "
-            "(on_bar 策略),以及 TimeSeriesMomentum / CrossSectionalMomentum / "
-            "MomentumRotation / OrnsteinUhlenbeck / RSIReversion / MaxSharpe / "
-            "RiskParity 等扩展策略。`forgemind backtest --list-strategies` 看全部。"
+            "策略名。可选:"
+            + " / ".join(_runnable)
+            + "。`forgemind backtest --list-strategies` 看全部,以及哪些策略"
+            "这条命令跑不了、为什么跑不了。"
         ),
     )
     parser_bt.add_argument(

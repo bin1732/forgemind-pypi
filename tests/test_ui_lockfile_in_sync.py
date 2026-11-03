@@ -14,7 +14,7 @@ package-lock.json**。
     package-lock.json are in sync.
     npm error Missing: @tauri-apps/api@2.12.1 from lock file
 
-三平台桌面构建全红,而本地无法复现 —— 这类"只�� CI 炸"的依赖问题
+三平台桌面构建全红,而本地无法复现 —— 这类"只在 CI 炸"的依赖问题
 必须有本地守卫,否则只能靠人记得两个文件一起推。
 """
 

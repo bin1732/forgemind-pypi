@@ -24,7 +24,7 @@ REPO = Path(__file__).resolve().parent.parent
 
 # 在子进程里逐个导入脚本:它们会改 sys.path,得隔离开,免得影响本次运行。
 #
-# 量的��**增量**:环境里可能本来就有仓根(常规档下正是这样),那是
+# 量的是**增量**:环境里可能本来就有仓根(常规档下正是这样),那是
 # 本来就在,不是脚本干的。
 _PROBE = """
 import importlib.util, os, sys
