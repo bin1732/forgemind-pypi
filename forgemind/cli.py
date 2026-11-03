@@ -314,14 +314,23 @@ def cmd_backtest(args):
                 + args.symbol
                 + f" --start {args.start} --end {args.end}"
             )
-            print("   现降级为 np.random 模拟行情")
             price_df = None
 
     if price_df is None:
-        # 降级:无 --symbol 或 DuckDB 缺数据时用 np.random 模拟
-        print("⚠️  未指定 --symbol 且 DuckDB 无数据,使用 np.random 合成行情(非真实市场)")
-        print("   提示: forgemind etl --symbols 600519 --start 2024-01-01 --end 2024-12-31")
-        print("   然后 forgemind backtest --symbol 600519 --start 2024-01-01 --end 2024-12-31")
+        # 降级:没给标的、或者给了但库里没有 → 用 np.random 模拟。
+        # 话术要跟着实际情况走:用户明明给了 --symbol,却说"未指定
+        # --symbol",等于骗他,后面再跟一条"去拉这个标的"的提示,更矛盾。
+        if args.symbol:
+            print(f"⚠️  {args.symbol} 在库里没有 K 线,使用 np.random 合成行情(非真实市场)")
+            print(
+                "   提示: forgemind etl --symbols "
+                + args.symbol
+                + f" --start {args.start} --end {args.end}"
+            )
+        else:
+            print("⚠️  未指定 --symbol 且 DuckDB 无数据,使用 np.random 合成行情(非真实市场)")
+            print("   提示: forgemind etl --symbols 600519 --start 2024-01-01 --end 2024-12-31")
+            print("   然后 forgemind backtest --symbol 600519 --start 2024-01-01 --end 2024-12-31")
         dates = pd.date_range(args.start, args.end, freq="D")
         n = len(dates)
         np.random.seed(42)

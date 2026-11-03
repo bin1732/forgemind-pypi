@@ -304,7 +304,7 @@ forgemind etl --symbols 600519,000001 --start 2024-01-01 --end 2024-12-31
 </details>
 
 <details>
-<summary><b>Q: `forgemind backtest` 报 "symbol 不在 DuckDB" 怎么办?</b></summary>
+<summary><b>Q: `forgemind backtest` 报 "DuckDB 中没有 600519 在 ... 的 K 线" 怎么办?</b></summary>
 
 A: 先跑 ETL 把标的 K 线拉下来:
 
@@ -313,7 +313,7 @@ forgemind etl --symbols 600519 --start 2022-01-01 --end 2024-12-31
 forgemind backtest --symbol 600519 --start 2024-01-01 --end 2024-12-31
 ```
 
-`forgemind backtest` 默认 DuckDB 真数据优先;如果库里没数据,会用模拟数据并在报告里标 "数据来源: 模拟"。
+`forgemind backtest` 默认 DuckDB 真数据优先;如果库里没数据,会用模拟数据,并在结果里标 "模拟数据,非真实市场"、说明这不是真实回测结果。
 </details>
 
 <details>
@@ -326,7 +326,7 @@ export FORGEMIND_US_TOKEN=your_alpha_vantage_or_polygon_key
 forgemind etl --symbols AAPL --start 2024-01-01 --end 2024-12-31
 ```
 
-没 token 跑会得到 "US 行情源未配置" 错误。`forgemind info` 显示当前 US 数据源状态。
+没 token 跑会得到 "未配置 FORGEMIND_US_TOKEN。" 错误。`forgemind info` 显示当前 US 数据源状态。
 </details>
 
 <details>
@@ -379,11 +379,11 @@ $ forgemind agent --symbol 600519.SH
 
 ```bash
 pytest tests/ -v
-# 663 test files · 10242 tests
+# 664 test files · 10246 tests
 
 # 常规档位:真实业务用例,起真实子进程与真实数据库
 pytest tests/ -m "not heavy"
-# 8402 cases
+# 8406 cases
 
 # 重并发档位:百万级真实运算,单独用更宽的超时执行
 pytest tests/ -m heavy

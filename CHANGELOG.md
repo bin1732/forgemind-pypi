@@ -7,7 +7,57 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- The source tree, the tests, the interface and the workflows that gate
+  them now live in this repository. It is the only source of truth, the
+  only gate and the only release surface; the private repository is
+  frozen as an archive and no longer carries any of it.
+- A workflow runs the whole test suite against the published wheel rather
+  than against the source tree. It waits for the release to finish and
+  checks that the published artifact was built from the commit under
+  test, so the tests and the artifact are of the same generation.
+- The import target of the test suite is decided in one place. The suite
+  no longer puts the source tree in front of the import path when it is
+  supposed to test the installed package, and the subprocesses it spawns
+  inherit the same decision instead of quietly reverting to the source.
+- The strategy list says which strategies the command can run and which
+  ones it cannot, with the reason for each. A strategy that exists but
+  cannot run is no longer reported as an unknown strategy — the same
+  command gave two different answers to the same question, and the
+  reader could not tell which one to believe.
+- A checker runs the commands and compares their exit codes with the
+  table in the README. That table is a promise to the reader, and
+  nothing was keeping it true.
+- The research example has tests of its own. It had none, and the option
+  that makes it useful for a program was broken.
+
 ### Fixed
+- The workflow that runs the tests against the published wheel was
+  measuring the source tree. Scripts inserted the repository root into
+  the import path when they were imported, so the import found the
+  source instead of the installed package — and the job passed while
+  checking nothing it claimed to check.
+- `scripts/research_demo.py --json` did not work. It crashed on the
+  numpy types in the result, its standard output carried the log lines,
+  and a value that could not be computed was written as `NaN`, which is
+  not valid JSON.
+- The exit code table in the README did not match the commands. An
+  interrupted run exits with 130, a refused approval exits with 2, and
+  an argument error exits with 2 as well — the table said 1 and 5+.
+- A release could be triggered from any branch. A push to a branch that
+  nobody had reviewed would publish it and point the index at it, so
+  `pip install` would hand that code to whoever came for it.
+- The shell declaration checker reported success when it was run from
+  the wrong directory: it found no workflow files and had nothing to
+  complain about. It now resolves the path from its own location and
+  treats an empty set as a failure.
+- The manifest named the frozen private repository as the source of the
+  published artifacts.
+- The backtest said "no symbol was given" while the user had given one.
+  Both the case where a symbol was passed and the case where it was not
+  fell into the same branch, and the branch printed the wording of the
+  second one, so the message contradicted the command line in front of
+  the reader and pointed them at the wrong next step.
 - The research endpoint reports the metrics of the same run that produced
   the signals. The figures came from a random walk of its own while the
   signals came from the research pipeline, so the two halves of one
