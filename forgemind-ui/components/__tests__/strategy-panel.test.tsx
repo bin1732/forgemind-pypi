@@ -41,6 +41,26 @@ describe("StrategyPanel", () => {
     expect(screen.getByText("PairsTrading")).toBeInTheDocument();
   });
 
+  it("命令行跑不了的策略要说清为什么", () => {
+    // 后端给的 cli_runnable / unusable_reason 要真被面板说出来 ——
+    // 用户挑一个跑不了的策略,面板得告诉他为什么,而不是让他白试一次。
+    useAppStore.setState({
+      strategies: [
+        { name: "ma_cross", kind: "bar", cli_runnable: true },
+        {
+          name: "MaxSharpe",
+          kind: "extended",
+          cli_runnable: false,
+          unusable_reason: "多标的策略需要多支标的的行情",
+        },
+      ],
+      strategiesLoaded: true,
+    });
+    render(<StrategyPanel />);
+    expect(screen.getByText(/命令行跑不了/)).toBeInTheDocument();
+    expect(screen.getByText(/多支标的/)).toBeInTheDocument();
+  });
+
   it("没有编造的 sharpe 数字", () => {
     useAppStore.setState({
       strategies: [{ name: "ma_cross", kind: "bar" }],

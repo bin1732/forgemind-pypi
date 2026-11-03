@@ -48,6 +48,31 @@ def check_file(path: Path) -> list[tuple[int, str]]:
     return problems
 
 
+# 不是我们自己的代码:第三方依赖与构建产物
+SKIP_DIRS = {"node_modules", ".next", "out", "dist", "build", ".git"}
+
+
+def check_tree(root: Path) -> tuple[list[str], int]:
+    """扫一棵界面源码树,返回 (问题清单, 看过的文件数)。
+
+    目录做参数而不是写死 —— 这样检查器自己的行为能在临时目录里验。
+    """
+    problems: list[str] = []
+    files = 0
+    for path in sorted(root.rglob("*.tsx")) + sorted(root.rglob("*.ts")):
+        if "__tests__" in path.parts or "__mocks__" in path.parts:
+            continue
+        # 第三方与构建产物不是我们的界面 —— 扫进去只会被它们自己的常量
+        # 淹没。兄弟检查器 check_ui_mock_isolation 也是这么排除的。
+        if any(part in SKIP_DIRS for part in path.parts):
+            continue
+        files += 1
+        for number, line in check_file(path):
+            rel = path.relative_to(root)
+            problems.append(f"{rel}:{number}  {line}")
+    return problems, files
+
+
 def main() -> int:
     """扫描界面组件,返回进程退出码。"""
     parser = argparse.ArgumentParser(description="核对界面上的数值是否写死")
@@ -59,15 +84,7 @@ def main() -> int:
         print(f"找不到目录: {root}", file=sys.stderr)
         return 2
 
-    problems = []
-    files = 0
-    for path in sorted(root.rglob("*.tsx")) + sorted(root.rglob("*.ts")):
-        if "__tests__" in path.parts or "__mocks__" in path.parts:
-            continue
-        files += 1
-        for number, line in check_file(path):
-            rel = path.relative_to(root)
-            problems.append(f"{rel}:{number}  {line}")
+    problems, files = check_tree(root)
 
     if problems:
         print(f"界面里有 {len(problems)} 处疑似写死的数据:")

@@ -406,7 +406,9 @@ class ForgeMindMCPServer:
         self._resource(
             "forgemind://strategies",
             "Available Strategies",
-            "List of all registered strategies, derived from the live registry",
+            "All registered strategies, derived from the live registry. "
+            "Each entry says whether the command line can run it "
+            "(cli_runnable) and, when it cannot, why (unusable_reason).",
             content=self._strategy_catalog(),
         )
         # === 当前 DuckDB 已 ETL 过的真实标的列表 ===
@@ -570,16 +572,37 @@ class ForgeMindMCPServer:
         return _dumps({"total": len(sigs), "signals": sigs})
 
     def _strategy_catalog(self) -> dict:
-        """从真实注册表派生策略清单"""
+        """从真实注册表派生策略清单
+
+        清单要带上"命令行能不能跑它"以及跑不了的原因:这份资源是给
+        模型和客户端读的,拿到一份不带可跑性的清单,模型就会挑一个
+        多标的策略去调 run_backtest,然后被拒 —— 而它无从知道为什么。
+        """
         from forgemind.core.strategies import STRATEGY_REGISTRY
         from forgemind.core.strategies.extended_library import list_strategies
+        from forgemind.core.strategies.library import (
+            cli_runnable_strategies,
+            strategy_unusable_reason,
+        )
 
         names = sorted(set(STRATEGY_REGISTRY) | set(list_strategies()))
+        runnable = cli_runnable_strategies()
+        out = []
+        for n in names:
+            entry = {
+                "name": n,
+                "kind": "bar" if n in STRATEGY_REGISTRY else "extended",
+                # 命令行喂不了多标的策略,这里要写清原因,不是只写个名字
+                "cli_runnable": n in runnable,
+            }
+            reason = strategy_unusable_reason(n)
+            if reason:
+                entry["unusable_reason"] = reason
+            out.append(entry)
         return {
             "count": len(names),
-            "strategies": [
-                {"name": n, "kind": "bar" if n in STRATEGY_REGISTRY else "extended"} for n in names
-            ],
+            "cli_runnable_count": len(runnable),
+            "strategies": out,
         }
 
     # ===== 注册辅助 =====

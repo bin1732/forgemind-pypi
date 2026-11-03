@@ -133,8 +133,24 @@ interface AppState {
   setFactorIcState: (state: "idle" | "loading" | "ready" | "failed") => void;
 
   // 策略清单 —— 由 forgemind://strategies 派生
-  strategies: { name: string; kind: string }[];
-  setStrategies: (strategies: { name: string; kind: string }[]) => void;
+  //
+  // cli_runnable 与 unusable_reason 来自后端:命令行喂不了某些策略
+  // (多标的、需要模型、需要行情表里没有的列),面板要能说清为什么,
+  // 而不是只列个名字让用户挑一个跑不了的。
+  strategies: {
+    name: string;
+    kind: string;
+    cli_runnable?: boolean;
+    unusable_reason?: string;
+  }[];
+  setStrategies: (
+    strategies: {
+      name: string;
+      kind: string;
+      cli_runnable?: boolean;
+      unusable_reason?: string;
+    }[],
+  ) => void;
 
   // 已 ETL 过的标的清单 —— 由 forgemind://symbols 派生(DuckDB kline_daily 真 distinct)
   symbols: string[];

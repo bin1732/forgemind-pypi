@@ -56,7 +56,14 @@ export function StrategyPanel() {
     id: r.name,
     name: r.name,
     category: inferCategory(r.name),
-    description: r.kind === "bar" ? "单标的策略" : "扩展策略",
+    // 命令行喂不了某些策略(多标的、要模型、要行情表里没有的列)。
+    // 说清为什么,用户才知道这个策略不是坏了、而是这条命令用不了。
+    description:
+      r.cli_runnable === false
+        ? `命令行跑不了:${r.unusable_reason ?? "原因未说明"}`
+        : r.kind === "bar"
+          ? "单标的策略"
+          : "扩展策略",
     status: "stopped" as const,
   }));
   const [activeId, setActiveId] = useState<string>("lgbm_alpha");

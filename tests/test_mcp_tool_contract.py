@@ -142,6 +142,54 @@ def _seed_klines(symbols=("600519", "000001"), days=40):
     return len(rows)
 
 
+class TestStrategyCatalogTellsWhatTheCommandCanRun:
+    """策略清单是给模型与客户端读的 —— 它得说清哪些跑不了、为什么
+
+    这份资源原先只有名字和类型。客户端拿到它就会挑一个策略去调
+    run_backtest,挑到多标的的就被拒 —— 而它无从知道原因。
+    """
+
+    def _catalog(self) -> dict:
+        import json
+
+        from forgemind.mcp.server import ForgeMindMCPServer
+
+        server = ForgeMindMCPServer()
+        payload = server._strategy_catalog()  # noqa: SLF001
+        assert isinstance(payload, dict)
+        return json.loads(json.dumps(payload))
+
+    def test_every_entry_says_whether_the_cli_can_run_it(self):
+        catalog = self._catalog()
+        assert catalog["strategies"], "清单是空的"
+        for entry in catalog["strategies"]:
+            assert "cli_runnable" in entry, f"{entry['name']} 没写能不能跑"
+            assert isinstance(entry["cli_runnable"], bool)
+
+    def test_unrunnable_ones_carry_a_reason(self):
+        """跑不了的必须带原因 —— 只说"不行"等于没说"""
+        catalog = self._catalog()
+        for entry in catalog["strategies"]:
+            if not entry["cli_runnable"]:
+                reason = entry.get("unusable_reason", "")
+                assert reason, f"{entry['name']} 跑不了却没给原因"
+
+    def test_the_flag_matches_the_command(self):
+        """清单说的与命令实际接受的要一致"""
+        from forgemind.core.strategies.library import cli_runnable_strategies
+
+        runnable = set(cli_runnable_strategies())
+        catalog = self._catalog()
+        flagged = {e["name"] for e in catalog["strategies"] if e["cli_runnable"]}
+        assert flagged == runnable, f"清单标的可跑集合与命令实际接受的不一致:{flagged ^ runnable}"
+
+    def test_runnable_count_matches(self):
+        from forgemind.core.strategies.library import cli_runnable_strategies
+
+        catalog = self._catalog()
+        assert catalog["cli_runnable_count"] == len(cli_runnable_strategies())
+
+
 class TestToolContract:
     """每个工具都要能真调,且不编造数据。"""
 
