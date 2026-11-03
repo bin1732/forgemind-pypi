@@ -172,8 +172,8 @@ def compute_alpha101(df: pl.LazyFrame) -> pl.LazyFrame:
     `.collect()` 后走 numpy),给每个窗口加 `.over("symbol")` 需要改十几处
     调用点,集中维护易漏。
 
-    改在结构上修:入口按 symbol 切分,逐只计算再纵向拼接,内部 polars
-    与 numpy 路径都不存在跨标的计算。
+    入口按 symbol 切分,逐只计算再纵向拼接,内部 polars 与 numpy 路径
+    都不存在跨标的计算。
     没有 symbol 列的输入按单标的处理,行为与多标的一致。
 
     代价:因子数从 O(1) 次表达式变成 O(标的数) 次。面板越大越慢,

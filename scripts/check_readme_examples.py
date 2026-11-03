@@ -82,7 +82,7 @@ ERROR_EXAMPLE_MARK = "错误示范"
 def check_error_example(blocks: list[str]) -> list[str]:
     """FAQ 里那条"错误示范"必须真的存在,而且必须真的是错的。
 
-    它存在的意义是说明 --index-url 为什么不行 —— 哪天它被"顺手改成"对的,
+    它存在的意义是说明 --index-url 为什么不行 —— 哪天它被改成"对"的,
     FAQ 就变成一句没有对象的警告,而读者再也学不到差别。
     """
     problems: list[str] = []

@@ -40,11 +40,11 @@ class TestCLICommands:
         # 应能跑通(只是 print)
         cmd_info(args)
 
-    def test_cmd_broker_test(self):
+    def test_cmd_signal(self):
         """signal 命令 — 显示研究层说明"""
-        from forgemind.cli import cmd_broker_test
+        from forgemind.cli import cmd_signal
         args = self._make_args()
-        cmd_broker_test(args)  # 应只 print
+        cmd_signal(args)
 
     def test_cmd_backtest_ma_cross(self):
         """backtest + ma_cross"""

@@ -245,7 +245,7 @@ class ShadowTrader:
 
 class PromotionGate:
     """
-    Promotion Gate — 影子 → 实盘的晋级门控 (§28 §2.2)
+    Promotion Gate — 影子 → 实盘的晋级门控
     """
 
     def __init__(

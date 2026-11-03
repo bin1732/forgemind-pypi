@@ -714,12 +714,11 @@ def cmd_etl(args):
         sys.exit(3)
 
 
-def cmd_broker_test(args):
-    """生成一个示例信号 + 落 DuckDB signal_history
+def cmd_signal(args):
+    """生成一条示例信号并真的落进 DuckDB 的 signal_history。
 
-    这里只 print broker stub, signal 没落盘, 桌面 signal-table 看不到。
-    修:真调 save_signal 落 signal_history,跟 MCP output_signal 同一路径。
-    用户跑 forgemind signal 之后,桌面 signal-table 会真显示这条信号。
+    落盘走的是 save_signal —— 与 MCP 的 output_signal 同一个路径。落库
+    之后,桌面端的信号表能真显示这条信号。
     """
     from forgemind.core.data.storage import bare_symbol, save_signal
 
@@ -884,7 +883,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser_signal.add_argument("--side", default="BUY", choices=["BUY", "SELL", "HOLD"])
     parser_signal.add_argument("--confidence", type=float, default=0.5, help="0-1")
     parser_signal.add_argument("--rationale", default=None, help="信号理由")
-    parser_signal.set_defaults(func=cmd_broker_test)
+    parser_signal.set_defaults(func=cmd_signal)
 
     # demo — 新手的第一条命令:零配置、零密钥,跑完就看到结果
     parser_demo = subparsers.add_parser(

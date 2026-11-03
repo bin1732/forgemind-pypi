@@ -674,7 +674,8 @@ class ForgeMindMCPServer:
 
 
         ["LightGBMModel","XGBoostModel"] / ["StockPickerAgent",...] 关联,
-        等于凭空捏造使用关系且没有任何标记。现改为扫描真实代码引用。
+        等于凭空捏造使用关系且没有任何标记。这个工具扫描的是真实代码
+        引用,不是猜出来的关系。
         """
         from forgemind.core.factors import get_all_factors
 
@@ -845,10 +846,9 @@ class ForgeMindMCPServer:
     ) -> dict:
         """输出交易信号 JSON(不替用户下单) — 真落 DuckDB
 
-        这里返回 dict 但信号没落盘, 桌面 signal-table 显示
-        store.signals(永远 [])—— 用户跑了 forgemind signal 桌面看不到。
-        修:save_signal() 落 signal_history,返回带 signal_id 的真信号。
-        桌面 forgemind://signals resource 拉最近 N 条,signal-table 显示。
+        信号经 save_signal() 落进 signal_history,返回带 signal_id 的
+        真信号。桌面的 forgemind://signals resource 拉最近 N 条,
+        signal-table 随即显示。
         """
         import uuid
 
@@ -900,8 +900,8 @@ class ForgeMindMCPServer:
 
         因子卡的 IC 来自 list_factor_ic 真算
         因为 forgemind://features resource 只返 name+category,不算 IC。
-        修:加 list_factor_ic tool, 桌面端加载 factor-grid 后, 后台
-        拉一次所有因子 IC, 写到 store.factors[].ic, 面板直接显示。
+        桌面端加载 factor-grid 后, 后台拉一次所有因子 IC, 写到
+        store.factors[].ic, 面板直接显示。
 
         性能:每个因子算 IC 大约 30ms,169 因子约 5s。缓存到 store 后
         切换 symbol 才重新算。

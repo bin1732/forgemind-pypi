@@ -24,7 +24,7 @@ logger = get_logger("forgemind.agents")
 settings = get_settings()
 
 
-# ===== PortfolioContext(§24 L2 P0-1)=====
+# ===== 持仓上下文 =====
 class PortfolioPosition(BaseModel):
     symbol: str
     quantity: int
@@ -36,7 +36,8 @@ class PortfolioContext(BaseModel):
     """
     任何 agent 的入参 — 必须带这个,不能 hidden state
 
-    这是 §24 L2 P0-1 关键修复:agent 不能再"不知道用户已经持仓"
+    agent 拿到的持仓是调用方给的,不是它自己猜的:持仓是明面上的输入,
+    任何 agent 都能知道自己已经持有哪些标的。
     """
 
     cash: float
@@ -96,7 +97,7 @@ class AgentState(TypedDict, total=False):
     decision_event: dict  # AIDecisionEvent.model_dump()
 
 
-# ===== Decision Log Markdown(§24 L2 P0-3)=====
+# ===== 决策记录(Markdown)=====
 
 
 def decision_log_dir() -> Path:
@@ -180,7 +181,7 @@ class DecisionLog:
         return "\n## ".join(sections[-limit:])
 
 
-# ===== 3-Agent Harness(§24 L2 P1-12 简化版)=====
+# ===== 三个 agent 的协同(简化版)=====
 
 
 def _load_kline(symbol: str, limit: int = 250) -> pd.DataFrame | None:
@@ -591,7 +592,7 @@ def portfolio_manager_node(state: AgentState) -> dict:
     """
     PM 综合决策 — 强制 interrupt_before(人工审批 gating)
 
-    §24 L2 P0-9 关键:人工审批是 gating,不是替代
+    人工审批是闸门,不是替代:不批就不落盘。
     """
     symbol = state.get("symbol", "")
     portfolio_dict = state.get("portfolio", {})
