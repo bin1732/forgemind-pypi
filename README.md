@@ -27,7 +27,7 @@
 |---|---|
 | **169 Alpha Factors** | Alpha158 (152) · Alpha101 (11) · Barra 风险模型 · IC 监控 |
 | **Stock Screening Agent** | Multi-factor scoring + AI rationale generation |
-| **Backtest Engine** (`forgemind backtest`) | Event-driven 事件驱动 · 3 种滑点模型(fixed / linear / sqrt) · 17 策略(`forgemind backtest --list-strategies` 看全部) |
+| **Backtest Engine** (`forgemind backtest`) | Event-driven 事件驱动 · 3 种滑点模型(fixed / linear / sqrt) · 9 个策略这条命令跑得起来(`forgemind backtest --list-strategies` 看全部,以及另一些策略为什么跑不了) |
 | **AI Decision Agent** | LangGraph 6-node pipeline · 9 LLM providers · 人工审批 gating |
 | **Desktop App** | Tauri 2.x · Next.js 15 frontend · MCP protocol (Claude Desktop / Cursor) — 需本机已装 Python 3.11+ 与本包(桌面端启动 Python sidecar,未捆绑解释器) |
 | **Free Data** | AKShare · A-shares + CN macro(PMI / CPI / PPI / M2 / 国债收益率 / 汇率)· DuckDB · *(US 需配置 FORGEMIND_US_TOKEN,见 `forgemind info`)* |
@@ -379,11 +379,11 @@ $ forgemind agent --symbol 600519.SH
 
 ```bash
 pytest tests/ -v
-# 665 test files · 10252 tests
+# 666 test files · 10259 tests
 
 # 常规档位:真实业务用例,起真实子进程与真实数据库
 pytest tests/ -m "not heavy"
-# 8412 cases
+# 8419 cases
 
 # 重并发档位:百万级真实运算,单独用更宽的超时执行
 pytest tests/ -m heavy

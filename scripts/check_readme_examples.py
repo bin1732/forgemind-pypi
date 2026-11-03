@@ -26,7 +26,12 @@ REPO = Path(__file__).resolve().parent.parent
 
 PY_BLOCK = re.compile(r"```python\n(.*?)```", re.S)
 BASH_BLOCK = re.compile(r"```bash\n(.*?)```", re.S)
-CLI_COMMAND = re.compile(r"(?:^|\s)forgemind\s+([a-z][a-z0-9-]*)", re.M)
+# 命令名的前缀要认反引号等引号:正文里写的是 `forgemind backtest`,
+# 只认空白与行首的话,正文里那些一个都抓不到。
+# 名字里允许下划线:真命令没有,但抓假的要能抓到。
+# `forgemind.core.pipeline.X` 这种模块路径不会被当成命令 ——
+# "forgemind" 后面跟的是点号,不是空白。
+CLI_COMMAND = re.compile(r"""(?:^|[\s`'"(])forgemind\s+([a-z][a-z0-9_-]*)""", re.M)
 
 
 def _python_blocks(text: str) -> list[str]:
@@ -49,6 +54,28 @@ def _real_subcommands() -> set[str]:
     except Exception:  # noqa: BLE001 — 取不到就当没查到,只报"未核对"
         return set()
     return set()
+
+
+def check_strategy_count(text: str) -> list[str]:
+    """README 说的策略数必须等于命令真能跑的那批。
+
+    这个数字写死在文档里就会漂:加了策略忘了改文档,或者文档说了总数、
+    命令其实只跑其中一部分。两种情况下读者都被误导 —— 他们照着数字
+    估这条命令的能力。
+    """
+    try:
+        from forgemind.core.strategies.library import cli_runnable_strategies
+
+        runnable = len(cli_runnable_strategies())
+    except Exception:  # noqa: BLE001 — 取不到就当没核对
+        return []
+    problems = []
+    for m in re.finditer(r"(\d+)\s*个策略", text):
+        claimed = int(m.group(1))
+        if claimed != runnable:
+            line = text[: m.start()].count("\n") + 1
+            problems.append(f"README 第 {line} 行说 {claimed} 个策略,命令真能跑的是 {runnable} 个")
+    return problems
 
 
 def check_python_blocks(blocks: list[str], timeout: int = 180) -> list[str]:
@@ -105,8 +132,8 @@ def check_error_example(blocks: list[str]) -> list[str]:
 def check_bash_blocks(blocks: list[str]) -> list[str]:
     """README 里点名的子命令必须真的存在。
 
-    整篇 README 都查,不只是代码块里 —— 功能表、命令清单、FAQ 里都可能有。
-    故意写错的示范(标了"错误示范"的)不在此列。
+    只查代码块里的 —— 整篇扫描时,"故意写错的示范"那几段要单独排除,
+    而它们只在代码块里有标记。
     """
     subcommands = _real_subcommands()
     if not subcommands:
@@ -123,6 +150,28 @@ def check_bash_blocks(blocks: list[str]) -> list[str]:
     return problems
 
 
+def check_all_mentions(text: str, blocks: list[str]) -> list[str]:
+    """整篇 README 里提到的子命令都必须真的存在。
+
+    功能表、命令清单、FAQ 里都可能写着命令 —— 那些地方不在代码块里,
+    只查代码块就会漏掉。而用户是照着那些地方抄命令的。
+
+    标了"错误示范"的那几段不在此列:那里的命令是故意写错的。
+    """
+    subcommands = _real_subcommands()
+    if not subcommands:
+        return []
+    problems: list[str] = []
+    for cmd in CLI_COMMAND.findall(text):
+        if cmd in {"--help", "-h"}:
+            continue
+        if cmd not in subcommands:
+            # 报错时给出行号:读者要能自己找过去
+            line = text[: text.index(f"forgemind {cmd}")].count("\n") + 1
+            problems.append(f"README 第 {line} 行提到的 `forgemind {cmd}` 不是真实子命令")
+    return problems
+
+
 def main() -> int:
     readme = REPO / "README.md"
     if not readme.is_file():
@@ -133,6 +182,8 @@ def main() -> int:
     bash_blocks = _bash_blocks(text)
     problems = check_python_blocks(py_blocks)
     problems += check_bash_blocks(bash_blocks)
+    problems += check_all_mentions(text, bash_blocks)
+    problems += check_strategy_count(text)
     problems += check_error_example(bash_blocks)
     if problems:
         print("README 里的示例有问题:")
