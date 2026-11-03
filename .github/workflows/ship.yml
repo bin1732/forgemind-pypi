@@ -5,6 +5,10 @@ name: ship
 
 on:
   push:
+    # 只从 main 发布。少了这个分支过滤,推到任何分支都会触发发布 ——
+    # 没审过的代码会被推成用户下载到的"最新版",索引也跟着指过去。
+    branches:
+    - main
     paths-ignore:
       - 'releases/**'
       - 'pypi/**'

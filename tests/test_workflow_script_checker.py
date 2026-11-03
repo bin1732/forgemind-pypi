@@ -193,3 +193,49 @@ class TestWorkingDirectorySemantics:
             "标签", "python ../scripts/没有这个.py", "sub", tmp_path
         )
         assert len(problems) == 1, problems
+
+
+class TestPublishTriggerIsBranchLimited:
+    """发布那条工作流的 push 触发必须限定分支"""
+
+    def _workflow(self, push_block: str) -> dict:
+        return {
+            "on": {"push": push_block},
+            "permissions": {"contents": "write"},
+            "jobs": {"ship": {"runs-on": "ubuntu-26.04", "steps": []}},
+        }
+
+    def test_missing_branch_filter_is_reported(self, tmp_path):
+        """没有分支过滤要报出来 —— 推到任何分支都会发布"""
+        path = tmp_path / "ship.yml"
+        problems = cws.check_publish_trigger_is_branch_limited(
+            path, self._workflow({"paths-ignore": ["releases/**"]})
+        )
+        assert len(problems) == 1, problems
+        assert "分支" in problems[0]
+
+    def test_branch_filter_is_accepted(self, tmp_path):
+        """有限定分支就不报"""
+        path = tmp_path / "ship.yml"
+        problems = cws.check_publish_trigger_is_branch_limited(
+            path, self._workflow({"branches": ["main"], "paths-ignore": ["releases/**"]})
+        )
+        assert problems == [], problems
+
+    def test_workflow_without_write_permission_is_not_judged(self, tmp_path):
+        """只读的工作流(校验类)用不着限定分支"""
+        path = tmp_path / "ci-lint.yml"
+        data = self._workflow({"paths-ignore": ["releases/**"]})
+        data["permissions"] = {"contents": "read"}
+        problems = cws.check_publish_trigger_is_branch_limited(path, data)
+        assert problems == [], problems
+
+    def test_repository_workflows_satisfy_the_rule(self):
+        """仓里的发布工作流真的要限定了"""
+        import yaml
+
+        root = Path(__file__).resolve().parent.parent / ".github/workflows"
+        for path in sorted(root.glob("*.yml")):
+            data = yaml.safe_load(path.read_text(encoding="utf-8"))
+            problems = cws.check_publish_trigger_is_branch_limited(path, data)
+            assert problems == [], f"{path.name}: {problems}"

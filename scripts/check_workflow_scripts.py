@@ -313,6 +313,35 @@ def check_job_graph(path: Path, data: dict, repo_root: Path) -> list[str]:
     return problems
 
 
+def check_publish_trigger_is_branch_limited(path: Path, data: dict) -> list[str]:
+    """发布那条工作流的 push 触发必须限定分支。
+
+    有 contents: write 权限的工作流就是发布那条 —— 它会写索引、写清单、
+    传构件。少了分支过滤,推到任何分支都会触发它:没审过的代码被推成
+    用户下载到的"最新版",索引也跟着指过去,而对外看不出发生过什么。
+    """
+    problems: list[str] = []
+    permissions = data.get("permissions")
+    if not isinstance(permissions, dict):
+        return problems
+    if str(permissions.get("contents", "")).lower() != "write":
+        return problems
+    on = data.get("on")
+    if not isinstance(on, dict):
+        on = data.get(True) if isinstance(data.get(True), dict) else {}
+    push = on.get("push") if isinstance(on, dict) else None
+    if not isinstance(push, dict):
+        # 没有 push 触发(只靠 workflow_dispatch / workflow_run)就没事
+        return problems
+    branches = push.get("branches")
+    if not branches:
+        problems.append(
+            f"{path.name}: 发布工作流的 push 触发必须限定分支 —— "
+            "否则推到任何分支都会发布,把没审过的代码推成用户下载的最新版"
+        )
+    return problems
+
+
 def main(repo_root: Path | None = None) -> int:
     """检查工作流目录,返回进程退出码。
 
@@ -361,6 +390,7 @@ def main(repo_root: Path | None = None) -> int:
                 problems.extend(found)
                 unverified += missed
         problems.extend(check_job_graph(path, data, repo_root))
+        problems.extend(check_publish_trigger_is_branch_limited(path, data))
 
     if problems:
         print("工作流脚本写法有问题:")
