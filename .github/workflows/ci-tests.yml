@@ -92,6 +92,10 @@ jobs:
                   # MCP 的提示词与工具说明里点名的工具必须真的存在。
                   # 那是直接给模型看的,名字对不上,模型调的是一个空工具。
                   python scripts/check_mcp_references.py
+                  # 错误码表是对用户的承诺:看到某个码就知道发生了什么。
+                  # 表与实际行为分家,它就只剩误导作用。命令真跑一遍核对。
+                  # 这一档的作业装了项目依赖,命令才跑得起来。
+                  python scripts/check_exit_codes.py README.md
     - name: 上传依赖安装日志
       if: always()
       continue-on-error: true

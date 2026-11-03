@@ -62,6 +62,25 @@ class TestExitCodeChecker:
         finally:
             tmp.unlink(missing_ok=True)
 
+    def test_missing_dependency_is_not_reported_as_a_code_mismatch(self):
+        """命令没跑起来要说"环境缺依赖",不能说"退出码与表对不上"
+
+        两件事混在一起,会把环境的毛病说成行为不符 —— 那会让真正的问题
+        淹没在错误的说法里。
+        """
+        import check_exit_codes as checker
+
+        assert checker.looks_like_missing_dependency(
+            "ModuleNotFoundError: No module named 'pandas'"
+        )
+        assert checker.looks_like_missing_dependency(
+            "/usr/bin/python3: No module named forgemind.cli"
+        )
+        assert not checker.looks_like_missing_dependency(
+            "❌ 未知策略 NoSuchStrategyAnywhere"
+        )
+        assert not checker.looks_like_missing_dependency("")
+
     def test_it_catches_a_missing_row(self):
         """表里少了一行,它也得报出来"""
         text = (REPO / "README.md").read_text(encoding="utf-8")

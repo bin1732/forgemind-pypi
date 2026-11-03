@@ -74,7 +74,17 @@ def documented_codes(readme: Path) -> dict[int, str]:
     return out
 
 
-def run_probe(argv: tuple[str, ...], db_path: Path) -> int:
+def looks_like_missing_dependency(output: str) -> bool:
+    """这段输出是不是"命令没跑起来,环境里缺东西"。
+
+    命令压根没跑起来,与"退出码不对"是两回事:前者是环境的毛病,后者才
+    是行为与表分家。混在一起报,会把环境的毛病说成行为不符。
+    """
+    return "ModuleNotFoundError" in output or "No module named" in output
+
+
+def run_probe(argv: tuple[str, ...], db_path: Path) -> tuple[int, str]:
+    """跑一个命令,返回 (退出码, 失败时的输出)。"""
     env = dict(os.environ)
     env["FORGEMIND_DUCKDB_PATH"] = str(db_path)
     env["FORGEMIND_LOG_LEVEL"] = "ERROR"
@@ -87,7 +97,7 @@ def run_probe(argv: tuple[str, ...], db_path: Path) -> int:
         timeout=600,
         env=env,
     )
-    return result.returncode
+    return result.returncode, (result.stdout + result.stderr)[-400:]
 
 
 def main() -> int:
@@ -119,7 +129,14 @@ def main() -> int:
     with tempfile.TemporaryDirectory(prefix="forgemind-exit-codes-") as tmp:
         db = Path(tmp) / "exit_codes.db"
         for label, argv, expected in PROBES:
-            actual = run_probe(argv, db)
+            actual, output = run_probe(argv, db)
+            # 命令压根没跑起来,与"退出码不对"是两回事:前者是环境缺东西,
+            # 混在一起报,会把环境的毛病说成行为不符。
+            if looks_like_missing_dependency(output):
+                problems.append(
+                    f"{label}({argv[0]}): 命令没跑起来,环境里缺依赖 —— {output.strip()[-200:]}"
+                )
+                continue
             if actual != expected:
                 problems.append(f"{label}({argv[0]}): 实际退出码 {actual},表里写的是 {expected}")
                 continue
