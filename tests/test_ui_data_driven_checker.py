@@ -3,7 +3,7 @@
 
 """界面数据来源核对器自己得可靠。
 
-它盯的是组件里有没有写死的指标值。这个错很隐蔽:界面看着正常,
+它盯的是组件里有没有写死在那儿的指标值。这个错很隐蔽:界面看着正常,
 后端早就已经不返回这些数了。
 
 所以它不能有两个毛病:
@@ -36,7 +36,7 @@ class TestHardcodedValues:
         _write(tmp_path / "components" / "panel.tsx", "const sharpe = 1.2345;\n")
         problems, files = checker.check_tree(tmp_path)
         assert files == 1, files
-        assert problems, "组件里写死的指标值没被报出来"
+        assert problems, "组件里写死在那儿的指标值没被报出来"
 
     def test_third_party_is_not_reported(self, tmp_path):
         """node_modules 里的常量不是我们写的,不报"""
