@@ -239,3 +239,87 @@ class TestPublishTriggerIsBranchLimited:
             data = yaml.safe_load(path.read_text(encoding="utf-8"))
             problems = cws.check_publish_trigger_is_branch_limited(path, data)
             assert problems == [], f"{path.name}: {problems}"
+
+
+class TestConcurrencyGroupsAreNotShared:
+    """两个工作流共用一个并发组,必然有一个被取消"""
+
+    def test_shared_group_is_reported(self):
+        """共用一组 → 必须报出来"""
+        problems = cws.check_concurrency_groups_are_not_shared(
+            [("verify.yml", "post-ship-${{ github.ref }}"),
+             ("verify-live.yml", "post-ship-${{ github.ref }}")]
+        )
+        assert len(problems) == 1, problems
+        assert "verify.yml" in problems[0] and "verify-live.yml" in problems[0]
+
+    def test_distinct_groups_are_not_reported(self):
+        """各用各的组 → 不许报"""
+        problems = cws.check_concurrency_groups_are_not_shared(
+            [("verify.yml", "verify-${{ github.ref }}"),
+             ("verify-live.yml", "verify-live-${{ github.ref }}")]
+        )
+        assert problems == [], problems
+
+    def test_same_literal_prefix_is_reported(self):
+        """字面前缀相同 → 运行时可能落进同一组,必须报出来"""
+        problems = cws.check_concurrency_groups_are_not_shared(
+            [("verify.yml", "post-ship-${{ github.ref }}"),
+             ("verify-live.yml", "post-ship-${{ github.ref_name }}")]
+        )
+        assert len(problems) == 1, problems
+        assert "前缀" in problems[0]
+
+    def test_prefix_helper(self):
+        """前缀取的是第一个表达式之前的字面量"""
+        assert cws.concurrency_group_prefix("verify-${{ github.ref }}") == "verify-"
+        assert cws.concurrency_group_prefix("plain-group") == "plain-group"
+        assert cws.concurrency_group_prefix("${{ github.ref }}") == ""
+
+    def test_single_workflow_with_group_is_not_reported(self):
+        """只有一个工作流声明了组 → 不许报"""
+        problems = cws.check_concurrency_groups_are_not_shared(
+            [("ship.yml", "ship-${{ github.ref }}")]
+        )
+        assert problems == [], problems
+
+    def test_workflow_without_concurrency_block_has_no_group(self):
+        """没声明并发组 → 取不到组,不参与判据"""
+        assert cws.collect_concurrency_group({"jobs": {}}) is None
+        assert cws.collect_concurrency_group({"concurrency": {}}) is None
+        assert cws.collect_concurrency_group({"concurrency": {"group": "  "}}) is None
+        assert cws.collect_concurrency_group({"concurrency": {"group": "x"}}) == "x"
+
+    def test_repository_workflows_use_distinct_groups(self):
+        """仓里的工作流真的各用各的组"""
+        import yaml
+
+        root = Path(__file__).resolve().parent.parent / ".github/workflows"
+        groups = []
+        for path in sorted(root.glob("*.yml")):
+            data = yaml.safe_load(path.read_text(encoding="utf-8"))
+            group = cws.collect_concurrency_group(data)
+            if group is not None:
+                groups.append((path.name, group))
+        problems = cws.check_concurrency_groups_are_not_shared(groups)
+        assert problems == [], problems
+
+    def test_the_three_post_publish_verifications_are_separate(self):
+        """三个发布后验证必须各有各的并发组 —— 这正是被取消过的那个坑"""
+        import yaml
+
+        root = Path(__file__).resolve().parent.parent / ".github/workflows"
+        post_publish = []
+        for name in ("verify.yml", "verify-live.yml", "verify-desktop.yml"):
+            data = yaml.safe_load((root / name).read_text(encoding="utf-8"))
+            # YAML 1.1 把键 on 解析成布尔 True,所以两种写法都得试。
+            on = data.get("on")
+            if not isinstance(on, dict):
+                on = data.get(True) if isinstance(data.get(True), dict) else {}
+            if "workflow_run" in on:
+                post_publish.append((name, cws.collect_concurrency_group(data)))
+        assert len(post_publish) == 3, f"发布后验证的工作流数不对: {post_publish}"
+        for name, group in post_publish:
+            assert group, f"{name} 没有声明并发组"
+        groups = [g for _, g in post_publish]
+        assert len(set(groups)) == len(groups), f"这几个工作流共用并发组: {post_publish}"

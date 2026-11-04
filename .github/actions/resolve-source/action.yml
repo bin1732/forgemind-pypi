@@ -1,5 +1,5 @@
 name: 读出构件来源提交
-description: 从公开仓的清单里读出这次构件的来源提交,供取源码时钉住
+description: 从公开仓的清单里读出这次构件的来源提交与发布版本,供取源码时钉住
 
 # 构件的来源提交写在仓里的清单里(由 ship 写入)。所有要取源码的作业
 # 都该钉在它上面:
@@ -8,11 +8,20 @@ description: 从公开仓的清单里读出这次构件的来源提交,供取源
 # - 三个构建各自 fetch main,main 一动就可能拿到不同的提交
 #
 # 这里只负责读,不负责取。读不到就报错 —— 悄悄退回 main 等于放弃这个保证。
+#
+# 清单是"发了什么、从哪个提交来"的唯一真源,所以发布版本也从这里读,
+# 不让别处再抄一份版本号。
 
 outputs:
   commit:
     description: 构件的来源提交
     value: ${{ steps.read.outputs.commit }}
+  published_version:
+    description: 清单里记的发布版本
+    value: ${{ steps.read.outputs.published_version }}
+  build_id:
+    description: 清单里记的构建号
+    value: ${{ steps.read.outputs.build_id }}
 
 runs:
   using: composite
@@ -25,13 +34,23 @@ runs:
         REPO: ${{ github.repository }}
       run: |
         set -euo pipefail
-        sha=$(curl -sS -H "Authorization: Bearer $GH_TOKEN" \
-          -H "Accept: application/vnd.github+json" \
+        # 一次读清单,三样东西都从这一份里取 —— 别处不再单独读一遍清单。
+        # Accept 用 raw:contents 接口默认返回的是 base64 包着的 content,
+        # 解析出来是空的(自己写过一回:读出来三个字段全是空,还以为线上
+        # 没发布)。raw 头直接给文件原文。
+        # 解析写成一行:多行 heredoc 在 YAML 里缩进容易出错,收在这里。
+        curl -sS -H "Authorization: Bearer $GH_TOKEN" \
+          -H "Accept: application/vnd.github.raw" \
           "https://api.github.com/repos/$REPO/contents/releases/builds/manifest.json" \
-          | python3 -c "import json,sys,base64;d=json.load(sys.stdin);print(json.loads(base64.b64decode(d['content'])).get('source_commit',''))")
+          > "$RUNNER_TEMP/manifest.json"
+        read -r sha published build < <(python3 -c "import json,sys;d=json.load(open(sys.argv[1]));print(d.get('source_commit',''),d.get('published_version',''),d.get('build_id',''))" "$RUNNER_TEMP/manifest.json")
         if [ -z "$sha" ]; then
           echo "清单里没有 source_commit —— 构件没记来源提交" >&2
           exit 1
         fi
         echo "构件来源提交: $sha"
+        echo "清单发布版本: ${published:-无}"
+        echo "清单构建号: ${build:-无}"
         echo "commit=$sha" >> "$GITHUB_OUTPUT"
+        echo "published_version=$published" >> "$GITHUB_OUTPUT"
+        echo "build_id=$build" >> "$GITHUB_OUTPUT"

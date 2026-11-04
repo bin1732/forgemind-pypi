@@ -349,6 +349,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   parameter answers with a structured error that looks like a working
   service. A second test now fails when a route is added without being
   covered, so a new endpoint cannot slip past the checks.
+- The three checks that run after a release no longer share one concurrency
+  group. A concurrency group keeps a single pending run, so a new run
+  cancels the one that was waiting: two of the three checks were cancelled
+  on every release, and which two survived depended on which one queued
+  first. The cancellations happened before any job was created, so they
+  said nothing about the artifacts — every check that did get a runner
+  finished. Each check now has its own group, and a checker keeps two
+  workflows from sharing one.
+- The scheduled run of the check that tests the published wheel tests the
+  artifact against the source that produced it. It compared the commit in
+  the manifest with the head of the branch, and the two differ as soon as
+  anything is pushed after a release, so the run failed on every attempt.
+  The commit under test now comes from the manifest, and the run checks
+  that the commit is part of the history of the branch.
+- Reading the manifest returns the manifest. The contents endpoint returns
+  the file base64-encoded unless a different media type is asked for, and
+  the parser read the envelope instead of the file, so every field came
+  back empty.
 
 ### Changed
 - Dependencies are now checked against what the code actually imports, in

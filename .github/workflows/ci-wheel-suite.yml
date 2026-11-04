@@ -13,9 +13,19 @@ name: 全量测试跑在发布出去的 wheel 上
 # 分钟,而测试若在 push 后立刻起,拿到的会是上一代的 wheel —— 红的是
 # "版本对不上",不是构件坏了,那样的红没有意义。
 #
-# 所以这一档等 ship 发布完成再起,并且核对清单里记的源码提交就是这一
-# 次被测的提交。对不上就报错:用户下载到的与 main 不是同一份,这是值
-# 得报的事,不是可以放过去的事。
+# 被测的那份提交,一律取**清单里记的 source_commit** —— 清单记的就是
+# 线上那份构件是从哪个提交做出来的,那是唯一说得清的"用户装到手上的
+# 那一份"。两种触发各核对各的:
+#
+# - 挂在发布之后跑:清单里的提交必须就是这次发布的提交。对不上说明
+#   线上那份与这一档要测的不是同一份东西,报错。
+# - 定时/手动跑:线上那份是最近一次发布做出来的,测的就得是**做它的那份
+#   源码**,不是当前分支的头 —— 拿分支头去测上一代的构件,测的就不是
+#   用户装到手上的那份。同时要确认那个提交确实在本仓历史里:清单里
+#   写个 sha 就算数的话,这条检查等于没有。
+#
+# 对不上就报错:用户下载到的与被测的不是同一份,这是值得报的事,不是
+# 可以放过去的事。
 
 on:
   workflow_run:
@@ -34,21 +44,70 @@ concurrency:
   group: wheel-suite-${{ github.event.workflow_run.head_sha || github.ref }}
   cancel-in-progress: true
 
-env:
-  # 被测的提交:挂在发布之后跑时是那次发布的提交;手动触发与定时跑时
-  # 是当前分支的提交。
-  SOURCE_COMMIT: ${{ github.event.workflow_run.head_sha || github.sha }}
-
 jobs:
   wheel-suite:
     name: 全量测试跑在发布出去的 wheel 上
     runs-on: ubuntu-26.04
     steps:
+    - name: 发布这一次失败了就不必再测
+      if: ${{ github.event.workflow_run.conclusion == 'failure' }}
+      run: |
+        echo "FAIL: 发布这一次的构件没成功 —— 用户下载到的与 main 不是同一份"
+        exit 1
+    # 先检出一份,是为了拿到仓里那个读清单的本地 action(action 是从工作区
+    # 读的,没有检出就没有它)。真正被测的提交在下一步确定后会再检一次。
     - uses: actions/checkout@v7
       with:
-        # 钉在被测的那个提交上:构件与源码必须同代,拿别的提交比没有意义。
-        ref: ${{ env.SOURCE_COMMIT }}
-        # 完整历史:要跑的用例里有 git 历史相关的,要翻到很早的提交。
+        fetch-depth: 1
+    - name: 读出线上清单
+      id: source
+      uses: ./.github/actions/resolve-source
+    - name: 核对被测的提交
+      shell: bash
+      env:
+        GH_TOKEN: ${{ github.token }}
+        REPO: ${{ github.repository }}
+        # 清单记的:线上那份构件是从哪个提交做出来的。
+        PUBLISHED_COMMIT: ${{ steps.source.outputs.commit }}
+        # 这次发布本身的提交。只有挂在发布之后跑时才有值。
+        TRIGGER_COMMIT: ${{ github.event.workflow_run.head_sha }}
+      run: |
+        set -euo pipefail
+        echo "清单里的源码提交: $PUBLISHED_COMMIT"
+        echo "这次发布的提交: ${TRIGGER_COMMIT:-(非发布触发)}"
+        if [ -n "$TRIGGER_COMMIT" ]; then
+          # 挂在发布之后跑:被测的就该是这一次发布做出来的那一份。
+          if [ "$PUBLISHED_COMMIT" != "$TRIGGER_COMMIT" ]; then
+            echo "FAIL: 线上清单记的提交($PUBLISHED_COMMIT)不是这次发布的提交($TRIGGER_COMMIT)"
+            echo "      用户下载到的与这一档要测的不是同一份东西"
+            exit 1
+          fi
+          echo "被测提交 = 这次发布的提交 ✓"
+        else
+          # 定时/手动跑:线上那份构件是最近一次发布做出来的,要测的必须是
+          # 做它的那份源码,不是当前分支的头 —— 拿分支头去测上一代的构件,
+          # 测的就不是用户装到手上的那份。
+          #
+          # 还要确认这个提交确实在本仓历史里:清单里写个 sha 就算数的话,
+          # 那条检查等于没有。
+          status=$(curl -sS --max-time 60 --retry 3 \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/$REPO/compare/main...$PUBLISHED_COMMIT" \
+            | python3 -c "import json,sys;print(json.load(sys.stdin).get('status',''))")
+          case "$status" in
+            behind|identical)
+              echo "被测提交 $PUBLISHED_COMMIT 在 main 的历史里(compare=$status)✓" ;;
+            *)
+              echo "FAIL: 清单里的提交不在 main 的历史里(compare status=$status)"
+              exit 1 ;;
+          esac
+        fi
+    # 钉在被测的那个提交上:构件与源码必须同代,拿别的提交比没有意义。
+    # 完整历史是必需的 —— 浅克隆拿不到那个提交,用例里也有翻 git 历史的。
+    - uses: actions/checkout@v7
+      with:
+        ref: ${{ steps.source.outputs.commit }}
         fetch-depth: 0
     - uses: actions/setup-python@v7
       with:
@@ -56,29 +115,10 @@ jobs:
     - name: Install dependencies
       run: |
         pip install --break-system-packages --no-cache-dir --prefer-binary -r requirements-ci.txt 2>&1 | tee /tmp/pip-all.log || true
-    - name: 发布这一次失败了就不必再测
-      if: ${{ github.event.workflow_run.conclusion == 'failure' }}
-      run: |
-        echo "FAIL: 发布这一次的构件没成功 —— 用户下载到的与 main 不是同一份"
-        exit 1
-    - name: 核对发布出去的构件对应的就是这一次的提交
-      shell: bash
-      run: |
-        set -euo pipefail
-        manifest=$(curl -sS --max-time 60 --retry 3 \
-          https://raw.githubusercontent.com/bin1732/forgemind-pypi/main/releases/builds/manifest.json)
-        got=$(printf '%s' "$manifest" | python3 -c "import json,sys; print(json.load(sys.stdin).get('source_commit',''))")
-        echo "清单里的源码提交: ${got:-无}"
-        echo "这一档被测的提交: $SOURCE_COMMIT"
-        if [ -z "$got" ]; then
-          echo "FAIL: 清单里读不到 source_commit"; exit 1
-        fi
-        if [ "$got" != "$SOURCE_COMMIT" ]; then
-          echo "FAIL: 发布出去的构件不是这一次的提交做的 —— 拿它跑这一代的测试没有意义"
-          exit 1
-        fi
     - name: 把发布出去的那一个 wheel 装进干净环境
       shell: bash
+      env:
+        PUBLISHED_VERSION: ${{ steps.source.outputs.published_version }}
       run: |
         set -euo pipefail
         mkdir -p "$GITHUB_WORKSPACE/dist"
@@ -109,16 +149,13 @@ jobs:
         # 清单写的是"这次发布用的版本号"(基础版本 + post 号),而 wheel
         # 的文件名里也是它 —— 两者对不上,说明发布出去的与清单说的不是
         # 同一份东西。
-        published=$(curl -sS --max-time 60 --retry 3 \
-          https://raw.githubusercontent.com/bin1732/forgemind-pypi/main/releases/builds/manifest.json \
-          | python3 -c "import json,sys; print(json.load(sys.stdin).get('published_version',''))")
         actual=$(cd "$RUNNER_TEMP" && "$GITHUB_WORKSPACE/v/bin/python" -c "import forgemind; print(forgemind.__version__)")
-        echo "published=$published actual=$actual"
-        if [ -z "$published" ]; then
+        echo "published=$PUBLISHED_VERSION actual=$actual"
+        if [ -z "$PUBLISHED_VERSION" ]; then
           echo "FAIL: 清单里没有 published_version —— 这次发布不是用新流程发的"; exit 1
         fi
-        [ "$published" = "$actual" ] || {
-          echo "FAIL: 发布出去的 wheel 版本($actual)与清单记的($published)不一致"; exit 1; }
+        [ "$PUBLISHED_VERSION" = "$actual" ] || {
+          echo "FAIL: 发布出去的 wheel 版本($actual)与清单记的($PUBLISHED_VERSION)不一致"; exit 1; }
     - name: 全量测试跑在这个环境上
       env:
         # 这一档要验的是用户装到手上的那一份。置 1 之后,测试不再把

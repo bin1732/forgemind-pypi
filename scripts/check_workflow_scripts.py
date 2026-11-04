@@ -342,6 +342,79 @@ def check_publish_trigger_is_branch_limited(path: Path, data: dict) -> list[str]
     return problems
 
 
+def collect_concurrency_group(data: dict) -> str | None:
+    """取工作流声明的并发组;没声明(或声明了空的)就是没有。"""
+    concurrency = data.get("concurrency")
+    if not isinstance(concurrency, dict):
+        return None
+    group = concurrency.get("group")
+    if not isinstance(group, str) or not group.strip():
+        return None
+    return group.strip()
+
+
+def concurrency_group_prefix(group: str) -> str:
+    """并发组里第一个表达式之前的字面前缀。
+
+    前缀是字面量,运行时不会变 —— 所以前缀相同的两组,运行时就有可能
+    落到同一个组里(表达式部分不同也可能算出同一个值)。前缀不同则
+    一定落在不同的组。
+    """
+    marker = "${{"
+    at = group.find(marker)
+    return group if at < 0 else group[:at]
+
+
+def check_concurrency_groups_are_not_shared(
+    groups: list[tuple[str, str]],
+) -> list[str]:
+    """两个工作流不能共用同一个并发组。
+
+    GitHub 的并发组只保留**一个**排队中的运行:新运行进来时,先到的那个
+    排队中的会被取消掉。所以两个工作流共用一组,谁先到谁活下来 —— 每次
+    触发必然有一个被取消,对外是随机的结果。
+
+    活证据(2026-11-04,公开仓 bin1732/forgemind-pypi):三个发布后验证
+    (verify / verify-live / verify-desktop)共用一个组时,同一批发布里
+    verify-live 与 wheel-suite 是 success,verify 与 verify-desktop 是
+    cancelled;换一批提交,被取消的换成另外两个。被取消的那些停在
+    jobs=0 —— 作业压根没被创建,不是作业跑了失败。当时误判成"macOS
+    runner 抢不到",实际每一次拿到 runner 的 macOS 作业都正常跑完了。
+
+    判据分两层:
+    - 组字符串完全相同:运行时必然落进同一组,直接报。
+    - 字面前缀相同:运行时可能落进同一组(表达式算出同一个值),也报。
+    """
+    problems: list[str] = []
+    by_exact: dict[str, list[str]] = {}
+    by_prefix: dict[str, list[tuple[str, str]]] = {}
+    for name, group in groups:
+        by_exact.setdefault(group, []).append(name)
+        by_prefix.setdefault(concurrency_group_prefix(group), []).append((name, group))
+
+    for group, names in by_exact.items():
+        if len(names) < 2:
+            continue
+        who = "、".join(sorted(names))
+        problems.append(
+            f"{who} 共用同一个并发组({group}) —— "
+            "GitHub 的并发组只保留一个排队中的运行,新运行进来会把先到的那个取消掉,"
+            "这几个工作流里必然有一个被取消,结果随机"
+        )
+
+    for prefix, items in by_prefix.items():
+        if len(items) < 2:
+            continue
+        if len({group for _, group in items}) == 1:
+            continue  # 完全相同的那一种已经报过了
+        who = "、".join(sorted(name for name, _ in items))
+        problems.append(
+            f"{who} 的并发组字面前缀相同({prefix}) —— "
+            "前缀是字面量,运行时相同就可能落进同一个组,那时候先到的那个会被取消"
+        )
+    return problems
+
+
 def main(repo_root: Path | None = None) -> int:
     """检查工作流目录,返回进程退出码。
 
@@ -356,6 +429,7 @@ def main(repo_root: Path | None = None) -> int:
 
     problems: list[str] = []
     unverified = 0
+    concurrency_groups: list[tuple[str, str]] = []
     for path in sorted(root.glob("*.yml")):
         strict_problem = check_strict_parse(path)
         if strict_problem:
@@ -365,6 +439,9 @@ def main(repo_root: Path | None = None) -> int:
         if not isinstance(data, dict):
             problems.append(f"{path.name}: 内容不是映射")
             continue
+        group = collect_concurrency_group(data)
+        if group is not None:
+            concurrency_groups.append((path.name, group))
         for job_name, job in (data.get("jobs") or {}).items():
             if not isinstance(job, dict):
                 continue
@@ -391,6 +468,8 @@ def main(repo_root: Path | None = None) -> int:
                 unverified += missed
         problems.extend(check_job_graph(path, data, repo_root))
         problems.extend(check_publish_trigger_is_branch_limited(path, data))
+
+    problems.extend(check_concurrency_groups_are_not_shared(concurrency_groups))
 
     if problems:
         print("工作流脚本写法有问题:")
