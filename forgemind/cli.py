@@ -800,10 +800,10 @@ def build_parser() -> argparse.ArgumentParser:
     subparsers = parser.add_subparsers(dest="command")
 
     # info
-    subparsers.add_parser("info", help="Show config")
+    subparsers.add_parser("info", help="显示配置")
 
     # backtest
-    parser_bt = subparsers.add_parser("backtest", help="Run backtest")
+    parser_bt = subparsers.add_parser("backtest", help="跑一次回测")
     # 这条命令能跑哪些策略,由判据本身说了算 —— 手写一份清单,迟早与
     # 命令真正接受的那份漂移,而漂移了就有人照着挑一个跑不了的策略。
     # 跨标的的策略(横截面动量、组合类)这条命令喂不了,帮助里就不该
@@ -835,8 +835,8 @@ def build_parser() -> argparse.ArgumentParser:
             "`forgemind etl --symbols ...` 拉数据后即可回测真行情。"
         ),
     )
-    parser_bt.add_argument("--fast", type=int, default=5)
-    parser_bt.add_argument("--slow", type=int, default=20)
+    parser_bt.add_argument("--fast", type=int, default=5, help="快线周期(双均线策略用)")
+    parser_bt.add_argument("--slow", type=int, default=20, help="慢线周期(双均线策略用)")
     parser_bt.add_argument(
         "--slippage-model",
         default="fixed",
@@ -849,48 +849,50 @@ def build_parser() -> argparse.ArgumentParser:
         default=0.0,
         help="平均日成交量(股)。linear/sqrt 冲击模型需要它,否则退化为 fixed",
     )
-    parser_bt.add_argument("--start", default="2024-01-01")
-    parser_bt.add_argument("--end", default="2024-12-31")
-    parser_bt.add_argument("--capital", type=float, default=100_000)
+    parser_bt.add_argument("--start", default="2024-01-01", help="起始日期(YYYY-MM-DD)")
+    parser_bt.add_argument("--end", default="2024-12-31", help="结束日期(YYYY-MM-DD)")
+    parser_bt.add_argument("--capital", type=float, default=100_000, help="初始资金")
     parser_bt.set_defaults(func=cmd_backtest)
 
     # agent
-    parser_agent = subparsers.add_parser("agent", help="Run AI decision")
-    parser_agent.add_argument("--symbol", default="600519.SH")
-    parser_agent.add_argument("--cash", type=float, default=80_000)
-    parser_agent.add_argument("--equity", type=float, default=200_000)
-    parser_agent.add_argument("--position-qty", type=int, default=100)
-    parser_agent.add_argument("--position-price", type=float, default=1500)
+    parser_agent = subparsers.add_parser("agent", help="让 AI 做一次决策(带人工审批)")
+    parser_agent.add_argument("--symbol", default="600519.SH", help="标的代码(6 位,可带 .SH/.SZ)")
+    parser_agent.add_argument("--cash", type=float, default=80_000, help="可用现金")
+    parser_agent.add_argument("--equity", type=float, default=200_000, help="总权益")
+    parser_agent.add_argument("--position-qty", type=int, default=100, help="持仓数量(股)")
+    parser_agent.add_argument("--position-price", type=float, default=1500, help="持仓成本价")
     parser_agent.add_argument(
         "--yes", action="store_true", help="非交互模式直接批准(默认会真等你按 y)"
     )
     parser_agent.set_defaults(func=cmd_agent)
 
     # mcp
-    parser_mcp = subparsers.add_parser("mcp", help="Start MCP server")
+    parser_mcp = subparsers.add_parser("mcp", help="以 MCP 服务启动")
     parser_mcp.set_defaults(func=cmd_mcp)
 
     # router-demo
-    parser_router = subparsers.add_parser("router-demo", help="Demo model router")
+    parser_router = subparsers.add_parser("router-demo", help="模型路由的演示")
     parser_router.set_defaults(func=cmd_router_demo)
 
     # pick
-    parser_pick = subparsers.add_parser("pick", help="Stock picker agent — 选股")
-    parser_pick.add_argument("--symbols", help="Comma-separated symbols")
+    parser_pick = subparsers.add_parser("pick", help="选股:多因子打分后挑出候选")
+    parser_pick.add_argument("--symbols", help="逗号分隔的标的代码;不给就用默认候选池")
     parser_pick.add_argument("--top-n", type=int, default=5)
     parser_pick.set_defaults(func=cmd_pick)
 
     # etl
     parser_etl = subparsers.add_parser("etl", help="AKShare 数据 ETL(免费拉 A 股)")
-    parser_etl.add_argument("--symbols", help="Comma-separated")
-    parser_etl.add_argument("--start", default="2024-01-01")
-    parser_etl.add_argument("--end", default="2024-12-31")
+    parser_etl.add_argument("--symbols", help="逗号分隔的标的代码")
+    parser_etl.add_argument("--start", default="2024-01-01", help="起始日期(YYYY-MM-DD)")
+    parser_etl.add_argument("--end", default="2024-12-31", help="结束日期(YYYY-MM-DD)")
     parser_etl.set_defaults(func=cmd_etl)
 
     # signal — 真落 DuckDB signal_history,让桌面 signal-table 显示
     parser_signal = subparsers.add_parser("signal", help="生成示例信号 + 落 DuckDB(无券商 SDK)")
     parser_signal.add_argument("--symbol", default="600519.SH", help="6 位代码,可选 .SH/.SZ")
-    parser_signal.add_argument("--side", default="BUY", choices=["BUY", "SELL", "HOLD"])
+    parser_signal.add_argument(
+        "--side", default="BUY", choices=["BUY", "SELL", "HOLD"], help="方向"
+    )
     parser_signal.add_argument("--confidence", type=float, default=0.5, help="0-1")
     parser_signal.add_argument("--rationale", default=None, help="信号理由")
     parser_signal.set_defaults(func=cmd_signal)
@@ -900,8 +902,8 @@ def build_parser() -> argparse.ArgumentParser:
         "demo", help="一条命令看到真实结果:取数 → 回测 → 落库(无需密钥或配置)"
     )
     parser_demo.add_argument("--symbol", default="600519", help="6 位代码,可选 .SH/.SZ")
-    parser_demo.add_argument("--start", default="2024-01-01")
-    parser_demo.add_argument("--end", default="2024-12-31")
+    parser_demo.add_argument("--start", default="2024-01-01", help="起始日期(YYYY-MM-DD)")
+    parser_demo.add_argument("--end", default="2024-12-31", help="结束日期(YYYY-MM-DD)")
     parser_demo.add_argument("--strategy", default="ma_cross", help="策略名")
     parser_demo.set_defaults(func=cmd_demo)
 
