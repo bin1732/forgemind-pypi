@@ -317,6 +317,9 @@ def check_commit_messages(repo: Path, limit: int = 300) -> list[str]:
         for phrase in REGRESSION_PHRASES:
             if phrase in message:
                 problems.append(f"提交 {sha[:8]} 的说明里出现复盘措辞 {phrase!r}")
+        # 说明也是对外的文字 —— 坏字符同样会被人读到。
+        if REPLACEMENT_CHAR in message:
+            problems.append(f"提交 {sha[:8]} 的说明里有坏字符(U+FFFD)")
     return problems
 
 
