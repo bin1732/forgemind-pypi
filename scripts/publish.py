@@ -435,14 +435,27 @@ def main() -> int:
     # 3) 等线上索引指向本次构建,再清理历史构建目录
     # GitHub Pages 部署新索引有延迟:这段时间里线上索引还指着上一个构建。
     # 立刻把上一个构建删掉,用户按线上索引下载就会拿到 404。
+    index_switched = False
     deadline = time.time() + 600
     while time.time() < deadline:
         if live_build_id() == build_id:
             print(f"  线上索引已指向 {build_id}")
+            index_switched = True
             break
         time.sleep(10)
-    else:
-        print(f"  线上索引未在时限内指向 {build_id},仍按计划清理旧构建")
+    if not index_switched:
+        # 索引没切过去,这次发布就不算完成。
+        #
+        # 线上索引是由 Pages 部署发布的:部署一失败,CDN 上还是旧索引,
+        # 用户 pip 到的就是上一个版本。构件传上去了、清单也写了,唯独
+        # 用户真正用的那个入口没换 —— 这种情况报成功,是让一次没生效的
+        # 发布看起来像成功了。旧构建照常保留(清理那一步会保住在线上索引
+        # 指着的那个),所以用户拿到的仍是能用的旧版本,不会 404。
+        print(
+            f"  [fail] 线上索引未在时限内指向 {build_id} —— 用户装到的仍是旧版本",
+            file=sys.stderr,
+        )
+        return 1
 
     # 4) 清理历史构建目录 —— 也是一个提交。
     #

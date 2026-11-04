@@ -57,6 +57,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   and had no failure to classify. One means "the approval was refused",
   so the same code covered two unrelated situations, and the table in the
   README could not tell the reader which one had happened.
+- A release now fails when the live index does not switch to the new
+  build. The index is published by the Pages deployment: when that
+  deployment fails, the CDN still serves the old index and users install
+  the previous version. The assets were uploaded and the manifest was
+  written, so everything looked done, and the release reported success.
 - The backtest said "no symbol was given" while the user had given one.
   Both the case where a symbol was passed and the case where it was not
   fell into the same branch, and the branch printed the wording of the

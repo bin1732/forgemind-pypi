@@ -285,6 +285,84 @@ class TestReleaseAssetOrder:
         assert publish.asset_name(f, "2026.9.3.post11") == "forgemind-2026.9.3.post11-linux"
 
 
+class TestIndexMustActuallySwitch:
+    """线上索引没切过去,这次发布就不算完成。
+
+    索引是由 Pages 部署发布的:部署一失败,CDN 上还是旧索引,用户
+    pip 到的就是上一个版本。构件传上去了、清单也写了,唯独用户真正
+    用的那个入口没换 —— 这种情况报成功,是让一次没生效的发布看起来
+    像成功了。
+
+    不用 pytest:这个脚本自带极简运行器,那个作业的环境里没有 pytest。
+    """
+
+    def _run_publish(self, live_build_id):
+        """跑一次发布,线上索引指向由 live_build_id 决定。返回退出码。"""
+        import tempfile
+        from unittest import mock
+
+        with tempfile.TemporaryDirectory(prefix="forgemind-publish-test-") as tmp:
+            artifacts = Path(tmp) / "artifacts"
+            artifacts.mkdir(parents=True, exist_ok=True)
+            (artifacts / "forgemind-1.0-py3-none-any.whl").write_bytes(b"x" * 1000)
+
+            argv = [
+                "publish.py",
+                "--build-id",
+                "42",
+                "--source-commit",
+                "abc123",
+                "--publish-version",
+                "1.0",
+                "--artifacts",
+                str(artifacts),
+            ]
+            clock = {"n": 0}
+
+            class _Clock:
+                @staticmethod
+                def time():
+                    # 每次前进一秒:等待窗口是 600 秒,于是循环跑满 600 次
+                    # 自然结束 —— 既不会真的睡十分钟,也不会无限转。
+                    clock["n"] += 1
+                    return 1000.0 + clock["n"]
+
+                @staticmethod
+                def sleep(_seconds):
+                    return None
+
+            with (
+                mock.patch.object(sys, "argv", argv),
+                mock.patch.object(publish, "live_build_id", new=live_build_id),
+                mock.patch.object(publish, "wait_assets_downloadable", return_value=True),
+                mock.patch.object(
+                    publish,
+                    "sync_release_assets",
+                    return_value=(["a.whl"], {"a.whl": 1}),
+                ),
+                mock.patch.object(publish, "git_write", return_value=(201, "commit-sha")),
+                mock.patch.object(publish, "collect_tree", return_value={}),
+                mock.patch.object(
+                    publish,
+                    "call",
+                    return_value=(200, {"object": {"sha": "sha-base"}}),
+                ),
+                mock.patch.object(publish.time, "time", _Clock.time),
+                mock.patch.object(publish.time, "sleep", _Clock.sleep),
+            ):
+                return publish.main()
+
+    def test_publish_fails_when_the_index_does_not_switch(self):
+        """索引一直指着旧构建 → 这次发布要失败"""
+        rc = self._run_publish(lambda timeout=30: "old-build")
+        assert rc == 1, "线上索引没切过去,发布却报成功了"
+
+    def test_publish_succeeds_when_the_index_switches(self):
+        """索引切过去了 → 发布照常成功"""
+        rc = self._run_publish(lambda timeout=30: "42")
+        assert rc == 0, "索引切过去了,发布却失败了"
+
+
 if __name__ == "__main__":
     # 公开仓的脚本测试不依赖 pytest:那个作业的环境里没有 pytest,
     # 依赖它就等于让这道检查永远跑不起来。这里自带一个极简运行器 ——
