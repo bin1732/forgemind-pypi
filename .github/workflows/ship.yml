@@ -221,6 +221,11 @@ jobs:
 
   ship:
     needs: [resolve-source, build-wheel, build-standalone]
+    # 构建失败也要走到这里。缺了构件就不发布,但要把话说清楚:
+    # 是哪个平台没拿到、为什么、用户现在装到的是哪一版。
+    # 原来靠 needs 的失败把这一步跳过,页面上只剩一个"skipped",
+    # 看不出是代码坏了还是平台没给 runner —— 这两种要分开。
+    if: always()
     runs-on: ubuntu-26.04
     env:
       # 构件的来源提交。写进清单,镜像才有可能去测同一个提交 ——
@@ -235,10 +240,33 @@ jobs:
         with:
           python-version: '3.11'
 
+      - name: 核对构件齐不齐
+        id: assets
+        shell: bash
+        run: |
+          set -uo pipefail
+          missing=""
+          for p in linux macos windows; do
+            if [ -z "$(ls -A "artifacts/standalone-$p" 2>/dev/null)" ]; then
+              missing="$missing $p"
+            fi
+          done
+          if [ -z "$(ls -A artifacts/wheel 2>/dev/null)" ]; then
+            missing="$missing wheel"
+          fi
+          echo "缺少的构件:${missing:- 无}"
+          echo "missing=${missing# }" >> "$GITHUB_OUTPUT"
+
       - name: Publish artifacts
+        if: steps.assets.outputs.missing == ''
+        shell: bash
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          set -euo pipefail
+          if [ -z "$SOURCE_COMMIT" ]; then
+            echo "FAIL: 没能定出这次发布的提交 —— 上游作业没成功,这次不发布"; exit 1
+          fi
           # 发布逻辑在 scripts/publish.py。**一次发布只往 main 上落两个
           # 提交**:一个是构件 + 索引 + 清单,一个是清理旧构建。
           #
@@ -249,6 +277,25 @@ jobs:
           # 内容不一样。
           python3 scripts/publish.py \
             --build-id "${{ github.run_id }}" \
-            --source-commit "${{ needs.resolve-source.outputs.commit }}" \
+            --source-commit "$SOURCE_COMMIT" \
             --publish-version "${{ needs.resolve-source.outputs.publish_version }}" \
             --artifacts artifacts
+
+      - name: 构件不齐 —— 这次不发布,把话说清楚
+        if: steps.assets.outputs.missing != ''
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "FAIL: 这次发布没有进行 —— 缺少构件:${{ steps.assets.outputs.missing }}"
+          echo
+          echo "两种可能,处理方式不同:"
+          echo "  1) 那个平台的构建真的失败了 —— 看该平台作业的最后一步,"
+          echo "     那里有真正的报错。"
+          echo "  2) 那个平台的作业停在排队、一条 step 都没有 —— 那是平台"
+          echo "     没给 runner(供给或配额),不是代码的问题。作业会在排队"
+          echo "     15 分钟后被平台取消,页面上看着像失败,其实是没开工。"
+          echo
+          live=$(python3 -c "import json;print(json.load(open('releases/builds/manifest.json')).get('published_version','(未知)'))" 2>/dev/null || echo "(未知)")
+          echo "用户现在装的仍是上一次完整发布:$live"
+          echo "(索引与清单都还指着那一版,没有半发布的产物。)"
+          exit 1

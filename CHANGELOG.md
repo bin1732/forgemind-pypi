@@ -349,6 +349,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   parameter answers with a structured error that looks like a working
   service. A second test now fails when a route is added without being
   covered, so a new endpoint cannot slip past the checks.
+- A tool that runs but does not succeed now reports the failure on the
+  failure channel. Fifteen places inside the tools answer with an `error`
+  field, and the server wrapped every one of them as a successful result:
+  the protocol did not show that anything had gone wrong, and the reason
+  only survived inside a block of text. The specification puts a failed
+  call in the result and marks it, so that the host hands it back to the
+  model and the model can correct itself. "No data" stays a success — the
+  tool answered the question, and the answer was that there is nothing.
+- The factor panel of the desktop interface no longer spins forever. When
+  the decay could not be fetched, the panel stayed on "computing" and
+  never stopped: the call threw, nothing caught it, and the reason never
+  reached the screen. The reason is shown now, next to the explanation
+  that this is a failed fetch rather than a factor without a value.
+- A release that cannot be completed says which platform is missing and
+  which version the reader still has. The step was skipped, so the page
+  showed a single "skipped" and did not distinguish a broken build from a
+  platform that never handed out a runner.
 - The three checks that run after a release no longer share one concurrency
   group. A concurrency group keeps a single pending run, so a new run
   cancels the one that was waiting: two of the three checks were cancelled
