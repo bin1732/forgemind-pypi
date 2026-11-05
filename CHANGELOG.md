@@ -362,6 +362,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   never stopped: the call threw, nothing caught it, and the reason never
   reached the screen. The reason is shown now, next to the explanation
   that this is a failed fetch rather than a factor without a value.
+- The first run of the desktop and of the command line no longer prints the
+  internals. The local database does not have the table of daily bars yet
+  on a fresh machine, and the commands asked for it with an exception: the
+  storage layer answered with a warning that carried the name of the
+  table and the query, and the backtest command repeated the name in its
+  own message. A first-time reader saw a block of JSON and the inside of
+  the implementation instead of the answer. The commands ask whether the
+  table is there first, and the fallback says what to run.
 - A release that cannot be completed says which platform is missing and
   which version the reader still has. The step was skipped, so the page
   showed a single "skipped" and did not distinguish a broken build from a

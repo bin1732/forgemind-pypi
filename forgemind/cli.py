@@ -153,11 +153,22 @@ def cmd_demo(args):
     if not data_note:
         try:
             with DuckDBStorage() as db:
-                price_df = db.query_df(
-                    "SELECT date, open, high, low, close, volume FROM kline_daily "
-                    "WHERE symbol = ? AND date BETWEEN ? AND ? ORDER BY date ASC",
-                    [db_symbol, start, end],
+                # 先问"这张表在不在",再去查它。用异常问问题是反的:
+                # 第一次跑的人库里还没有这张表,那是正常情况,不是故障 ——
+                # 而异常会在存储层留下一条带内部表名与 SQL 的告警日志,
+                # 第一次上手的人看到的是一串 JSON,像坏了。
+                # 仓里其他地方也是这么写的(见 storage.py 的 information_schema 查询)。
+                exists = db.query_scalar(
+                    "SELECT COUNT(*) FROM information_schema.tables WHERE table_name='kline_daily'"
                 )
+                if not exists:
+                    price_df = None
+                else:
+                    price_df = db.query_df(
+                        "SELECT date, open, high, low, close, volume FROM kline_daily "
+                        "WHERE symbol = ? AND date BETWEEN ? AND ? ORDER BY date ASC",
+                        [db_symbol, start, end],
+                    )
         except Exception:  # noqa: BLE001 — 库还没建好是常见情况
             price_df = None
         if price_df is not None and not price_df.empty:
@@ -287,18 +298,29 @@ def cmd_backtest(args):
         # 真实回测,实际得到的是一组 np.random。归一化放在查询参数里,
         # 任何上游(CLI / API / MCP)传 '600519.SH' / 'SH600519' 都能命中。
         symbol_db = bare_symbol(args.symbol)
+        table_missing = False
         try:
             with DuckDBStorage() as _db:
-                price_df = _db.query_df(
-                    "SELECT date, open, high, low, close, volume "
-                    "FROM kline_daily WHERE symbol = ? "
-                    "AND date BETWEEN ? AND ? ORDER BY date ASC",
-                    [symbol_db, args.start, args.end],
-                )
+                # 先问"这张表在不在",再去查它。第一次跑的人库里还没有这张
+                # 表,那是正常情况,不是故障 —— 用异常问问题是反的:异常会在
+                # 存储层留下一条带内部表名与 SQL 的告警,下面那句失败提示
+                # 还会把内部表名印给用户。仓里其他地方也是这么写的。
+                if not _db.query_scalar(
+                    "SELECT COUNT(*) FROM information_schema.tables WHERE table_name='kline_daily'"
+                ):
+                    table_missing = True
+                    price_df = None
+                else:
+                    price_df = _db.query_df(
+                        "SELECT date, open, high, low, close, volume "
+                        "FROM kline_daily WHERE symbol = ? "
+                        "AND date BETWEEN ? AND ? ORDER BY date ASC",
+                        [symbol_db, args.start, args.end],
+                    )
         except Exception as _db_err:
-            # 可能是表不存在(init_duckdb 没跑)或 schema 异常 —— 不强求,
-            # 走降级路径并明确告知,免得用户被 DuckDB 问题挡在门外
-            print(f"⚠️  查 DuckDB 真数据失败({type(_db_err).__name__}: {str(_db_err)[:80]})")
+            # 真出错了(连不上、schema 异常)—— 不强求,走降级路径。只说
+            # 错误类型,不印原始异常文本:那里面有内部表名与整条 SQL。
+            print(f"⚠️  查本地行情库失败({type(_db_err).__name__})")
             price_df = None
         if price_df is not None and not price_df.empty:
             price_df["date"] = pd.to_datetime(price_df["date"])
@@ -306,14 +328,10 @@ def cmd_backtest(args):
             price_df.index.name = "date"
             price_df["symbol"] = args.symbol  # 保留入参形式(带后缀)给用户看
             real_data_note = f"(真数据:DuckDB {len(price_df)} 根 K 线)"
-        elif price_df is not None and price_df.empty:
-            # 表存在但查不到 — 用户可能还没跑 etl
-            print(f"⚠️  DuckDB 中没有 {args.symbol} 在 {args.start}~{args.end} 的 K 线")
-            print(
-                "   提示: forgemind etl --symbols "
-                + args.symbol
-                + f" --start {args.start} --end {args.end}"
-            )
+        elif table_missing or (price_df is not None and price_df.empty):
+            # 本地库里没有这个标的的 K 线(表还没建,或建了但没这个标的)。
+            # 提示由下面的降级分支统一给 —— 那里已经把"没有 K 线"与
+            # "怎么去拉"说全了,这里再说一遍就是同一件事说两遍。
             price_df = None
 
     if price_df is None:

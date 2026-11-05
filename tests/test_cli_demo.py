@@ -92,6 +92,41 @@ class TestDemoRuns:
         assert "ma_cross" in out, "报错时应该列出可用的策略名"
 
 
+class TestDemoFirstRunIsClean:
+    """第一次跑的那台机器:库里还没有 K 线表 —— 那是正常情况,不是故障。
+
+    用异常去问"这张表在不在",会在存储层留下一条带内部表名与 SQL 的
+    告警,新手第一次上手看到的是一串 JSON,像坏了。demo 是门面,门面
+    上不能出现这种东西。
+    """
+
+    def test_first_run_leaks_no_internal_details(self, monkeypatch, capsys, tmp_path):
+        import forgemind.core.data.storage as _sm
+
+        fresh = tmp_path / "fresh" / "main.db"
+        monkeypatch.setenv("FORGEMIND_DUCKDB_PATH", str(fresh))
+        from forgemind.core.config.settings import get_settings
+
+        get_settings.cache_clear()
+        _sm._DUCKDB_CONN_CACHE.clear()
+        try:
+            rc = cmd_demo(_args())
+            captured = capsys.readouterr()
+        finally:
+            _sm._DUCKDB_CONN_CACHE.clear()
+            get_settings.cache_clear()
+
+        assert rc == 0, f"demo 没跑通:\n{captured.out}"
+        # 输出仍然要说清用的是包内置的真实行情
+        assert "真实价格" in captured.out, captured.out
+        # 内部实现细节一律不许出现 —— stdout 与 stderr 都一样
+        for stream, text in (("stdout", captured.out), ("stderr", captured.err)):
+            for leak in ("kline_daily", "CatalogException", "Catalog Error",
+                         "information_schema"):
+                assert leak not in text, (
+                    f"{stream} 里漏出了内部实现细节({leak}):\n{text}")
+
+
 class TestDemoDataIntegrity:
     def test_demo_refuses_unusable_data(self, monkeypatch, capsys):
         """内置行情文件坏了就不许拿它去跑 —— 更不能拿编造的数据顶上"""

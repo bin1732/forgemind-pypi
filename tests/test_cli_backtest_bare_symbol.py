@@ -91,9 +91,20 @@ def test_backtest_with_no_data_falls_back_to_sim(kline_db):
         env={**os.environ, "FORGEMIND_DUCKDB_PATH": str(kline_db)},
         capture_output=True, text=True, cwd=str(Path(__file__).resolve().parent.parent),
     )
-    # 应有降级提示
-    assert "DuckDB 中没有" in result.stdout or "降级" in result.stdout, \
-        f"应该提示 DuckDB 无数据,stdout:\n{result.stdout}"
+    # 应有降级提示。这里断言的是意图,不是某一句文案:说了"库里没有
+    # K 线",并给出下一步怎么做。
+    assert "没有 K 线" in result.stdout, \
+        f"应该提示库里没有 K 线,stdout:\n{result.stdout}"
+    assert "forgemind etl" in result.stdout, \
+        f"应该给出可行动的下一步,stdout:\n{result.stdout}"
+    # 内部实现细节不能印给用户:表名与 DuckDB 的原始报错都别露出来。
+    # 第一次跑的人库里还没有这张表,那是正常情况,不是故障 ——
+    # 印出来像坏了,而且把内部表名与 SQL 一起交出去了。
+    for leak in ("kline_daily", "CatalogException", "Catalog Error"):
+        assert leak not in result.stdout, \
+            f"输出里漏出了内部实现细节({leak}),stdout:\n{result.stdout}"
+        assert leak not in result.stderr, \
+            f"输出里漏出了内部实现细节({leak}),stderr:\n{result.stderr}"
     # 但还是落了 backtest_run,标记 DEMO 模拟
     import forgemind.core.data.storage as _sm
     _sm._DUCKDB_CONN_CACHE.clear()
