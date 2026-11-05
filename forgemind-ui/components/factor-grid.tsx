@@ -59,6 +59,8 @@ export function FactorGrid() {
     horizon: number;
     bars: Array<{ days: number; ic: number }>;
     loading: boolean;
+    // 取不到的原因。工具失败时要看得见,不能只剩一个空的弹窗。
+    error?: string;
   } | null>(null);
 
   const factors = useAppStore((s) => s.factors);
@@ -74,9 +76,23 @@ export function FactorGrid() {
     }
     setDetail({ name: selected, ic: 0, icir: 0, horizon: 0, bars: [], loading: true });
     (async () => {
-      const raw = await mcpTool<Record<string, unknown>>(
-        "check_ic_decay", { feature_name: selected, window_days: 20 },
-      );
+      // 失败要显示出来:工具报错时 MCP 会把原因带回来(协议层标了失败,
+      // sidecar 转成非 2xx,这边就抛出)。不接住的话弹窗会一直停在
+      // "正在算 IC 衰减…",看着像还在算,其实早就断了。
+      const fail = (reason: string) =>
+        setDetail({
+          name: selected, ic: 0, icir: 0, horizon: 0, bars: [],
+          loading: false, error: reason,
+        });
+      let raw: Record<string, unknown> | null = null;
+      try {
+        raw = await mcpTool<Record<string, unknown>>(
+          "check_ic_decay", { feature_name: selected, window_days: 20 },
+        );
+      } catch (e) {
+        fail(`取 IC 衰减失败:${e instanceof Error ? e.message : String(e)}`);
+        return;
+      }
       // mcpTool 返 JSON-RPC wrapper {result:{content:[{text}]}}, 解二次 JSON
       const inner = (raw as { result?: { content?: Array<{ text?: string }> } })
                       ?.result?.content?.[0]?.text;
@@ -90,19 +106,25 @@ export function FactorGrid() {
         n_bars?: number;
         decay?: Record<string, number>;
         message?: string;
+        error?: string;
       };
       if (inner) {
         try { r = JSON.parse(inner); }
-        catch { return; }
-      } else if ((raw as { status?: string }).status) {
+        catch { fail("后端返回的不是可解析的 JSON"); return; }
+      } else if ((raw as { status?: string })?.status) {
         r = raw as typeof r;
       } else {
+        fail("后端没有返回 IC 衰减结果");
+        return;
+      }
+      if (r.error) {
+        fail(r.error);
         return;
       }
       if (r.status !== "computed") {
         setDetail({
           name: selected, ic: 0, icir: 0, horizon: 0, bars: [],
-          loading: false,
+          loading: false, error: r.message,
         });
         return;
       }
@@ -255,6 +277,13 @@ export function FactorGrid() {
             ) : !detail ? (
               <div className="mt-6 text-center text-sm text-muted-foreground">
                 无数据
+              </div>
+            ) : detail.error ? (
+              <div className="mt-6 space-y-1 text-center text-sm">
+                <span className="text-destructive">取 IC 衰减失败:{detail.error}</span>
+                <div className="text-xs text-muted-foreground">
+                  这是取不到这个因子的 IC 衰减,不是这个因子没有 IC。
+                </div>
               </div>
             ) : (
               <div className="mt-4 space-y-3 text-xs">

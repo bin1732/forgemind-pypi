@@ -1535,7 +1535,20 @@ class ForgeMindMCPServer:
                 }
             try:
                 result = await handler(**arguments)
-                return {
+                # 工具跑起来了,但工作失败了(因子不存在、策略不存在、取数
+                # 失败、参数取值不合法……):按 MCP 规范放进 result 并标
+                # isError,host 才会把它回灌给模型,模型自己就能改参数重试。
+                #
+                # 工具内部有一十几处直接返回 {"error": ...},以前全被包成
+                # "成功的结果" —— 协议层看不出失败,失败原因只混在一段
+                # JSON 文本里,host 与模型都可能当成正常数据继续走。
+                # 这里统一判一次:返回体带 error 就是失败。
+                #
+                # 注意别把"没有数据"也当成失败:{"status": "no_data",
+                # "message": "先跑 forgemind etl"} 是工具正常跑完了的
+                # 回答,标成失败会让模型以为工具坏了。
+                failed = isinstance(result, dict) and bool(result.get("error"))
+                payload: dict[str, Any] = {
                     "jsonrpc": "2.0",
                     "id": req_id,
                     "result": {
@@ -1547,6 +1560,9 @@ class ForgeMindMCPServer:
                         ]
                     },
                 }
+                if failed:
+                    payload["result"]["isError"] = True
+                return payload
             except TypeError as e:
                 # 缺参/多参:只回工具名和缺了什么,不暴露内部方法签名
                 msg = str(e)
