@@ -158,10 +158,7 @@ def cmd_demo(args):
                 # 而异常会在存储层留下一条带内部表名与 SQL 的告警日志,
                 # 第一次上手的人看到的是一串 JSON,像坏了。
                 # 仓里其他地方也是这么写的(见 storage.py 的 information_schema 查询)。
-                exists = db.query_scalar(
-                    "SELECT COUNT(*) FROM information_schema.tables WHERE table_name='kline_daily'"
-                )
-                if not exists:
+                if not db.table_exists("kline_daily"):
                     price_df = None
                 else:
                     price_df = db.query_df(
@@ -305,9 +302,7 @@ def cmd_backtest(args):
                 # 表,那是正常情况,不是故障 —— 用异常问问题是反的:异常会在
                 # 存储层留下一条带内部表名与 SQL 的告警,下面那句失败提示
                 # 还会把内部表名印给用户。仓里其他地方也是这么写的。
-                if not _db.query_scalar(
-                    "SELECT COUNT(*) FROM information_schema.tables WHERE table_name='kline_daily'"
-                ):
+                if not _db.table_exists("kline_daily"):
                     table_missing = True
                     price_df = None
                 else:

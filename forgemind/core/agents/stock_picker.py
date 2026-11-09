@@ -342,6 +342,10 @@ class StockPickerAgent:
         """
         try:
             with self.db as db:
+                # 先问表在不在:第一次跑的人库里还没有这张表,那是正常情况,
+                # 不是故障 —— 用异常问问题会留下一条带内部表名与 SQL 的告警。
+                if not db.table_exists("kline_daily"):
+                    return None
                 if as_of:
                     df = db.query_df(
                         "SELECT * FROM kline_daily WHERE symbol = ? AND date <= ? "
@@ -359,5 +363,11 @@ class StockPickerAgent:
                 df = df.sort_values("date", ascending=True).reset_index(drop=True)
                 return df
         except Exception as e:
-            logger.warning("kline_query_failed", symbol=symbol, error=str(e))
+            # 告警里只放异常类型:原始文本里有 DuckDB 的报错原文,连着内部
+            # 表名与整条 SQL。选股失败要说清是"取不到数据",不是把内部
+            # 实现摊给用户。完整文本留在 debug 里。
+            logger.warning("kline_query_failed", symbol=symbol,
+                           error_type=type(e).__name__)
+            logger.debug("kline_query_failed_detail", symbol=symbol,
+                         error=str(e))
             return None

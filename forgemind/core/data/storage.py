@@ -127,8 +127,16 @@ class DuckDBStorage:
     def __exit__(self, exc_type, exc_val, _exc_tb):
         if self.conn:
             if exc_type is not None:
+                # 只在告警里放异常类型,不放原始异常文本:那里面有内部表名
+                # 与整条 SQL(DuckDB 的报错会把查询原文带回来)。命令行的
+                # 用户看到的是自己终端里的一行字,不该在这里读到内部实现。
+                # 完整文本留在 debug 里 —— 要排查的人自己把级别打开。
                 logger.warning(
                     "duckdb_context_exit_with_error",
+                    exc_type=exc_type.__name__,
+                )
+                logger.debug(
+                    "duckdb_context_exit_detail",
                     exc_type=exc_type.__name__,
                     exc_msg=str(exc_val) if exc_val else None,
                 )
@@ -164,6 +172,23 @@ class DuckDBStorage:
         if df.empty:
             return None
         return df.iloc[0, 0]
+
+    def table_exists(self, table_name: str) -> bool:
+        """这张表在不在?
+
+        **用异常问"表在不在"是反的**:第一次跑的人库里还没有这些表,那是
+        正常情况,不是故障 —— 而异常会在存储层留下一条带内部表名与 SQL 的
+        告警,命令行的用户看到的是一串 JSON,像坏了。
+
+        表名是调用方给的内部名,这里不接受外部输入拼接(参数化查询)。
+        """
+        if not self.conn:
+            raise RuntimeError("Use within 'with' block")
+        n = self.conn.execute(
+            "SELECT COUNT(*) FROM information_schema.tables WHERE table_name = ?",
+            [str(table_name)],
+        ).fetchone()
+        return bool(n and n[0])
 
 
 def create_market_tables(db) -> None:

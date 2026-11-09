@@ -2,7 +2,10 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import logging
+import os
 import sys
+import warnings
+from pathlib import Path
 from typing import Any
 
 import structlog
@@ -10,9 +13,45 @@ import structlog
 from forgemind.core.config.settings import get_settings
 
 
+def _quiet_third_party_warnings() -> None:
+    """第三方库的弃用提醒不要打到用户的终端上。
+
+    Python 的 warnings 直接写 stderr,还带着出处的文件路径。第三方库的一条
+    PendingDeprecationWarning 会以
+    "site-packages/langgraph/checkpoint/base/__init__.py:17"这样的形式出现在
+    用户的终端里 —— 那是用户改不了的别人的默认值,终端里这种行还会盖住
+    命令真正的输出。
+
+    **不能靠 warnings.filterwarnings**:第三方库在导入时会调用
+    warnings.simplefilter(),那会把过滤器整个换掉,我们设的那条就没了
+    (实测:第三方库一导入,过滤器就只剩下它自己那一条)。所以改成接管
+    showwarning —— 它在过滤器放行之后才被调用,第三方再怎么改过滤器也
+    绕不过去。
+
+    判据是警告的**出处文件**:在自己的包里就照旧显示(那是我们该改的,
+    不能藏);在第三方包里就收进 debug,需要排查的人自己打开级别看。
+    """
+    own_root = str(Path(__file__).resolve().parents[2]) + os.sep
+    original = warnings.showwarning
+
+    def _show(message, category, filename, lineno, file=None, line=None):  # noqa: ANN001
+        if str(filename).startswith(own_root):
+            original(message, category, filename, lineno, file=file, line=line)
+            return
+        logger.debug(
+            "third_party_warning",
+            warning=str(message),
+            category=getattr(category, "__name__", str(category)),
+            origin=f"{filename}:{lineno}",
+        )
+
+    warnings.showwarning = _show
+
+
 def setup_logging() -> None:
     """全局日志初始化"""
     settings = get_settings()
+    _quiet_third_party_warnings()
 
     # stdlib logging
     #

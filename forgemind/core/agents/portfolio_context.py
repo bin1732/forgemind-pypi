@@ -190,6 +190,9 @@ def _load_kline(symbol: str, limit: int = 250) -> pd.DataFrame | None:
         from forgemind.core.data.storage import DuckDBStorage, bare_symbol
 
         with DuckDBStorage() as db:
+            # 先问表在不在:第一次跑的人库里还没有这张表,那是正常情况。
+            if not db.table_exists("kline_daily"):
+                return None
             df = db.query_df(
                 "SELECT date, open, high, low, close, volume "
                 "FROM kline_daily WHERE symbol = ? ORDER BY date DESC LIMIT ?",
