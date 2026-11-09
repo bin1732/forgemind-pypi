@@ -366,8 +366,6 @@ class StockPickerAgent:
             # 告警里只放异常类型:原始文本里有 DuckDB 的报错原文,连着内部
             # 表名与整条 SQL。选股失败要说清是"取不到数据",不是把内部
             # 实现摊给用户。完整文本留在 debug 里。
-            logger.warning("kline_query_failed", symbol=symbol,
-                           error_type=type(e).__name__)
-            logger.debug("kline_query_failed_detail", symbol=symbol,
-                         error=str(e))
+            logger.warning("kline_query_failed", symbol=symbol, error_type=type(e).__name__)
+            logger.debug("kline_query_failed_detail", symbol=symbol, error=str(e))
             return None

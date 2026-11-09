@@ -270,12 +270,20 @@ part of the public surface, so you can query them with any DuckDB client:
 | `portfolio_position` | the positions inside a snapshot |
 
 ```python
+import pathlib
+
 import duckdb
 
+# 第一次跑的时候这个目录还不存在 —— 建出来,不然 DuckDB 开不了文件。
+pathlib.Path("data/duckdb").mkdir(parents=True, exist_ok=True)
 con = duckdb.connect("data/duckdb/main.db")
-print(con.execute(
-    "SELECT symbol, side, confidence FROM signal_history ORDER BY emitted_at DESC LIMIT 5"
-).df())
+try:
+    print(con.execute(
+        "SELECT symbol, side, confidence FROM signal_history ORDER BY emitted_at DESC LIMIT 5"
+    ).df())
+except duckdb.Error:
+    # 还没发过信号 —— 说清怎么办,而不是抛一堆栈
+    print("还没有信号 —— 先跑:forgemind signal --symbol 600519")
 con.close()
 ```
 
@@ -382,7 +390,7 @@ con.close()
 |---|---|---|---|
 | 0 | 成功 | 正常完成 | - |
 | 1 | 一般错误 | PM 节点已经跑过、仍按审批规则拒绝落盘 | 检查状态再重跑 |
-| 2 | 参数与审批类 | argparse 用法错误、策略名不存在、这个命令喂不了该策略、非交互模式未传 `--yes`;一次装不下(`MemoryError`)也归这里 | 照提示改参数,或缩小标的范围分批跑 |
+| 2 | 参数与审批类 | argparse 用法错误、没给子命令、策略名不存在、这个命令喂不了该策略、策略要额外参数、演示数据缺列、非交互模式未传 `--yes`;一次装不下(`MemoryError`)也归这里 | 照提示改参数,或缩小标的范围分批跑 |
 | 3 | 数据/上游类 | `TimeoutError`(上游无响应)/ 0 bars(取数失败) | 重试或换源 |
 | 4 | 资源类 | `OSError errno=28`(磁盘 ENOSPC) | 清理磁盘 |
 | 130 | 用户中断 | 按了 Ctrl+C | 重跑 |

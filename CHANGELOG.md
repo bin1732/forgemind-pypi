@@ -402,6 +402,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   which version the reader still has. The step was skipped, so the page
   showed a single "skipped" and did not distinguish a broken build from a
   platform that never handed out a runner.
+- The exit codes of the command line follow the table again. Three paths
+  that are plainly a mistake in the arguments — no command at all, a
+  strategy that needs more parameters, and the demo data missing a column —
+  left with the code that the table reserves for the refusal of an
+  approval. The reader saw a code that said "the approval was refused" and
+  looked in the wrong place. They are usage problems, and usage problems
+  have their own code. The codes are named constants now, so the table and
+  the code cannot drift apart silently, and the checker runs three more
+  commands to see the codes with its own eyes.
 - The three checks that run after a release no longer share one concurrency
   group. A concurrency group keeps a single pending run, so a new run
   cancels the one that was waiting: two of the three checks were cancelled

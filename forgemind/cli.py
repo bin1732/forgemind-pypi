@@ -13,6 +13,25 @@ from forgemind.core.observability.logging import get_logger, setup_logging  # no
 
 logger = get_logger("forgemind.cli")
 
+# 退出码 —— 对用户的承诺,README 里有一张同样的表。
+#
+# 这里只定义一次,别处不写裸数字:码变了要连文档一起改,而散落的裸数字
+# 没人会记得回去改文档。各码的含义:
+#
+#   0   成功
+#   1   一般错误:PM 节点已经跑过,仍按审批规则拒绝落盘
+#   2   用法/审批类:参数不对、策略名不存在、这个命令喂不了该策略、
+#       没给子命令、非交互模式未传 --yes、内存一次装不下
+#   3   数据/上游类:上游超时、取数失败、一条都没取到
+#   4   资源类:磁盘满
+#   130 用户中断(Python 对未捕获 KeyboardInterrupt 的标准退出码)
+EXIT_OK = 0
+EXIT_GENERAL = 1
+EXIT_USAGE = 2
+EXIT_DATA = 3
+EXIT_RESOURCE = 4
+EXIT_INTERRUPTED = 130
+
 
 def _force_utf8_stdio() -> None:
     """Windows 控制台默认是 GBK/cp1252,打印中文与 emoji 会直接崩
@@ -75,7 +94,7 @@ def refuse_unusable_strategy(name: str) -> None:
         print(f"❌ 未知策略 {name}")
         print(f"   这个命令能跑的:{', '.join(sorted(runnable))}")
         print("   想看全部可用策略:forgemind backtest --list-strategies")
-        raise SystemExit(2)
+        raise SystemExit(EXIT_USAGE)
 
     reason = strategy_unusable_reason(name) or "这个命令喂不了它"
     print(f"⚠️  {name} 这个命令跑不了:{reason}")
@@ -86,7 +105,7 @@ def refuse_unusable_strategy(name: str) -> None:
         print("   自己准备多支标的的行情表,用引擎直接跑:")
         print("     from forgemind.core.backtest.engine import SimpleBacktestEngine")
         print("     SimpleBacktestEngine().run(MyStrategy(), 多标的的行情表)")
-    raise SystemExit(2)
+    raise SystemExit(EXIT_USAGE)
 
 
 def cmd_demo(args):
@@ -374,7 +393,7 @@ def cmd_backtest(args):
         hint = _EXTENDED_STRATEGY_PARAMS.get(args.strategy)
         if hint:
             print(f"⚠️  {args.strategy} 需要额外参数,无法直接回测: {hint}")
-            sys.exit(1)
+            sys.exit(EXIT_USAGE)
         strategy = get_extended_strategy(args.strategy)
 
         # 事件类策略依赖基本面/事件数据,而 CLI 的演示数据只有 OHLCV。
@@ -390,7 +409,7 @@ def cmd_backtest(args):
             print("     forgemind pick / etl 后自行构造,或直接用 Python API:")
             print("     from forgemind.core.backtest.engine import SimpleBacktestEngine")
             print(f"     SimpleBacktestEngine().run(MyStrategy(), df_with_{_req[0]})")
-            sys.exit(1)
+            sys.exit(EXIT_USAGE)
     else:
         from forgemind.core.strategies.library import get_strategy_class
 
@@ -511,7 +530,7 @@ def cmd_agent(args):
     if pm is not None:
         # 通常 ainvoke 第一次不会到这里;只是防御。
         print("\n  ⚠️  PM 节点意外已跑(未审批),仍按 gating 拒绝落盘")
-        return 1
+        return EXIT_GENERAL
 
     # 真审批:非交互模式(--yes)直接 y,否则显式 y/n
     if getattr(args, "yes", False):
@@ -519,12 +538,12 @@ def cmd_agent(args):
     else:
         if not sys.stdin.isatty() or os.environ.get("FORGEMIND_NONINTERACTIVE"):
             print("  非交互模式未传 --yes,拒绝自动审批")
-            return 2
+            return EXIT_USAGE
         try:
             answer = input("\nApprove this decision? [y/N] ").strip().lower()
         except EOFError:
             print("  无输入,拒绝自动审批")
-            return 2
+            return EXIT_USAGE
 
     if answer != "y":
         asyncio.run(
@@ -649,7 +668,7 @@ def cmd_etl(args):
         print("   建议:缩小标的范围或日期区间,分批执行,例如:")
         print(f"     forgemind etl --symbols 600519,000001 --start {args.start} --end {args.end}")
         # 退出码 2: 资源类 (memory/disk),与网络/数据类区分
-        raise SystemExit(2) from None
+        raise SystemExit(EXIT_USAGE) from None
     except TimeoutError:
         # 用户只看到一句 asyncio 内部错误,既没有上下文也不知道该不该重试。
         print("❌ 取数超时,ETL 中断。")
@@ -660,13 +679,13 @@ def cmd_etl(args):
             f"--start {args.start} --end {args.end}"
         )
         # 退出码 3: 网络/上游类 (timeout/connect refused/DNS)
-        raise SystemExit(3) from None
+        raise SystemExit(EXIT_DATA) from None
     except OSError as exc:
         if getattr(exc, "errno", None) == 28:  # ENOSPC
             print("❌ 磁盘空间不足,ETL 中断。")
             print(f"   写入位置:{os.getcwd()}/data — 清理后重试。")
             # 退出码 4: 磁盘类
-            raise SystemExit(4) from None
+            raise SystemExit(EXIT_RESOURCE) from None
         raise
     n_klines = (stats or {}).get("klines", 0)
     failures = (stats or {}).get("failures") or {}
@@ -699,7 +718,7 @@ def cmd_etl(args):
                 print(f"        {cnt}× {reason}")
             # 退出码 3: 数据/上游类错误 (失败但非资源问题)
             # 退出码 4: 资源类 (init 失败是 db 文件路径/权限)
-            rc = 4 if init_failed else 3
+            rc = EXIT_RESOURCE if init_failed else EXIT_DATA
             print(f"\n   exit code: {rc} (3=数据, 4=资源)")
             # 依赖类建议(在 exit 之前给)
             if "akshare_not_installed" in " ".join(failures):
@@ -724,7 +743,7 @@ def cmd_etl(args):
         # 退出码 3(数据类):跑完了但一条数据没取到 —— 与"0 bars 属于数据类"
         # 说的是同一件事。退 1 会让退出码表里的 1 混进两种毫不相干的情况。
         print("\n   exit code: 3 (3=数据, 4=资源)")
-        sys.exit(3)
+        sys.exit(EXIT_DATA)
 
 
 def cmd_signal(args):
@@ -970,7 +989,7 @@ def main():
 
     if not args.command:
         parser.print_help()
-        sys.exit(1)
+        sys.exit(EXIT_USAGE)
 
     # CLI 默认把内部事件日志压到 WARNING:否则 `forgemind agent` 的输出里
     # 会混进十几行事件日志,真正的决策结果被淹没。

@@ -178,12 +178,16 @@ class TestMain:
                 main()
 
     def test_main_no_command(self):
-        """无子命令应退出 1"""
+        """无子命令应退出 2 —— 这是用法问题,不是"一般错误"。
+
+        退出码 1 在表里专指"PM 拒绝落盘";用法类的问题走 2,读者才知道
+        该改参数还是该查审批状态。
+        """
         from forgemind.cli import main
         with patch.object(sys, "argv", ["forgemind"]):
             with pytest.raises(SystemExit) as exc_info:
                 main()
-            assert exc_info.value.code == 1
+            assert exc_info.value.code == 2
 
     def test_main_info(self):
         """main info 子命令"""

@@ -33,12 +33,17 @@ REPO = Path(__file__).resolve().parent.parent
 
 # 用户通道与运维通道分开:同一批特征,两边的严格程度不同。
 STRICT_PATTERNS: list[tuple[str, str]] = [
-    (r"(?i)\b(SELECT\s+.+?\s+FROM|information_schema|WHERE\s+\w+\s*=\s*\?|"
-     r"ORDER BY\s+\w|LINE \d+:)", "SQL 片段"),
+    (
+        r"(?i)\b(SELECT\s+.+?\s+FROM|information_schema|WHERE\s+\w+\s*=\s*\?|"
+        r"ORDER BY\s+\w|LINE \d+:)",
+        "SQL 片段",
+    ),
     (r"(?i)Traceback \(most recent call last\)", "Python 栈回溯"),
-    (r"(?i)\b(CatalogException|KeyError|TypeError|ValueError|AttributeError|"
-     r"RuntimeError|OSError|FileNotFoundError|ImportError|DuckDBError)\b",
-     "异常类型名"),
+    (
+        r"(?i)\b(CatalogException|KeyError|TypeError|ValueError|AttributeError|"
+        r"RuntimeError|OSError|FileNotFoundError|ImportError|DuckDBError)\b",
+        "异常类型名",
+    ),
     (r"site-packages|/home/[a-z]|/Users/|[A-Za-z]:\\\\", "本机绝对路径"),
     (r'"event"\s*:|"exc_type"|"exc_msg"|"timestamp"\s*:', "原始日志 JSON"),
 ]
@@ -50,8 +55,11 @@ LOOSE_PATTERNS: list[tuple[str, str]] = [
 
 # 内部表名:出现在输出里没关系,但必须在 README 里有交代。
 TABLE_NAMES = (
-    "kline_daily", "signal_history", "portfolio_decision",
-    "portfolio_snapshot", "backtest_run",
+    "kline_daily",
+    "signal_history",
+    "portfolio_decision",
+    "portfolio_snapshot",
+    "backtest_run",
 )
 
 # 要真跑的命令。etl 要联网(装 akshare),mcp 是服务(不会自己退出),
@@ -84,7 +92,11 @@ def _run(args: list[str], repo_root: Path, timeout: int = 240) -> tuple[int, str
     try:
         proc = subprocess.run(
             [sys.executable, "-m", "forgemind.cli", *args],
-            capture_output=True, text=True, timeout=timeout, env=env, cwd=workdir,
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+            env=env,
+            cwd=workdir,
         )
     except subprocess.TimeoutExpired:
         return 124, "", f"(超时 {timeout}s)"
@@ -95,7 +107,7 @@ def _scan(text: str, patterns: list[tuple[re.Pattern, str]]) -> list[tuple[str, 
     hits: list[tuple[str, str]] = []
     for rx, label in patterns:
         for m in rx.finditer(text):
-            segment = text[max(0, m.start() - 30): m.end() + 30].replace("\n", " ")
+            segment = text[max(0, m.start() - 30) : m.end() + 30].replace("\n", " ")
             hits.append((label, segment))
     return hits
 

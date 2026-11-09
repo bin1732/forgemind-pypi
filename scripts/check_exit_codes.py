@@ -33,6 +33,13 @@ PROBES: tuple[tuple[str, tuple[str, ...], int], ...] = (
     ("argparse 用法错误", ("backtest", "--bogus-flag"), 2),
     ("策略名不存在", ("backtest", "--strategy", "NoSuchStrategyAnywhere"), 2),
     ("这个命令喂不了该策略", ("backtest", "--strategy", "MaxSharpe"), 2),
+    ("没给子命令", (), 2),
+    ("策略要额外参数", ("backtest", "--strategy", "PairsTrading"), 2),
+    (
+        "数据源没装,一条没取到",
+        ("etl", "--symbols", "600519", "--start", "2024-01-01", "--end", "2024-01-31"),
+        3,
+    ),
     (
         "非交互模式未审批",
         (
@@ -55,6 +62,10 @@ PROBES: tuple[tuple[str, tuple[str, ...], int], ...] = (
 # 码集合放在这里,措辞放在 README 里 —— 各管一处,不用把两边的散文抄成
 # 两份。130(用户中断)在这里但不在探针里:它是 Python 对未捕获
 # KeyboardInterrupt 的标准退出码,不是某个命令自己定的。
+#
+# 1 与 4 也不在探针里:1 要 PM 节点已经跑过(得先跑一遍 agent 再重放),
+# 4 要磁盘真的满(ENOSPC)—— 都不是能稳定造出来的状态。它们的码值由
+# forgemind/cli.py 里的具名常量守着,表里的措辞由 EXPECTED_CODES 守着。
 EXPECTED_CODES = (0, 1, 2, 3, 4, 130)
 
 _TABLE_ROW = re.compile(r"^\|\s*(\d+)\s*\|\s*([^|]+?)\s*\|", re.M)
