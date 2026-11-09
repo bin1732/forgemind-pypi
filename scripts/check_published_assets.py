@@ -187,12 +187,15 @@ def main() -> int:
 
     index_path = repo / "pypi" / "simple" / "forgemind" / "index.html"
     online_build = ""
+    online_file = ""
     if index_path.is_file():
         page = index_path.read_text(encoding="utf-8")
         link = INDEX_LINK.search(page)
         if link:
-            # href 形如 .../main/releases/builds/<build_id>/<文件名>
-            parts = link.group(1).split("/main/", 1)[-1].split("/")
+            href = link.group(1)
+            online_file = href.rsplit("/", 1)[-1]
+            # href 形如 .../main/releases/builds/<build_id>/<文件名>(旧格式)
+            parts = href.split("/main/", 1)[-1].split("/")
             if "builds" in parts:
                 after = parts[parts.index("builds") + 1 :]
                 if after:
@@ -207,6 +210,24 @@ def main() -> int:
         problems.append(
             f"线上索引指向的构建 {online_build} 与清单记的构建 {manifest_build} "
             "不是同一份产物 —— 用户按索引装到的是前者,清单说的却是后者"
+        )
+
+    # 索引里的文件名带着版本号,清单里也记着发布版本 —— 两边对不上,就是
+    # "用户按索引装到的"与"清单说的"不是同一份产物。这条不依赖 URL 的
+    # 形状:索引指向构建目录(旧格式)还是指向 Release 资产(新格式),
+    # 都对得上。
+    def _version_of(name: str) -> str:
+        m = re.search(r"forgemind-(\d+\.\d+\.\d+(?:post\d+)?)-", name or "")
+        return m.group(1) if m else ""
+
+    manifest_version = (
+        str(manifest.get("published_version") or "") if manifest_path.is_file() else ""
+    )
+    index_version = _version_of(online_file)
+    if manifest_version and index_version and manifest_version != index_version:
+        problems.append(
+            f"线上索引指向的是 {index_version},清单记的发布版本是 {manifest_version} "
+            "—— 用户按索引装到的与清单说的不是同一份产物"
         )
 
     build = None
@@ -244,8 +265,16 @@ def main() -> int:
             if not declared:
                 problems.append("索引页里的链接没有声明校验值")
             else:
+                # 索引里的链接有两种形态,都要能落到仓库里那一份文件上:
+                #   旧:.../main/releases/builds/<构建号>/<文件名>  → 路径就是它
+                #   新:.../releases/download/continuous/<文件名>  → 落在
+                #       清单记的那个构建目录里
                 rel = href.split("/main/", 1)[-1]
                 local = repo / rel
+                if not local.is_file() and "/releases/download/" in href:
+                    filename = href.rsplit("/", 1)[-1]
+                    local = builds_dir / manifest_build / filename
+                    rel = f"releases/builds/{manifest_build}/{filename}"
                 if not local.is_file():
                     problems.append(f"索引指向的文件不在仓库里: {rel}")
                 else:

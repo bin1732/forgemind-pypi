@@ -138,7 +138,28 @@ class TestIndexHtml:
         sha = hashlib.sha256(blob).hexdigest()
         html = publish.index_html(sha, "forgemind-2026.9.3-py3-none-any.whl", "42").decode()
         assert f"#sha256={sha}" in html
-        assert "builds/42/forgemind-2026.9.3-py3-none-any.whl" in html
+        assert "forgemind-2026.9.3-py3-none-any.whl" in html
+
+    def test_points_at_the_release_asset(self):
+        """索引指向 Release 资产 —— 用户在 Releases 页面看到的就是这一份
+
+        指向仓库里的构建目录也行,但那是仓库内容的 CDN,网络一抖就装不上
+        (实测:装到一半被 TLS 打断)。github.com 上的发布资产更稳。
+        """
+        html = publish.index_html(
+            "a" * 64, "forgemind-2026.9.3.post54-py3-none-any.whl", "42"
+        ).decode()
+        assert (
+            "https://github.com/bin1732/forgemind-pypi/releases/download/continuous/"
+            "forgemind-2026.9.3.post54-py3-none-any.whl" in html
+        ), html
+
+    def test_asset_name_carries_the_version(self):
+        """资产名带版本号 —— 名字不变的资产,CDN 会继续发旧副本"""
+        html = publish.index_html(
+            "a" * 64, "forgemind-2026.9.3.post54-py3-none-any.whl", "42"
+        ).decode()
+        assert "post54" in html, html
 
 
 class TestGitWrite:
@@ -296,8 +317,8 @@ class TestIndexMustActuallySwitch:
     不用 pytest:这个脚本自带极简运行器,那个作业的环境里没有 pytest。
     """
 
-    def _run_publish(self, live_build_id):
-        """跑一次发布,线上索引指向由 live_build_id 决定。返回退出码。"""
+    def _run_publish(self, live_name):
+        """跑一次发布,线上索引指向由 live_name 决定。返回退出码。"""
         import tempfile
         from unittest import mock
 
@@ -333,7 +354,7 @@ class TestIndexMustActuallySwitch:
 
             with (
                 mock.patch.object(sys, "argv", argv),
-                mock.patch.object(publish, "live_build_id", new=live_build_id),
+                mock.patch.object(publish, "live_index_filename", new=live_name),
                 mock.patch.object(publish, "wait_assets_downloadable", return_value=True),
                 mock.patch.object(
                     publish,
@@ -353,13 +374,13 @@ class TestIndexMustActuallySwitch:
                 return publish.main()
 
     def test_publish_fails_when_the_index_does_not_switch(self):
-        """索引一直指着旧构建 → 这次发布要失败"""
-        rc = self._run_publish(lambda timeout=30: "old-build")
+        """索引一直指着旧版本 → 这次发布要失败"""
+        rc = self._run_publish(lambda timeout=30: "forgemind-0.9-py3-none-any.whl")
         assert rc == 1, "线上索引没切过去,发布却报成功了"
 
     def test_publish_succeeds_when_the_index_switches(self):
         """索引切过去了 → 发布照常成功"""
-        rc = self._run_publish(lambda timeout=30: "42")
+        rc = self._run_publish(lambda timeout=30: "forgemind-1.0-py3-none-any.whl")
         assert rc == 0, "索引切过去了,发布却失败了"
 
 

@@ -119,3 +119,42 @@ class TestQuotedMessages:
 
 if __name__ == "__main__":
     raise SystemExit(pytest.main([__file__, "-v"]))
+
+
+class TestCommandOptions:
+    """README 里写的选项,这个命令真的认
+
+    之前只核对子命令在不在 —— 用户照着抄一条带选项的命令,选项写错了
+    一样报错,而那时没人拦。
+    """
+
+    def test_unknown_option_is_reported(self):
+        text = "forgemind backtest --strategys ma_cross --symbol 600519\n"
+        problems = examples.check_command_options(text)
+        assert len(problems) == 1, problems
+        assert "--strategys" in problems[0]
+
+    def test_known_option_is_not_reported(self):
+        text = "forgemind backtest --strategy ma_cross --symbol 600519\n"
+        assert examples.check_command_options(text) == []
+
+    def test_unique_prefix_is_accepted(self):
+        """argparse 允许唯一前缀缩写,--symbol 就是 --symbols 的前缀"""
+        text = "forgemind pick --symbol 600519.SH --top-n 5\n"
+        assert examples.check_command_options(text) == []
+
+    def test_ambiguous_prefix_is_reported(self):
+        """前缀不唯一时 argparse 会报歧义,这里也要报"""
+        text = "forgemind backtest --s ma_cross\n"
+        problems = examples.check_command_options(text)
+        assert problems, "歧义的前缀没人拦"
+
+    def test_option_of_another_command_is_reported(self):
+        """选项得是这个命令认的,不是别的命令的"""
+        text = "forgemind info --strategy ma_cross\n"
+        problems = examples.check_command_options(text)
+        assert len(problems) == 1, problems
+
+    def test_real_readme_options_are_all_real(self):
+        text = (REPO / "README.md").read_text(encoding="utf-8")
+        assert examples.check_command_options(text) == []

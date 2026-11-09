@@ -17,6 +17,7 @@ README 里最常见的失败不是写错,而是"看着像能跑":顶层写 await
 
 from __future__ import annotations
 
+import argparse
 import re
 import subprocess
 import sys
@@ -46,6 +47,11 @@ def _python_blocks(text: str) -> list[str]:
 
 def _bash_blocks(text: str) -> list[str]:
     return [m.group(1) for m in BASH_BLOCK.finditer(text)]
+
+
+# README 里的一条命令与它带的选项:forgemind <子命令> ... --flag ...
+_COMMAND_WITH_FLAGS = re.compile(r"forgemind\s+([a-z][a-z0-9-]*)\s+([^\n`#]*)", re.M)
+_FLAG = re.compile(r"--[a-z0-9][a-z0-9-]*")
 
 
 def _real_subcommands() -> set[str]:
@@ -228,6 +234,66 @@ def _source_text(repo_root: Path) -> str:
     return "\n".join(chunks)
 
 
+def _subcommand_options() -> dict[str, set[str]]:
+    """每个子命令真正认的选项(不含 --help)。
+
+    直接问 argparse 自己,不去读源码:源码里写的名字与解析器认的名字
+    可能已经不是一个东西了。
+    """
+    from forgemind.cli import build_parser
+
+    parser = build_parser()
+    out: dict[str, set[str]] = {}
+    for action in parser._actions:
+        if not isinstance(action, argparse._SubParsersAction):
+            continue
+        for name, sub in action.choices.items():
+            opts = set()
+            for a in sub._actions:
+                opts.update(a.option_strings)
+            opts.discard("--help")
+            out[name] = opts
+    return out
+
+
+def check_command_options(text: str) -> list[str]:
+    """README 里写的选项,这个命令真的认。
+
+    之前只核对子命令在不在 —— 用户照着抄一条带选项的命令,选项写错了
+    一样报错,而那时没人拦。
+
+    认的是 argparse 的真实规则:精确匹配,或者**唯一前缀**(argparse
+    允许 `--symbol` 缩写 `--symbols`)。前缀不唯一时 argparse 会报错,
+    这里也报错 —— 宁可现在说清,别让用户撞一次。
+    """
+    options = _subcommand_options()
+    if not options:
+        return []
+    problems: list[str] = []
+    for sub, rest in _COMMAND_WITH_FLAGS.findall(text):
+        if sub not in options:
+            continue  # 子命令本身由 check_all_mentions 负责
+        known = options[sub]
+        for flag in _FLAG.findall(rest):
+            if flag in known:
+                continue
+            # 唯一前缀缩写:argparse 允许,--symbol → --symbols
+            hits = [o for o in known if o.startswith(flag)]
+            if len(hits) == 1:
+                continue
+            if len(hits) > 1:
+                problems.append(
+                    f"README 里的 `forgemind {sub} {flag}` 是多个选项的前缀"
+                    f"({', '.join(sorted(hits))}),argparse 会报歧义"
+                )
+                continue
+            problems.append(
+                f"README 里的 `forgemind {sub} {flag}` 不是这个命令的选项"
+                f"(它认的是:{', '.join(sorted(known))})"
+            )
+    return problems
+
+
 def main() -> int:
     readme = REPO / "README.md"
     if not readme.is_file():
@@ -242,6 +308,7 @@ def main() -> int:
     problems += check_strategy_count(text)
     problems += check_error_example(bash_blocks)
     problems += check_quoted_messages(text, REPO)
+    problems += check_command_options(text)
     if problems:
         print("README 里的示例有问题:")
         for item in problems:

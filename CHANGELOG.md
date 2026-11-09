@@ -441,6 +441,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   told it had never heard of a strategy; a model that trusted the tool was
   told the list was wrong. The parsing is one piece of code now, used by
   both, and a test holds the two against each other.
+- The options in the README are checked now, not only the commands. A reader
+  who copies a line with a misspelled option gets an error from the parser
+  in the middle of their first hour with the tool, and nothing in the
+  repository noticed it before. The check asks the parser itself which
+  options a command takes, and it accepts the abbreviations the parser
+  accepts — a unique prefix is fine, an ambiguous one is not.
+- The index now points at the release assets instead of a directory inside
+  the repository. The two hold the same file, and the index now names the
+  same thing the reader sees on the releases page — there is no second
+  place where "the current version" lives. The repository copy is only the
+  CDN for the repository's own content, and a shaky connection to it
+  breaks the installation half way through (it did here: the transfer was
+  cut off by the network twice before the package was in place). The
+  check that the index and the manifest point at the same artifact now
+  compares the version in the file name, which works whichever shape the
+  link has.
 - The three checks that run after a release no longer share one concurrency
   group. A concurrency group keeps a single pending run, so a new run
   cancels the one that was waiting: two of the three checks were cancelled

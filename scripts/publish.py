@@ -28,6 +28,7 @@ import hashlib
 import json
 import os
 import pathlib
+import re
 import sys
 import time
 import urllib.error
@@ -132,16 +133,49 @@ def git_write(api: str, branch: str, entries, message: str):
 
 
 def index_html(sha256: str, filename: str, build_id: str) -> bytes:
-    """索引页。声明的校验值必须与文件内容一致。"""
+    """索引页。声明的校验值必须与文件内容一致。
+
+    链接指向 **Release 资产**(github.com 上的那个 continuous 发布),
+    不是仓库里的构建目录:
+
+    - 用户在 Releases 页面看到的就是这一份文件 —— 索引与页面指同一个地方,
+      不会出现"页面上是这一份、装下来是另一份"。
+    - github.com 比 raw.githubusercontent 稳:后者只是仓库内容的 CDN,网络
+      一抖就装不上(实测过:索引指 raw 时,装到一半被 TLS 打断)。
+    - 资产名带着版本号,CDN 不会把旧副本发给以为自己在装新版的人。
+
+    校验值与资产内容一致 —— 上线前那一步会核对过(见 asset_downloadable)。
+    """
     return (
-        "<!DOCTYPE html>\n<html>\n  <body>\n    <a href=\"https://raw.githubusercontent.com/"
-        f"bin1732/forgemind-pypi/main/releases/builds/{build_id}/{filename}#sha256={sha256}\">"
+        "<!DOCTYPE html>\n<html>\n  <body>\n    <a href=\"https://github.com/"
+        f"bin1732/forgemind-pypi/releases/download/continuous/{quote(filename)}"
+        f"#sha256={sha256}\">"
         f"{filename}</a><br/>\n  </body>\n</html>\n"
     ).encode()
 
 
+def live_index_filename(timeout: int = 30) -> str:
+    """线上索引当前指向的文件名。取不到就返回空串。
+
+    索引里放的是**带版本号的名字**(资产名),所以这一项就是"用户现在
+    按索引装到的是哪一版"的直接答案 —— 比从 URL 里扒构建号更贴近读者
+    真正拿到的东西。
+    """
+    try:
+        with urllib.request.urlopen(LIVE_INDEX, timeout=timeout) as r:
+            body = r.read().decode("utf-8", "ignore")
+    except Exception:
+        return ""
+    m = re.search(r'>([^<>]+\.(?:whl|tar\.gz))<', body)
+    return m.group(1) if m else ""
+
+
 def live_build_id(timeout: int = 30) -> str:
-    """线上索引当前指向的构建号。取不到就返回空串。"""
+    """线上索引当前指向的构建号。取不到就返回空串。
+
+    索引现在指向 Release 资产(资产名里没有构建号),所以这一项通常取不到
+    —— 保留它只为清理历史构建目录时还能认出"线上那个"。
+    """
     try:
         with urllib.request.urlopen(LIVE_INDEX, timeout=timeout) as r:
             body = r.read().decode("utf-8", "ignore")
@@ -435,11 +469,15 @@ def main() -> int:
     # 3) 等线上索引指向本次构建,再清理历史构建目录
     # GitHub Pages 部署新索引有延迟:这段时间里线上索引还指着上一个构建。
     # 立刻把上一个构建删掉,用户按线上索引下载就会拿到 404。
+    # 索引指向的是带版本号的资产名,所以判据是"线上索引里的文件名就是
+    # 这次发的那一个" —— 用户按索引装到的东西,必须就是这一版。
+    mine = wheel_name if wheel_name else ""
     index_switched = False
     deadline = time.time() + 600
     while time.time() < deadline:
-        if live_build_id() == build_id:
-            print(f"  线上索引已指向 {build_id}")
+        live_name = live_index_filename()
+        if mine and live_name == mine:
+            print(f"  线上索引已指向 {mine}")
             index_switched = True
             break
         time.sleep(10)
@@ -452,7 +490,7 @@ def main() -> int:
         # 发布看起来像成功了。旧构建照常保留(清理那一步会保住在线上索引
         # 指着的那个),所以用户拿到的仍是能用的旧版本,不会 404。
         print(
-            f"  [fail] 线上索引未在时限内指向 {build_id} —— 用户装到的仍是旧版本",
+            f"  [fail] 线上索引未在时限内指向 {mine or build_id} —— 用户装到的仍是旧版本",
             file=sys.stderr,
         )
         return 1
