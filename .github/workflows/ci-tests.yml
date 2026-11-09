@@ -74,15 +74,16 @@ jobs:
                   # 这一步要真跑 pytest 采集、也要真导入因子库,所以只能放在
                   # 依赖齐全的作业里。
                   python scripts/check_readme_claims.py README.md
-                  # 自检文档里声明的数字。用例数要真跑 pytest 采集才知道
-                  # (参数化会让函数数量失真),所以这一步只能放在依赖齐全
-                  # 的作业里,不能放在只装了静态检查工具的作业里。
-                  python scripts/check_readme_claims.py README.md
                   # README 里的示例要真能跑。文档里最常见的失败不是写错,
                   # 而是"看着像能跑":顶层写 await、用了没定义的变量、调用了
                   # 不存在的子命令。没人会在读文档时真跑一遍,于是它就一直留在
                   # 交付物里,直到某个新人照着抄,卡在第一步。
                   python scripts/check_readme_examples.py
+                  # 命令行的输出不能把内部实现摊给用户。每条子命令都在一台
+                  # 全新的机器上真跑一遍(空的本地库、没有密钥),输出里不许有
+                  # SQL、栈回溯、异常类型名、本机路径;内部表名可以出现,
+                  # 但 README 里得有交代。
+                  python scripts/check_cli_output_clean.py
                   # 行情数据必须自洽。列序写错这类错读得出来、日期也对,只有
                   # high/low 与 open/close 对不上,要等策略在上面算出离谱结果
                   # 才暴露 —— 内置的真实行情就踩过这个坑。

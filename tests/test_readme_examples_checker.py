@@ -72,5 +72,50 @@ class TestStrategyCount:
         assert examples.check_strategy_count(text) == []
 
 
+class TestQuotedMessages:
+    """FAQ 里引用的报错原文必须还真的会被打印出来"""
+
+    @staticmethod
+    def _repo(tmp_path: pathlib.Path, source: str) -> pathlib.Path:
+        pkg = tmp_path / "forgemind"
+        pkg.mkdir(parents=True)
+        (pkg / "cli.py").write_text(source, encoding="utf-8")
+        return tmp_path
+
+    def test_stale_quote_is_reported(self, tmp_path):
+        """引用的原文在源码里没了 → 报出来(读者照着引号里的字找不到)"""
+        repo = self._repo(tmp_path, 'print("库里没有 K 线")')
+        text = '<summary><b>Q: 报 "在库里没有行情数据" 怎么办?</b></summary>'
+        problems = examples.check_quoted_messages(text, repo)
+        assert len(problems) == 1, problems
+        assert "第 1 行" in problems[0]
+
+    def test_live_quote_is_not_reported(self, tmp_path):
+        """原文还在 → 不许报"""
+        repo = self._repo(tmp_path, 'print("在库里没有行情数据")')
+        text = '<summary><b>Q: 报 "在库里没有行情数据" 怎么办?</b></summary>'
+        assert examples.check_quoted_messages(text, repo) == []
+
+    def test_platform_message_is_not_reported(self, tmp_path):
+        """平台自己的报错原文不在本仓源码里 —— 不该按本仓文案核"""
+        repo = self._repo(tmp_path, "")
+        text = '<summary><b>Q: 报 "No matching distribution found" 怎么办?</b></summary>'
+        assert examples.check_quoted_messages(text, repo) == []
+
+    def test_ellipsis_quote_checks_every_part(self, tmp_path):
+        """省略写法:每段都得在源码里找得到"""
+        repo = self._repo(tmp_path, 'print("本地库里没有这个标的的行情数据")')
+        text = ('<summary><b>Q: 报 "本地库里没有这个标的的行情数据 ... '
+                '先跑一次 etl" 怎么办?</b></summary>')
+        problems = examples.check_quoted_messages(text, repo)
+        assert len(problems) == 1, problems
+        assert "先跑一次 etl" in problems[0]
+
+    def test_real_readme_quotes_are_live(self):
+        """真的 README 里引用的每句话都还会在源码里出现"""
+        text = (REPO / "README.md").read_text(encoding="utf-8")
+        assert examples.check_quoted_messages(text, REPO) == []
+
+
 if __name__ == "__main__":
     raise SystemExit(pytest.main([__file__, "-v"]))

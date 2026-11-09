@@ -370,6 +370,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   own message. A first-time reader saw a block of JSON and the inside of
   the implementation instead of the answer. The commands ask whether the
   table is there first, and the fallback says what to run.
+- The commands ask whether a table is there instead of finding out with an
+  exception. On a machine that has not fetched any data yet, the table is
+  simply not there, and that is not a failure — but asking with an exception
+  left a warning behind it carrying the name of the table and the query, and
+  the storage layer repeated the name of the table in a second warning. The
+  name of the table now lives in one place, and the commands use it.
+- The warnings of the storage layer no longer carry the text of the error.
+  The text of a database error contains the name of the table and the whole
+  query, and it was written to the terminal of the user. The type of the
+  error stays; the text moved to the debug level.
+- The warnings of a third-party library no longer appear in the terminal of
+  the user. They arrive with the path of the file they came from, in the
+  installation directory of that library, and the user can do nothing about
+  them. They cannot be filtered away in the usual way: the library replaces
+  the filters of the warnings module while it is imported. The display of
+  warnings is intercepted instead, and a warning that comes from our own
+  package still shows.
+- A checker walks the output of every command on a machine that has nothing
+  in it yet, and reports what must not be there: queries, stack traces, the
+  names of exception types, local paths. The name of an internal table is
+  allowed, but only when the README explains it — so the table list of the
+  README is a promise that is checked against the schema.
+- The FAQ of the README quotes the wording of the commands. A checker reads
+  those quotes back against the source: a wording that changed without the
+  FAQ being updated leaves the reader searching for a message that is no
+  longer printed.
+- The tables of the local database are documented now. Which tables exist is
+  read from the schema itself, so the list cannot drift away from it.
 - A release that cannot be completed says which platform is missing and
   which version the reader still has. The step was skipped, so the page
   showed a single "skipped" and did not distinguish a broken build from a

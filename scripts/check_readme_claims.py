@@ -211,6 +211,16 @@ def _source_mentions(code: Path, needle: str) -> bool:
     return False
 
 
+def local_table_names(code_root: Path) -> set[str]:
+    """本地 DuckDB 真正建出来的表名。
+
+    schema 的单一真源是 storage.py(它自己的说明里就这么写着),所以直接
+    从那里读 DDL —— 不猜,也不维护第二份名单。名单会漂,DDL 不会。
+    """
+    src = (code_root / "forgemind/core/data/storage.py").read_text(encoding="utf-8")
+    return set(re.findall(r"CREATE TABLE IF NOT EXISTS\s+(\w+)", src))
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="核对 README 的活数字")
     parser.add_argument("readme", type=Path, help="README 路径")
@@ -260,8 +270,13 @@ def main() -> int:
 
     srv = ForgeMindMCPServer()
     real_names = set(srv.tools) | set(srv.resources) | set(srv.prompts)
+    # README 里点名一张本地库的真表,那是给用户的交代,不是内部细节漏出来
+    # —— 前提是它真的存在。表名从 schema 里读,不用另维护名单。
+    table_names = local_table_names(code)
     for token in sorted(set(CODE_TOKEN.findall(text))):
         if token in real_names or token in ALLOWED_OTHER_TOKENS:
+            continue
+        if token in table_names:
             continue
         problems.append(f"README 里点名的 `{token}` 不是真实的工具/资源/提示词名")
 

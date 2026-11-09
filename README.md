@@ -255,6 +255,34 @@ ForgeMind outputs trading signals — it does **not** connect to brokers. Use th
 }
 ```
 
+**Where it lands locally.** Signals, decisions and backtests are written to a
+local DuckDB file — `forgemind info` prints the exact path. The tables are
+part of the public surface, so you can query them with any DuckDB client:
+
+| Table | What it holds |
+|---|---|
+| `signal_history` | every signal that was emitted, with its side, confidence and rationale |
+| `kline_daily` | the daily bars pulled by `forgemind etl` (symbol, date, OHLCV) |
+| `stock_list` | the symbols `forgemind etl` has seen, with their names |
+| `backtest_run` | one row per backtest, with the metrics it produced |
+| `portfolio_decision` | the per-agent votes behind a decision |
+| `portfolio_snapshot` | the portfolio as it stood at a given moment |
+| `portfolio_position` | the positions inside a snapshot |
+
+```python
+import duckdb
+
+con = duckdb.connect("data/duckdb/main.db")
+print(con.execute(
+    "SELECT symbol, side, confidence FROM signal_history ORDER BY emitted_at DESC LIMIT 5"
+).df())
+con.close()
+```
+
+> Open the file read-write, as above: DuckDB does not let a read-only
+> connection and a read-write one open the same file, and ForgeMind holds
+> the read-write side.
+
 ---
 
 ## ❓ FAQ
@@ -304,7 +332,7 @@ forgemind etl --symbols 600519,000001 --start 2024-01-01 --end 2024-12-31
 </details>
 
 <details>
-<summary><b>Q: `forgemind backtest` 报 "DuckDB 中没有 600519 在 ... 的 K 线" 怎么办?</b></summary>
+<summary><b>Q: `forgemind backtest` 报 "在库里没有 K 线" 怎么办?</b></summary>
 
 A: 先跑 ETL 把标的 K 线拉下来:
 
@@ -379,11 +407,11 @@ $ forgemind agent --symbol 600519.SH
 
 ```bash
 pytest tests/ -v
-# 668 test files · 10289 tests
+# 669 test files · 10307 tests
 
 # 常规档位:真实业务用例,起真实子进程与真实数据库
 pytest tests/ -m "not heavy"
-# 8449 cases
+# 8467 cases
 
 # 重并发档位:百万级真实运算,单独用更宽的超时执行
 pytest tests/ -m heavy

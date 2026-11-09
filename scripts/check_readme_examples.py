@@ -24,6 +24,12 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
 
+# 平台自己的报错原文,不在本仓源码里 —— 它们是别人的话,不该按本仓文案核。
+PLATFORM_MESSAGES = {
+    "No matching distribution found",
+    "Unique file handle conflict",
+}
+
 PY_BLOCK = re.compile(r"```python\n(.*?)```", re.S)
 BASH_BLOCK = re.compile(r"```bash\n(.*?)```", re.S)
 # 命令名的前缀要认反引号等引号:正文里写的是 `forgemind backtest`,
@@ -172,6 +178,56 @@ def check_all_mentions(text: str, blocks: list[str]) -> list[str]:
     return problems
 
 
+def check_quoted_messages(text: str, repo_root: Path) -> list[str]:
+    """FAQ 里引用的报错原文必须还真的会被打印出来。
+
+    README 的 FAQ 会直接引用命令的输出("报 XXX 怎么办")。改了文案却不改
+    FAQ,读者照着引号里的字去搜就搜不到 —— 那是过期文档,比没有还糟。
+    这里把引号里的话拿去源码里核:还在,就是真的;不在了,读者会白找。
+
+    平台自己的报错原文(pip / DuckDB)不在本仓源码里 —— 它们是别人的话,
+    列在下面免得误报。
+    """
+    problems: list[str] = []
+    haystack = _source_text(repo_root)
+    for match in re.finditer(r"<summary><b>Q:[^\n]*?\"([^\"]+)\"", text):
+        quoted = match.group(1)
+        if quoted in PLATFORM_MESSAGES:
+            continue
+        # "报 XXX 在 ... 的 YYY" 这种省略写法:每段都得在源码里找得到
+        for part in (p.strip() for p in quoted.split("...")):
+            if len(part) < 4:
+                continue
+            if part not in haystack:
+                line = text[: match.start()].count("\n") + 1
+                problems.append(
+                    f"README 第 {line} 行引用的报错原文在源码里找不到了:{part!r}"
+                    " —— 命令改了文案,FAQ 没跟着改,读者照着引号里的字找不到"
+                )
+    return problems
+
+
+def _source_text(repo_root: Path) -> str:
+    """把可能产生用户可见文案的源码汇成一大段文本,供上面检索。"""
+    chunks: list[str] = []
+    roots = ["forgemind", "forgemind-ui", "scripts"]
+    skip = {"node_modules", ".next", "dist", "build", "__pycache__", ".git"}
+    for name in roots:
+        base = repo_root / name
+        if not base.is_dir():
+            continue
+        for path in base.rglob("*"):
+            if not path.is_file() or path.suffix not in {".py", ".ts", ".tsx", ".rs", ".md"}:
+                continue
+            if any(part in skip for part in path.parts):
+                continue
+            try:
+                chunks.append(path.read_text(encoding="utf-8"))
+            except (OSError, UnicodeDecodeError):
+                continue
+    return "\n".join(chunks)
+
+
 def main() -> int:
     readme = REPO / "README.md"
     if not readme.is_file():
@@ -185,6 +241,7 @@ def main() -> int:
     problems += check_all_mentions(text, bash_blocks)
     problems += check_strategy_count(text)
     problems += check_error_example(bash_blocks)
+    problems += check_quoted_messages(text, REPO)
     if problems:
         print("README 里的示例有问题:")
         for item in problems:
