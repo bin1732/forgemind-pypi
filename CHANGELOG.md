@@ -411,6 +411,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   have their own code. The codes are named constants now, so the table and
   the code cannot drift apart silently, and the checker runs three more
   commands to see the codes with its own eyes.
+- A release waits for the gates now. The gates and the release used to run
+  side by side, so a commit whose tests and lint failed was published all
+  the same: the release finished, the index pointed at it, and half of the
+  pipeline was green. A version that nobody checked had reached the people
+  who install it. The release now looks at the conclusion of the gates
+  before it publishes anything, and the reasoning about it lives in the
+  repository where it can be tested on its own — a gate that lets through
+  what it should stop is worse than no gate at all.
 - The three checks that run after a release no longer share one concurrency
   group. A concurrency group keeps a single pending run, so a new run
   cancels the one that was waiting: two of the three checks were cancelled

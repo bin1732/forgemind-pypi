@@ -61,6 +61,12 @@ jobs:
                 # 每个 bash 步骤都要写明 shell: bash。缺了它,跨平台的
                 # 行为就不确定(Windows 上会用 cmd)。
                 python scripts/check_workflow_shell.py
+    - name: 门禁关卡的判据
+      run: |
+        # 发布前那道关(门禁没绿就不发布)的判据在仓里,这里验一遍:
+        # 门禁该拦的时候放行,比没有门禁更糟 —— 流水线一片绿,发出去的
+        # 东西没人验过。
+        node --test scripts/test_gate_check.js
     - name: 检查器都接进了流水线
       run: |
                 # 检查器写好放着没人调用,等于一道门禁都没有。这里逐个核对。

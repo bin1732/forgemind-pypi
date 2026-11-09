@@ -16,6 +16,8 @@ on:
 
 permissions:
   contents: write
+  # 发布前要读门禁那几档作业的结论(actions: read)。
+  actions: read
 
 # 发布不打断:一次发布被打断会留下半发布的构件(资产传了一半、索引还没指),
 # 那比排队久一点糟糕得多。
@@ -256,6 +258,16 @@ jobs:
           fi
           echo "缺少的构件:${missing:- 无}"
           echo "missing=${missing# }" >> "$GITHUB_OUTPUT"
+
+      - name: 门禁没绿就不发布
+        uses: actions/github-script@v9
+        with:
+          # 判据在仓里( scripts/gate_check.js ),能被单独验:
+          # 门禁该拦的时候放行,比没有门禁更糟 —— 流水线一片绿,发出去的
+          # 东西没人验过。
+          script: |
+            const gate = require(`${process.env.GITHUB_WORKSPACE}/scripts/gate_check.js`);
+            await gate.run({ github, context, core });
 
       - name: Publish artifacts
         if: steps.assets.outputs.missing == ''
