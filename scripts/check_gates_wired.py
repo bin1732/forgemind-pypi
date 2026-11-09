@@ -60,14 +60,23 @@ def main() -> int:
     workflow_texts = []
     for workflow in sorted((public / ".github/workflows").glob("*.yml")):
         workflow_texts.append(workflow.read_text(encoding="utf-8"))
-    workflows_text = "\n".join(workflow_texts)
+    # 注释里提到脚本名不算"被调用" —— 那是解释,不是执行。
+    # 少了这一层:把 require 那一行删掉,注释还在,检查器照样说"接上了",
+    # 而那道门禁已经不设防了。
+    workflows_code = "\n".join(
+        "\n".join(line for line in text.splitlines() if not line.lstrip().startswith("#"))
+        for text in workflow_texts
+    )
 
     problems: list[str] = []
     for root, label in ((public, "本仓"),):
         if root is None or not (root / "scripts").is_dir():
             continue
-        scripts = sorted((root / "scripts").glob("*.py"))
-        called = _called(scripts, workflows_text)
+        # .js 也在内:发布前那道关(门禁没绿就不发布)的判据是 JS。
+        # 它要是哪天从工作流里被摘掉,那道关就悄悄不设防了 ——
+        # 而"判据还在仓里、只是没人调用"是最难发现的失守。
+        scripts = sorted((root / "scripts").glob("*.py")) + sorted((root / "scripts").glob("*.js"))
+        called = _called(scripts, workflows_code)
         for script in scripts:
             name = script.name
             if name.startswith("_"):

@@ -411,6 +411,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   have their own code. The codes are named constants now, so the table and
   the code cannot drift apart silently, and the checker runs three more
   commands to see the codes with its own eyes.
+- The checker that watches the checkers now counts a mention in a comment
+  as nothing. The gate before a release is a script, and the script was
+  named in the comment next to the step that calls it — so deleting the
+  call and keeping the comment was enough to make the checker report that
+  everything was still wired, while the gate had stopped gating. The
+  judgment is a file of its own now, and the test file that goes with it
+  is watched the same way.
 - A release waits for the gates now. The gates and the release used to run
   side by side, so a commit whose tests and lint failed was published all
   the same: the release finished, the index pointed at it, and half of the
