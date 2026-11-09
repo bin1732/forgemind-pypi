@@ -56,16 +56,25 @@ function decide(state) {
  * 等门禁跑完,再问结论。
  *
  * @param {{github: any, context: any, core: any}} io github-script 给的三样东西
+ * @param {{graceMs?: number, deadlineMs?: number, sleepMs?: number}} [opts]
+ *        宽限期与总时限。留出口子是为了能测:真跑一遍要等好几分钟,
+ *        而"接口调对了没有""结论怎么落"这些是要能立刻验的。
  */
-async function run({ github, context, core }) {
-  const deadline = Date.now() + 45 * 60 * 1000;
-  const grace = 5 * 60 * 1000;
+async function run({ github, context, core }, opts = {}) {
+  const deadline = Date.now() + (opts.deadlineMs ?? 45 * 60 * 1000);
+  const grace = opts.graceMs ?? 5 * 60 * 1000;
+  const sleepMs = opts.sleepMs ?? 30000;
   const started = Date.now();
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
   let state = {};
   while (Date.now() < deadline) {
-    const { data } = await github.rest.actions.listWorkflowRuns({
+    // **要的是 listWorkflowRunsForRepo**(整个仓的运行)。
+    // listWorkflowRuns 是"按某个工作流列",它要 workflow_id;不给就会拼出
+    // /actions/workflows//runs,平台回 404 —— 门禁立刻失败,发布被跳过。
+    // 第一次写的时候就是这里错了:失败得很安全(没发出去),但门禁根本没
+    // 起到它该起的作用。
+    const { data } = await github.rest.actions.listWorkflowRunsForRepo({
       owner: context.repo.owner,
       repo: context.repo.repo,
       branch: context.ref.replace('refs/heads/', ''),

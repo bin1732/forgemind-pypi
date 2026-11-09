@@ -64,3 +64,87 @@ test('还在跑不算结论 —— 交回上层去等', () => {
   assert.equal(v.ok, false);
   assert.match(v.reason, /ci-ui\.yml=in_progress/);
 });
+
+// ===== 跑起来的那一段:API 调对了没有 =====
+//
+// 只测 decide() 不够:判据对了,但 API 调错方法名,门禁照样是坏的。
+// 这里用 mock 驱动一遍 run(),盯住两件事:用的是"整个仓的运行"那个接口,
+// 以及结论怎么落到 core.setFailed。
+const { run } = require('./gate_check.js');
+
+function mockIo(conclusions, sha = 'abc123') {
+  const paths = {
+    'ci-security.yml': '.github/workflows/ci-security.yml',
+    'ci-tests.yml': '.github/workflows/ci-tests.yml',
+    'ci-ui.yml': '.github/workflows/ci-ui.yml',
+    'ci-lint.yml': '.github/workflows/ci-lint.yml',
+  };
+  const runs = Object.entries(paths).map(([file, path]) => ({
+    path,
+    head_sha: sha,
+    conclusion: conclusions[file],
+    status: conclusions[file] ? 'completed' : 'in_progress',
+  }));
+  const failures = [];
+  const io = {
+    github: {
+      rest: {
+        actions: {
+          // 整个仓的运行:listWorkflowRunsForRepo。
+          // listWorkflowRuns 是"按某个工作流列",少了 workflow_id 会拼出
+          // /actions/workflows//runs,平台回 404 —— 门禁当场失败。
+          listWorkflowRunsForRepo: async () => ({ data: { workflow_runs: runs } }),
+          listWorkflowRuns: async () => {
+            throw new Error(
+              '用错了接口:listWorkflowRuns 需要 workflow_id,不给会拼出 /workflows//runs'
+            );
+          },
+        },
+      },
+    },
+    context: { repo: { owner: 'bin1732', repo: 'forgemind-pypi' }, sha, ref: 'refs/heads/main' },
+    core: {
+      info: () => {},
+      setFailed: (msg) => failures.push(msg),
+    },
+  };
+  return { io, failures };
+}
+
+test('run 用的是整个仓的运行那个接口', async () => {
+  const { io, failures } = mockIo({
+    'ci-security.yml': 'success',
+    'ci-tests.yml': 'success',
+    'ci-ui.yml': 'success',
+    'ci-lint.yml': 'success',
+  });
+  await run(io, { graceMs: 0, deadlineMs: 1000, sleepMs: 1 });
+  assert.deepEqual(failures, [], failures.join('\n'));
+});
+
+test('run 遇到红的门禁会拦下发布,并说清是哪一档', async () => {
+  const { io, failures } = mockIo({
+    'ci-security.yml': 'success',
+    'ci-tests.yml': 'success',
+    'ci-ui.yml': 'success',
+    'ci-lint.yml': 'failure',
+  });
+  await run(io, { graceMs: 0, deadlineMs: 1000, sleepMs: 1 });
+  assert.equal(failures.length, 1, failures.join('\n'));
+  assert.match(failures[0], /ci-lint\.yml=failure/);
+});
+
+test('run 遇到没跑过的测试档会拦下发布', async () => {
+  const { io, failures } = mockIo({
+    'ci-security.yml': 'success',
+    'ci-tests.yml': 'success',
+    'ci-ui.yml': 'success',
+    'ci-lint.yml': 'success',
+  });
+  io.github.rest.actions.listWorkflowRunsForRepo = async () => ({
+    data: { workflow_runs: [] },
+  });
+  await run(io, { graceMs: 0, deadlineMs: 1000, sleepMs: 1 });
+  assert.equal(failures.length, 1, failures.join('\n'));
+  assert.match(failures[0], /测试档没有通过/);
+});

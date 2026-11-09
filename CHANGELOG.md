@@ -418,6 +418,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   everything was still wired, while the gate had stopped gating. The
   judgment is a file of its own now, and the test file that goes with it
   is watched the same way.
+- The gate before a release asks the platform for the runs of the whole
+  repository. It asked for the runs of one workflow instead, and without
+  naming that workflow the platform answered that there is no such thing
+  — so the gate failed at once, and every release was skipped. It failed
+  safely: nothing reached the users that had not been checked. But a gate
+  that never opens is not a gate, and now the call is made through a mock
+  in the tests, so the name of the call is part of what is checked.
 - A release waits for the gates now. The gates and the release used to run
   side by side, so a commit whose tests and lint failed was published all
   the same: the release finished, the index pointed at it, and half of the
