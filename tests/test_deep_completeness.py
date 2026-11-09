@@ -58,14 +58,22 @@ def test_portfolio_position_check_in_catalog():
 
 # ===== 2. CLI 错误码分级 真的 raise SystemExit =====
 def test_cli_exit_codes_use_systemexit_not_print():
-    """看 cmd_etl 源码: 必须 raise SystemExit(rc), 不能只是 print 后正常 return"""
-    from forgemind.cli import cmd_etl
+    """看 cmd_etl 源码: 必须用 SystemExit 抛退出码, 不能只是 print 后正常 return"""
+    from forgemind.cli import EXIT_DATA, EXIT_RESOURCE, EXIT_USAGE, cmd_etl
+
+    # 码值本身就是对用户的承诺:2=用法类(内存一次装不下),3=数据/上游,
+    # 4=资源类(磁盘满)。这里钉住的是**值**,不是源码里写了哪个字面量 ——
+    # 退出码改用具名常量之后,盯字面量就盯错了东西。
+    assert (EXIT_USAGE, EXIT_DATA, EXIT_RESOURCE) == (2, 3, 4), (
+        f"退出码的值变了:{(EXIT_USAGE, EXIT_DATA, EXIT_RESOURCE)}"
+    )
+
     src = inspect.getsource(cmd_etl)
-    # 必须每个错误码分支都有 raise SystemExit(<int>) 不是 print 完走完函数
-    for code in (2, 3, 4):
-        pattern = rf"raise SystemExit\({code}\)"
+    # 每个错误码分支都要真的退出,不是 print 完走完函数
+    for name in ("EXIT_USAGE", "EXIT_DATA", "EXIT_RESOURCE"):
+        pattern = rf"(?:raise SystemExit|sys\.exit)\({name}\)"
         assert re.search(pattern, src), (
-            f"cmd_etl 应有 raise SystemExit({code}), 没找到. 源码尾部: {src[-200:]}"
+            f"cmd_etl 应有 {name} 的退出, 没找到. 源码尾部: {src[-200:]}"
         )
     # 0 bars 分支也 raise
     assert re.search(r"raise SystemExit\(rc\)", src), "0 bars 应 raise SystemExit(rc)"
