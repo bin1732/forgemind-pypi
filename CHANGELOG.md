@@ -433,6 +433,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   before it publishes anything, and the reasoning about it lives in the
   repository where it can be tested on its own — a gate that lets through
   what it should stop is worse than no gate at all.
+- The list of strategies and the tool that runs a backtest say the same
+  thing now. The list tells the model which strategies exist and which ones
+  this command cannot feed; the tool used to parse the name on its own and
+  knew only five of them, and it called the rest unknown — including the
+  ones the list had just named as usable. A model that trusted the list was
+  told it had never heard of a strategy; a model that trusted the tool was
+  told the list was wrong. The parsing is one piece of code now, used by
+  both, and a test holds the two against each other.
 - The three checks that run after a release no longer share one concurrency
   group. A concurrency group keeps a single pending run, so a new run
   cancels the one that was waiting: two of the three checks were cancelled

@@ -775,14 +775,15 @@ class ForgeMindMCPServer:
 
         from forgemind.core.backtest.engine import SimpleBacktestEngine
         from forgemind.core.data.storage import DuckDBStorage, bare_symbol
-        from forgemind.core.strategies.library import get_strategy_class
+        from forgemind.core.strategies.library import resolve_backtest_strategy
 
-        try:
-            strategy_cls = get_strategy_class(strategy)
-        except (ValueError, ImportError):
-            return {
-                "error": f"Unknown strategy '{strategy}'. Available: ma_cross, mean_reversion, momentum, bollinger, buy_hold"
-            }
+        # 策略解析只有一份,在命令行与 MCP 共用(见
+        # forgemind/core/strategies/library.py)。以前这里自己解析,只认
+        # 5 个基础策略,还把"存在但这个命令喂不了"的说成"未知策略"——
+        # 而同一个服务给的策略清单里明明列着它,两处说法自相矛盾。
+        strategy_instance, refusal = resolve_backtest_strategy(strategy, params=params)
+        if refusal is not None:
+            return refusal
 
         # 优先查 DuckDB 真数据。ETL 落库用 6 位代码,入参常带交易所后缀
         # (.SH / .SZ),归一化放在查询参数里,任何上游传 '600519.SH' 都能命中。
@@ -832,7 +833,6 @@ class ForgeMindMCPServer:
                 index=dates,
             )
 
-        strategy_instance = strategy_cls(parameters=params or {})
         engine = SimpleBacktestEngine()
         result = engine.run(strategy_instance, price_df, symbol=symbol)
 

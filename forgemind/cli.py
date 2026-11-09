@@ -380,46 +380,33 @@ def cmd_backtest(args):
         )
         price_df.index.name = "date"
         real_data_note = "(模拟数据,非真实市场)"
-    from forgemind.core.strategies.extended_library import list_strategies
+    # 策略解析只有一份(命令行与 MCP 共用):基础策略按快慢线构造,
+    # 扩展策略经 adapter 适配成引擎接口。分开写两遍,必然有一处先漂掉。
+    from forgemind.core.strategies.library import resolve_backtest_strategy
 
-    extended = list_strategies()
-    if args.strategy in extended:
-        # 批量策略:经 adapter 适配成引擎接口
-        from forgemind.core.strategies.library import (
-            _EXTENDED_STRATEGY_PARAMS,
-            get_extended_strategy,
-        )
+    strategy, refusal = resolve_backtest_strategy(args.strategy, fast=args.fast, slow=args.slow)
+    if refusal is not None:
+        # 走到这里说明前面 refuse_unusable_strategy 没拦住 —— 那本身是
+        # 个缺口。说清为什么,别静默地拿一个错的策略去跑。
+        print(f"❌ {refusal['error']}")
+        if refusal.get("usage"):
+            print(f"   自己用:{refusal['usage']}")
+        sys.exit(EXIT_USAGE)
 
-        hint = _EXTENDED_STRATEGY_PARAMS.get(args.strategy)
-        if hint:
-            print(f"⚠️  {args.strategy} 需要额外参数,无法直接回测: {hint}")
-            sys.exit(EXIT_USAGE)
-        strategy = get_extended_strategy(args.strategy)
-
-        # 事件类策略依赖基本面/事件数据,而 CLI 的演示数据只有 OHLCV。
-        # 以前这类策略静默返回全 0 信号,回测打印 "Trades: 0" ——
-        # 看着像"跑了但没信号",实际是数据根本不够。必须在这里说清楚。
-        _req = tuple(getattr(strategy, "required_columns", ()) or ())
-        if _req:
-            print(f"⚠️  {args.strategy} 是事件类策略,需要额外数据,无法在演示数据上回测。")
-            print(f"   缺少的列: {', '.join(_req)}")
-            print("   演示数据只有: " + ", ".join(price_df.columns))
-            print("   这些列来自基本面/事件数据源(财报、指数成分调整等),")
-            print("   请用真实数据调用:")
-            print("     forgemind pick / etl 后自行构造,或直接用 Python API:")
-            print("     from forgemind.core.backtest.engine import SimpleBacktestEngine")
-            print(f"     SimpleBacktestEngine().run(MyStrategy(), df_with_{_req[0]})")
-            sys.exit(EXIT_USAGE)
-    else:
-        from forgemind.core.strategies.library import get_strategy_class
-
-        strategy_class = get_strategy_class(args.strategy)
-        strategy = strategy_class(
-            parameters={
-                "fast_period": args.fast,
-                "slow_period": args.slow,
-            }
-        )
+    # 事件类策略依赖基本面/事件数据,而 CLI 的演示数据只有 OHLCV。
+    # 以前这类策略静默返回全 0 信号,回测打印 "Trades: 0" ——
+    # 看着像"跑了但没信号",实际是数据根本不够。必须在这里说清楚。
+    _req = tuple(getattr(strategy, "required_columns", ()) or ())
+    if _req:
+        print(f"⚠️  {args.strategy} 是事件类策略,需要额外数据,无法在演示数据上回测。")
+        print(f"   缺少的列: {', '.join(_req)}")
+        print("   演示数据只有: " + ", ".join(price_df.columns))
+        print("   这些列来自基本面/事件数据源(财报、指数成分调整等),")
+        print("   请用真实数据调用:")
+        print("     forgemind pick / etl 后自行构造,或直接用 Python API:")
+        print("     from forgemind.core.backtest.engine import SimpleBacktestEngine")
+        print(f"     SimpleBacktestEngine().run(MyStrategy(), df_with_{_req[0]})")
+        sys.exit(EXIT_USAGE)
 
     engine = SimpleBacktestEngine(
         initial_capital=args.capital,

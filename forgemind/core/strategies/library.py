@@ -1,6 +1,8 @@
 # Copyright (c) 2026 灵感引擎工坊 (bin1732)
 # SPDX-License-Identifier: Apache-2.0
 
+from typing import Any
+
 import numpy as np
 import pandas as pd
 
@@ -399,6 +401,73 @@ def needs_multiple_symbols(name: str) -> bool:
     if cls is not None and getattr(cls, "requires_multiple_symbols", False):
         return True
     return strategy_category(name) in MULTI_SYMBOL_CATEGORIES
+
+
+def resolve_backtest_strategy(
+    name: str, fast: int = 5, slow: int = 20, params: dict | None = None
+) -> tuple[Any | None, dict | None]:
+    """把策略名解析成能喂给回测引擎的对象;跑不了就说清为什么。
+
+    解析只有一份,在命令行与 MCP 共用 —— 分开写两遍,必然有一处先漂掉。
+    实测漂掉的那处:命令能跑 9 个策略,MCP 只认 5 个,而且把存在但跑不了
+    的说成"未知策略"。模型照着资源里的清单挑一个,工具回一句它没听过
+    —— 两处说法自相矛盾。
+
+    返回 (策略对象, None) 或 (None, 拒绝理由)。拒绝理由是一份可以直接
+    给人看的说明:
+
+        {"kind": "unknown"|"unusable", "error": ..., "usage": ...}
+
+    kind 区分"根本没这个策略"与"有,但这个命令喂不了它" —— 这两件事
+    对读者的下一步完全不同。
+    """
+    from forgemind.core.strategies.extended_library import list_strategies
+
+    runnable = cli_runnable_strategies()
+
+    if name in STRATEGY_REGISTRY:
+        # params 是调用方给的策略参数;不给就用这条命令的默认快慢线。
+        return (
+            STRATEGY_REGISTRY[name](
+                parameters=(
+                    params if params is not None else {"fast_period": fast, "slow_period": slow}
+                )
+            ),
+            None,
+        )
+
+    extended = list_strategies()
+    if name not in extended:
+        return None, {
+            "kind": "unknown",
+            "error": f"未知策略 {name}",
+            "runnable": sorted(runnable),
+            "usage": "完整的策略清单:读 forgemind://strategies",
+        }
+
+    # 有这个策略,但这个命令喂不了它 —— 说清缺什么、怎么自己用。
+    # "存在但跑不了"说成"未知策略"是骗人:同一个接口的清单里列着它。
+    reason = strategy_unusable_reason(name)
+    if reason:
+        return None, {
+            "kind": "unusable",
+            "error": f"{name} 这个命令跑不了:{reason}",
+            "usage": strategy_usage_hint(name),
+            "runnable": sorted(runnable),
+        }
+
+    # 扩展策略:经 adapter 适配成引擎接口
+    from forgemind.core.strategies.library import get_extended_strategy
+
+    extra = _EXTENDED_STRATEGY_PARAMS.get(name)
+    if extra:
+        return None, {
+            "kind": "unusable",
+            "error": f"{name} 需要额外参数,这个命令喂不了它:{extra}",
+            "usage": strategy_usage_hint(name),
+            "runnable": sorted(runnable),
+        }
+    return get_extended_strategy(name), None
 
 
 def available_strategies() -> dict:

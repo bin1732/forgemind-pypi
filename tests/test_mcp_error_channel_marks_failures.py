@@ -97,7 +97,7 @@ class TestRealToolsReportFailures:
             ("get_feature", {"name": "压根不存在的因子"}, "not found"),
             ("trace_feature_usage", {"feature_id": "压根不存在的因子"}, "not found"),
             ("run_backtest", {"strategy": "压根不存在的策略", "symbol": "600519",
-                              "start": "2024-01-01", "end": "2024-06-30"}, "Unknown strategy"),
+                              "start": "2024-01-01", "end": "2024-06-30"}, "未知策略"),
             ("output_signal", {"symbol": "600519", "side": "FOO",
                                "confidence": 0.5, "rationale": "探针"}, "side"),
             ("get_kline", {"symbol": ""}, "symbol"),
