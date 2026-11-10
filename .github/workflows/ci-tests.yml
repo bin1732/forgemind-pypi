@@ -98,6 +98,10 @@ jobs:
                   # high/low 与 open/close 对不上,要等策略在上面算出离谱结果
                   # 才暴露 —— 内置的真实行情就踩过这个坑。
                   python scripts/check_ohlc_sanity.py
+                  # 内置的样例行情必须真的是 600519 的日线 —— demo 的核心承诺
+                  # 就是"不是随机数凑的"。原先只有一句出处说明,读者只能选择
+                  # 相信;这里真的去上游取一遍,日期序列与成交量逐行核对。
+                  python scripts/check_sample_data_is_real.py
                   # 发布脚本自己的判据(先传新资产再删旧资产等)。
                   python scripts/test_publish.py
                   # MCP 的提示词与工具说明里点名的工具必须真的存在。

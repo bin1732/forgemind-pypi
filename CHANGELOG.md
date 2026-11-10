@@ -457,6 +457,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   check that the index and the manifest point at the same artifact now
   compares the version in the file name, which works whichever shape the
   link has.
+- The bundled sample prices are checked against the upstream source now.
+  The demo promises that the market data inside the package is real and not
+  made up, and that promise used to be a sentence in the documentation that
+  nobody could check. The checker now fetches the same series from the
+  public quote interface and compares it: the sequence of trading days has
+  to match exactly, the volume of every single bar has to match exactly —
+  adjustment moves prices, not volumes, so a matching volume series cannot
+  be faked — and the closing prices have to stay within half a percent,
+  because the adjusted prices are recalculated when a dividend is paid.
 - The three checks that run after a release no longer share one concurrency
   group. A concurrency group keeps a single pending run, so a new run
   cancels the one that was waiting: two of the three checks were cancelled
