@@ -84,6 +84,16 @@ jobs:
                   # SQL、栈回溯、异常类型名、本机路径;内部表名可以出现,
                   # 但 README 里得有交代。
                   python scripts/check_cli_output_clean.py
+                  # 镜像一致性:这个仓作为公开仓的镜像时,内容必须逐文件一致 ——
+                  # 两边悄悄分家是最难发现的失守(一边改了、另一边没同步,
+                  # "镜像"这个词还在,内容已经不同了)。
+                  # 只在镜像仓里跑:公开仓自己比的是"当前检出的提交"与 main,
+                  # 两者在发布过程中本来就会不同,拿它当判据是假红。
+                  if [ "${{ github.repository }}" != "bin1732/forgemind-pypi" ]; then
+                    python scripts/check_mirror_consistency.py \
+                      --upstream bin1732/forgemind-pypi --ref main \
+                      --allow-prefix docs/
+                  fi
                   # 行情数据必须自洽。列序写错这类错读得出来、日期也对,只有
                   # high/low 与 open/close 对不上,要等策略在上面算出离谱结果
                   # 才暴露 —— 内置的真实行情就踩过这个坑。

@@ -89,6 +89,14 @@ def main() -> int:
     ap.add_argument(
         "--allow-file", action="append", default=[], help="允许本仓多出来的单个文件(可重复)"
     )
+    ap.add_argument(
+        "--ignore-prefix",
+        action="append",
+        default=[],
+        help="不参与比对的路径前缀(可重复)。构建产物用它 —— 公开仓每发一次版"
+        "就落两个提交(发布、清理),拿 main 逐文件比,镜像仓这边永远对不上,"
+        "而源码其实一模一样",
+    )
     ap.add_argument("--repo", default=".", help="本仓目录(默认当前目录)")
     args = ap.parse_args()
 
@@ -101,12 +109,15 @@ def main() -> int:
 
     local = local_files(repo_root)
 
+    def ignored(path: str) -> bool:
+        return any(path.startswith(p) for p in args.ignore_prefix)
+
     def allowed(path: str) -> bool:
         return path in args.allow_file or any(path.startswith(p) for p in args.allow_prefix)
 
-    missing = sorted(p for p in up if p not in local)
-    differing = sorted(p for p in up if p in local and local[p] != up[p])
-    extra = sorted(p for p in local if p not in up and not allowed(p))
+    missing = sorted(p for p in up if p not in local and not ignored(p))
+    differing = sorted(p for p in up if p in local and local[p] != up[p] and not ignored(p))
+    extra = sorted(p for p in local if p not in up and not allowed(p) and not ignored(p))
 
     if missing or differing or extra:
         print(f"本仓与上游 {args.upstream}@{sha[:12]} 不一致:")
@@ -132,7 +143,8 @@ def main() -> int:
 
     print(
         f"本仓与上游 {args.upstream}@{sha[:12]} 逐文件一致"
-        f"({len(local)} 个受版本控制的文件;允许名单外的额外文件 0 个)"
+        f"({len(local)} 个受版本控制的文件;允许名单外的额外文件 0 个;"
+        f"不参与比对的 {sum(1 for p in set(up) | set(local) if ignored(p))} 个)"
     )
     return 0
 
