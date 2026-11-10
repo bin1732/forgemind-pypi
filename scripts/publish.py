@@ -35,8 +35,27 @@ import urllib.error
 import urllib.request
 from urllib.parse import quote
 
-DEFAULT_API = "https://api.github.com/repos/bin1732/forgemind-pypi"
-LIVE_INDEX = "https://bin1732.github.io/forgemind-pypi/pypi/simple/forgemind/"
+# 本仓(也是默认要发布的那个仓)。写成常量,别处不再抄一遍。
+DEFAULT_REPO = "bin1732/forgemind-pypi"
+DEFAULT_API = f"https://api.github.com/repos/{DEFAULT_REPO}"
+# 包名(索引目录名)。写成一个常量,别处不再抄一遍。
+PACKAGE = "forgemind"
+
+
+def pages_index_url(repo: str, package: str = PACKAGE) -> str:
+    """这个仓的 Pages 站点上的索引地址。
+
+    Pages 的站点名就是仓库名(owner.github.io/<仓库名>),而索引放在站点
+    的 /pypi/simple/<包名>/ 下 ⇒ 地址能算出来,不必写死。
+
+    地址写死在一个地方,换个仓发布就会用错地方:发布脚本会以为线上索引
+    还在旧的地方,然后一直等一个永远不会发生的切换。
+    """
+    owner, _, name = repo.strip("/").partition("/")
+    return f"https://{owner}.github.io/{name}/pypi/simple/{package}/"
+
+
+LIVE_INDEX = pages_index_url(DEFAULT_REPO)
 
 
 def call(method: str, url: str, data=None, headers=None, retries: int = 4):
@@ -132,7 +151,7 @@ def git_write(api: str, branch: str, entries, message: str):
     return 0, None
 
 
-def index_html(sha256: str, filename: str, build_id: str) -> bytes:
+def index_html(sha256: str, filename: str, build_id: str, repo: str = DEFAULT_REPO) -> bytes:
     """索引页。声明的校验值必须与文件内容一致。
 
     链接指向 **Release 资产**(github.com 上的那个 continuous 发布),
@@ -148,13 +167,13 @@ def index_html(sha256: str, filename: str, build_id: str) -> bytes:
     """
     return (
         "<!DOCTYPE html>\n<html>\n  <body>\n    <a href=\"https://github.com/"
-        f"bin1732/forgemind-pypi/releases/download/continuous/{quote(filename)}"
+        f"{repo}/releases/download/continuous/{quote(filename)}"
         f"#sha256={sha256}\">"
         f"{filename}</a><br/>\n  </body>\n</html>\n"
     ).encode()
 
 
-def live_index_filename(timeout: int = 30) -> str:
+def live_index_filename(timeout: int = 30, index_url: str | None = None) -> str:
     """线上索引当前指向的文件名。取不到就返回空串。
 
     索引里放的是**带版本号的名字**(资产名),所以这一项就是"用户现在
@@ -162,7 +181,7 @@ def live_index_filename(timeout: int = 30) -> str:
     真正拿到的东西。
     """
     try:
-        with urllib.request.urlopen(LIVE_INDEX, timeout=timeout) as r:
+        with urllib.request.urlopen(index_url or LIVE_INDEX, timeout=timeout) as r:
             body = r.read().decode("utf-8", "ignore")
     except Exception:
         return ""
@@ -170,14 +189,14 @@ def live_index_filename(timeout: int = 30) -> str:
     return m.group(1) if m else ""
 
 
-def live_build_id(timeout: int = 30) -> str:
+def live_build_id(timeout: int = 30, index_url: str | None = None) -> str:
     """线上索引当前指向的构建号。取不到就返回空串。
 
     索引现在指向 Release 资产(资产名里没有构建号),所以这一项通常取不到
     —— 保留它只为清理历史构建目录时还能认出"线上那个"。
     """
     try:
-        with urllib.request.urlopen(LIVE_INDEX, timeout=timeout) as r:
+        with urllib.request.urlopen(index_url or LIVE_INDEX, timeout=timeout) as r:
             body = r.read().decode("utf-8", "ignore")
     except Exception:
         return ""
@@ -187,9 +206,14 @@ def live_build_id(timeout: int = 30) -> str:
     return ""
 
 
-def asset_downloadable(name: str, timeout: int = 60) -> bool:
+def release_asset_url(repo: str, name: str) -> str:
+    """这个仓的 Release 资产地址(持续发布那个 tag)。"""
+    return f"https://github.com/{repo}/releases/download/continuous/{quote(name)}"
+
+
+def asset_downloadable(name: str, timeout: int = 60, repo: str = DEFAULT_REPO) -> bool:
     """这个资产现在真能下载到吗。"""
-    url = f"https://github.com/bin1732/forgemind-pypi/releases/download/continuous/{quote(name)}"
+    url = release_asset_url(repo, name)
     req = urllib.request.Request(url, method="HEAD")
     try:
         with urllib.request.urlopen(req, timeout=timeout) as r:
@@ -198,7 +222,9 @@ def asset_downloadable(name: str, timeout: int = 60) -> bool:
         return False
 
 
-def wait_assets_downloadable(names, timeout: int = 600, check=None) -> bool:
+def wait_assets_downloadable(
+    names, timeout: int = 600, check=None, repo: str = DEFAULT_REPO
+) -> bool:
     """新传的资产要真能下载到,这次发布才算完成。
 
     资产一上传,API 里就能看到;下载要走 CDN,那里要过一会儿才生效。这
@@ -208,7 +234,7 @@ def wait_assets_downloadable(names, timeout: int = 600, check=None) -> bool:
     返回 False 表示在时限内没能全部生效:发布仍然继续(索引与清单照常
     更新),但这件事要说出来,不能当没事发生。
     """
-    check = check or asset_downloadable
+    check = check or (lambda n, timeout=60: asset_downloadable(n, timeout, repo))
     deadline = time.time() + timeout
     while True:
         pending = [n for n in names if not check(n)]
@@ -369,7 +395,8 @@ def _release_body(publish_version: str) -> str:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="把这次构建发布出去")
-    parser.add_argument("--api", default=DEFAULT_API, help="仓库 API 地址")
+    parser.add_argument("--repo", default=DEFAULT_REPO, help="要发布的仓库 owner/repo")
+    parser.add_argument("--api", default=None, help="仓库 API 地址(默认按 --repo 推导)")
     parser.add_argument("--branch", default="main", help="写哪个分支")
     parser.add_argument("--build-id", required=True, help="本次构建的编号")
     parser.add_argument("--source-commit", required=True, help="本次构建的来源提交")
@@ -379,12 +406,20 @@ def main() -> int:
         help="这次发布用的版本号(源码里的基础版本 + .postN)",
     )
     parser.add_argument("--artifacts", default="artifacts", help="构件目录")
-    parser.add_argument("--live-index", default=LIVE_INDEX, help="线上索引地址")
+    parser.add_argument(
+        "--live-index",
+        default=None,
+        help="线上索引地址(默认按 --repo 推导:Pages 站点就是 owner.github.io/<仓库名>)",
+    )
     args = parser.parse_args()
 
-    api = args.api
+    repo = args.repo
+    api = args.api or f"https://api.github.com/repos/{repo}"
     build_id = args.build_id
     art_dir = pathlib.Path(args.artifacts)
+    # 线上索引地址:没显式给就按 --repo 推导 —— Pages 站点就是
+    # owner.github.io/<仓库名>,同一个仓的索引位置是固定的,不必写死。
+    live_index = args.live_index or pages_index_url(repo)
 
     # 1) Release 资产:先删同名资产再上传(Releases API 不允许覆盖)
     st, rel = call("GET", f"{api}/releases/tags/continuous")
@@ -408,7 +443,7 @@ def main() -> int:
     #
     # 顺序很重要:索引是用户按 pip 装到东西的入口,它指向的构件必须已经
     # 下得到。索引先切、资产还没生效,用户就会拿到 404。
-    wait_assets_downloadable(uploaded)
+    wait_assets_downloadable(uploaded, repo=repo)
 
     # 2) 仓库里的构件 + 索引 + 清单:**一个提交**。
     #
@@ -432,7 +467,10 @@ def main() -> int:
         print("没有找到 wheel,索引无从指向", file=sys.stderr)
         return 1
     entries.append(
-        ("pypi/simple/forgemind/index.html", index_html(wheel_sha, wheel_name, build_id))
+        (
+            f"pypi/simple/{PACKAGE}/index.html",
+            index_html(wheel_sha, wheel_name, build_id, repo=repo),
+        )
     )
 
     # 清单写在产物上传之后(它记的是这次上传的字节数),与构件、索引同属
@@ -447,16 +485,13 @@ def main() -> int:
         "build_id": build_id,
         # 源码仓。源码就在这个公开仓里 —— 指着一个已经冻结、不再改动的
         # 旧仓,会让人以为要去那边找代码,那是条对不上的声明。
-        "source_repo": "bin1732/forgemind-pypi",
+        "source_repo": repo,
         "source_commit": args.source_commit,
         # 这次发布实际用的版本号。源码里的基础版本不变(那是维护者抬大
         # 版本的地方),每次发布另给一个 post 号 —— 同一个版本号下内容变了,
         # pip 是不会升级的,用户就永远拿不到新构建。
         "published_version": args.publish_version,
-        "install": (
-            "pip install --extra-index-url "
-            "https://bin1732.github.io/forgemind-pypi/pypi/simple/ forgemind"
-        ),
+        "install": (f"pip install --extra-index-url {live_index} {PACKAGE}"),
     }
     entries.append(("releases/builds/manifest.json", json.dumps(manifest, indent=2).encode()))
 
@@ -475,7 +510,7 @@ def main() -> int:
     index_switched = False
     deadline = time.time() + 600
     while time.time() < deadline:
-        live_name = live_index_filename()
+        live_name = live_index_filename(index_url=live_index)
         if mine and live_name == mine:
             print(f"  线上索引已指向 {mine}")
             index_switched = True
@@ -507,7 +542,7 @@ def main() -> int:
     #   清单文件本身     —— manifest.json 是"发了什么、从哪个提交来"的
     #                        机器可读真源。少了它,验证工作流就找不到这次
     #                        发布的来源提交,整条"测的就是发的"链就断掉。
-    live_id = live_build_id()
+    live_id = live_build_id(index_url=live_index)
     print(f"  保留构建目录: 本次 {build_id} / 线上索引指向 {live_id or '(未知)'}")
 
     keep = {"manifest.json"}
@@ -524,11 +559,11 @@ def main() -> int:
     # 早期流程使用的固定路径,当前流程不再写入,一并清理
     tree2 = collect_tree(api, "releases/source")
     doomed += plan_purge(tree2, "releases/source")
-    tree3 = collect_tree(api, "pypi/simple/forgemind")
+    tree3 = collect_tree(api, f"pypi/simple/{PACKAGE}")
     doomed += plan_purge(
         tree3,
-        "pypi/simple/forgemind",
-        keep_prefix="pypi/simple/forgemind/index.html",
+        f"pypi/simple/{PACKAGE}",
+        keep_prefix=f"pypi/simple/{PACKAGE}/index.html",
     )
 
     if doomed:

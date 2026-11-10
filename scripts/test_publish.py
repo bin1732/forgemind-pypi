@@ -130,6 +130,26 @@ class TestKeepBuild:
         assert not publish.keep_build("local", "102", "101")
 
 
+class TestPagesIndexUrl:
+    """线上索引地址按仓推导,不写死"""
+
+    def test_public_repo(self):
+        assert publish.pages_index_url("bin1732/forgemind-pypi") == (
+            "https://bin1732.github.io/forgemind-pypi/pypi/simple/forgemind/"
+        )
+
+    def test_mirror_gets_its_own_site(self):
+        """同一份脚本换个仓发布,不能还指着上一个仓的站点"""
+        assert publish.pages_index_url("bin1732/forgemind") == (
+            "https://bin1732.github.io/forgemind/pypi/simple/forgemind/"
+        )
+
+    def test_trailing_slash_is_tolerated(self):
+        assert publish.pages_index_url("bin1732/forgemind-pypi/") == (
+            publish.pages_index_url("bin1732/forgemind-pypi")
+        )
+
+
 class TestIndexHtml:
     """索引声明的校验值必须与文件内容一致。"""
 
@@ -337,6 +357,10 @@ class TestIndexMustActuallySwitch:
                 "1.0",
                 "--artifacts",
                 str(artifacts),
+                # 线上索引按仓推导 ⇒ 测试里得给一个仓;索引地址本身被
+                # mock 掉了,不会真的去访问。
+                "--repo",
+                "bin1732/forgemind-pypi",
             ]
             clock = {"n": 0}
 
@@ -375,12 +399,12 @@ class TestIndexMustActuallySwitch:
 
     def test_publish_fails_when_the_index_does_not_switch(self):
         """索引一直指着旧版本 → 这次发布要失败"""
-        rc = self._run_publish(lambda timeout=30: "forgemind-0.9-py3-none-any.whl")
+        rc = self._run_publish(lambda timeout=30, index_url=None: "forgemind-0.9-py3-none-any.whl")
         assert rc == 1, "线上索引没切过去,发布却报成功了"
 
     def test_publish_succeeds_when_the_index_switches(self):
         """索引切过去了 → 发布照常成功"""
-        rc = self._run_publish(lambda timeout=30: "forgemind-1.0-py3-none-any.whl")
+        rc = self._run_publish(lambda timeout=30, index_url=None: "forgemind-1.0-py3-none-any.whl")
         assert rc == 0, "索引切过去了,发布却失败了"
 
 
