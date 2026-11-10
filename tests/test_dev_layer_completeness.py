@@ -110,40 +110,70 @@ def test_duckdb_storage_connection_cache():
 
 
 # === 3. CLI 错误码分级 ===
-def test_cli_etl_exit_code_3_on_zero_bars():
-    """forgemind etl 0 bars 退出码 3/4 (源: cmd_etl 实现)"""
-    # 真实 subprocess 跑 akshare 网络慢 + 沙箱 30s 不够,
-    # 这里直接看 cmd_etl 实现里:
-    # 1. n_klines == 0 走 else 分支
-    # 2. failures 非空时 print '失败原因分类' + raise SystemExit(rc)
-    # 3. rc = 4 if init_failed else 3
-    import inspect
-    import forgemind.cli as cli_mod
-    src = inspect.getsource(cli_mod.cmd_etl)
-    # 静态检查关键路径
-    assert 'if n_klines:' in src, "ETL 应有 n_klines 成功路径"
-    assert "else:" in src, "0 bars 路径应独立"
-    assert "n_klines == 0" in src or 'n_klines =' in src, "0 bars 应触发 else"
-    # 退码
-    assert "rc = 4 if init_failed else 3" in src, "rc 分级逻辑应在"
-    assert 'raise SystemExit(rc)' in src, "raise SystemExit 应在"
-    # 错误码标注
-    assert "退出码 2" in src, "应注释 MemoryError→2"
-    assert "退出码 3" in src, "应注释 TimeoutError→3"
-    assert "退出码 4" in src, "应注释 ENOSPC→4"
+def _etl_args(**kw):
+    import argparse
+
+    base = {"symbols": "600519", "start": "2024-01-01", "end": "2024-01-31"}
+    base.update(kw)
+    return argparse.Namespace(**base)
 
 
-def test_cli_etl_exit_code_3_on_subprocess_invocation():
-    """forgemind etl 失败路径退出码 ≥ 2 (即 2/3/4), 验证退码分级"""
-    # 反复验证 0 bars → 3 已经在上一个 test 测过; 这里验退码分级
-    # 通过读源代码确认: MemoryError→2, TimeoutError→3, ENOSPC→4
-    import inspect
+def _etl_with_fake(monkeypatch, result=None, raises=None):
+    """把 ETL 换成假的:要么给一个结果,要么抛一个异常。"""
+    import forgemind.core.data.akshare_etl as etl_mod
+
+    class _FakeETL:
+        async def run(self, symbols=None, start=None, end=None):
+            if raises is not None:
+                raise raises
+            return result or {}
+
+    monkeypatch.setattr(etl_mod, "AKShareETL", _FakeETL)
+
+
+def test_cli_etl_zero_bars_exits_with_the_data_code(monkeypatch, capsys):
+    """一条都没取到 → 退出码 3(数据类);init 阶段就失败 → 4(资源类)
+
+    **真跑那条分支**,不靠 grep 源码:源码写法一改(比如把字面量换成
+    具名常量)就红,那是测试盯错了东西 —— 盯的应该是读者拿到的退出码。
+    """
     import forgemind.cli as cli_mod
-    src = inspect.getsource(cli_mod.cmd_etl)
-    assert "SystemExit(2)" in src, "MemoryError 应退码 2"
-    assert "SystemExit(3)" in src, "TimeoutError 应退码 3"
-    assert "SystemExit(4)" in src, "ENOSPC 应退码 4"
-    assert "raise SystemExit(rc)" in src, "0 bars 应按 init_failed 退码 3/4"
+
+    _etl_with_fake(monkeypatch, result={
+        "klines": 0, "failures": {"upstream_timeout": 1}, "ok_symbols": 0, "stocks": 0,
+    })
+    with pytest.raises(SystemExit) as exc:
+        cli_mod.cmd_etl(_etl_args())
+    assert exc.value.code == 3, f"0 bars 应退 3(数据类),实际 {exc.value.code}"
+    out = capsys.readouterr().out
+    assert "失败原因分类" in out, out
+
+    _etl_with_fake(monkeypatch, result={
+        "klines": 0, "failures": {"init: 数据库打不开": 1}, "ok_symbols": 0, "stocks": 0,
+    })
+    with pytest.raises(SystemExit) as exc:
+        cli_mod.cmd_etl(_etl_args())
+    assert exc.value.code == 4, f"init 阶段失败应退 4(资源类),实际 {exc.value.code}"
+
+
+def test_cli_etl_failure_paths_exit_with_their_own_codes(monkeypatch, capsys):
+    """取数失败的三条路各退各的码:内存不够 2 / 上游超时 3 / 磁盘满 4"""
+    import errno
+
+    import forgemind.cli as cli_mod
+
+    cases = [
+        (MemoryError("装不下"), 2),
+        (TimeoutError("上游没响应"), 3),
+        (OSError(errno.ENOSPC, "磁盘满"), 4),
+    ]
+    for exc_obj, want in cases:
+        _etl_with_fake(monkeypatch, raises=exc_obj)
+        with pytest.raises(SystemExit) as exc:
+            cli_mod.cmd_etl(_etl_args())
+        assert exc.value.code == want, (
+            f"{type(exc_obj).__name__} 应退 {want},实际 {exc.value.code}"
+        )
 
 
 # === 4. 因子 IC cache 切 symbol 不重算 (前端, 验 backend.tsx 行为) ===

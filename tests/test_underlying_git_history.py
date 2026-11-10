@@ -6,6 +6,7 @@
 不走 mock, 真 subprocess + 真 git checkout + 真 pytest。
 """
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -143,11 +144,35 @@ def test_pytest_works_under_repo_root(git_state):
 
 
 def test_git_remote_url_points_to_this_repo(git_state):
-    """remote 指向的就是这个仓本身 —— 源码在这里,发布也从这里出"""
+    """remote 指向的就是这个仓本身 —— 源码在这里,发布也从这里出
+
+    判据用 GITHUB_REPOSITORY:流水线里它就是本仓的 owner/repo。
+    **不写死仓名** —— 同一份代码会跑在两处(公开仓与它的镜像仓),镜像的
+    remote 指向的是它自己;写死一个仓名,镜像那边恒红,而那条红与代码
+    对不对毫无关系。
+
+    **精确比对仓路径,不能比子串**:"bin1732/forgemind" 是
+    "bin1732/forgemind-pypi" 的前缀 ⇒ 子串匹配分不出这两个仓,守卫等于
+    没有。
+
+    本地跑时没有独立真源可对(remote 的值就是它自己),这时候这条判据
+    根本立不住,跳过;但流水线里 GITHUB_REPOSITORY 要是没有,那是守卫
+    自己坏了,必须报出来,不能当成"本地而已"。
+    """
+    repo = os.environ.get("GITHUB_REPOSITORY", "").strip()
+    if not repo:
+        if os.environ.get("CI"):
+            pytest.fail("流水线里没有 GITHUB_REPOSITORY —— 这条守卫失效了")
+        pytest.skip("本地没有独立真源可对:本仓是谁只有流水线知道")
+
     r = _git("remote", "-v")
     assert r.returncode == 0
-    assert "bin1732/forgemind-pypi" in r.stdout, (
-        f"remote 应指向 bin1732/forgemind-pypi, 实际: {r.stdout!r}"
+    remotes = set(re.findall(
+        r"github\.com[:/]+([\w.-]+)/([\w.-]+?)(?:\.git)?(?=[\s(]|$)", r.stdout
+    ))
+    owner, name = repo.split("/", 1)
+    assert (owner, name) in remotes, (
+        f"remote 应指向本仓({repo}), 实际指向: {sorted(f'{o}/{n}' for o, n in remotes)}"
     )
     # 推送用的凭据由本地 git 配置提供,URL 形态随环境不同,这里只核对
     # 它指向的仓库位置。
