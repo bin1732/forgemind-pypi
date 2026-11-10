@@ -120,6 +120,10 @@ jobs:
 
   build-standalone:
     needs: resolve-source
+    # 只在发布面那个仓里构建。镜像仓(公开仓的拷贝)不需要再构建一遍
+    # 三个平台的二进制 —— 那是白烧 macOS 配额,还会多传 500MB。
+    # 镜像仓要跑的是验证(测试、桌面端、真跑二进制),那部分照跑。
+    if: github.repository == 'bin1732/forgemind-pypi'
     strategy:
       fail-fast: false
       matrix:
@@ -227,7 +231,10 @@ jobs:
     # 是哪个平台没拿到、为什么、用户现在装到的是哪一版。
     # 原来靠 needs 的失败把这一步跳过,页面上只剩一个"skipped",
     # 看不出是代码坏了还是平台没给 runner —— 这两种要分开。
-    if: always()
+    #
+    # 镜像仓不发布:发布面只有公开仓一个。镜像的职责是**再验一遍**,
+    # 不是再发一遍。
+    if: always() && github.repository == 'bin1732/forgemind-pypi'
     runs-on: ubuntu-26.04
     env:
       # 构件的来源提交。写进清单,镜像才有可能去测同一个提交 ——
