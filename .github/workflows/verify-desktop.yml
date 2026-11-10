@@ -40,6 +40,11 @@ concurrency:
 
 jobs:
   check-rust:
+    # 发布没成功就没有"发布出去的构件"可验 —— 失败已经由发布那一档报过了,
+    # 这里再报一遍是重复,而且还要白烧一轮 macOS 配额。
+    # 手动触发(w workflow_dispatch)没有上游发布,照跑。
+    if: ${{ github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success' }}
+
     name: cargo check (lib.rs)
     runs-on: ubuntu-26.04
     steps:
@@ -85,6 +90,11 @@ jobs:
   # 验过的环境和发布的环境就不是同一套。这两种问题在作业跑起来之前
   # 就能看出来,不该等到桌面构建白烧二十分钟才发现。
   workflow-hygiene:
+    # 发布没成功就没有"发布出去的构件"可验 —— 失败已经由发布那一档报过了,
+    # 这里再报一遍是重复,而且还要白烧一轮 macOS 配额。
+    # 手动触发(w workflow_dispatch)没有上游发布,照跑。
+    if: ${{ github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success' }}
+
     name: 工作流自检 (runner 标签 / 平台一致)
     runs-on: ubuntu-26.04
     steps:
@@ -104,6 +114,11 @@ jobs:
           python scripts/check_release_platform_parity.py .
 
   build-desktop:
+    # 发布没成功就没有"发布出去的构件"可验 —— 失败已经由发布那一档报过了,
+    # 这里再报一遍是重复,而且还要白烧一轮 macOS 配额。
+    # 手动触发(w workflow_dispatch)没有上游发布,照跑。
+    if: ${{ github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success' }}
+
     needs:
     - check-rust
     - workflow-hygiene

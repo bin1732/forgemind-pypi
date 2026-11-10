@@ -35,6 +35,11 @@ concurrency:
 
 jobs:
   verify-wheel:
+    # 发布没成功就没有"发布出去的构件"可验 —— 失败已经由发布那一档报过了,
+    # 这里再报一遍是重复,而且还要白烧一轮 macOS 配额。
+    # 手动触发(w workflow_dispatch)没有上游发布,照跑。
+    if: ${{ github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success' }}
+
     runs-on: ubuntu-26.04
     steps:
       - name: 检出公开仓
@@ -234,6 +239,11 @@ jobs:
 
   # 用户视角的验证:只用公开渠道拿到的产物,不碰本地源码。
   user-journey:
+    # 发布没成功就没有"发布出去的构件"可验 —— 失败已经由发布那一档报过了,
+    # 这里再报一遍是重复,而且还要白烧一轮 macOS 配额。
+    # 手动触发(w workflow_dispatch)没有上游发布,照跑。
+    if: ${{ github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success' }}
+
     name: 真实用户旅程
     runs-on: ubuntu-26.04
     steps:
@@ -257,6 +267,11 @@ jobs:
   # 构件、清单、索引与私人仓文档里声明的内容必须对得上。
   # 这一层没人守的话,旧构建会一直留在仓库里,文档里的声明也会悄悄过期。
   verify-assets:
+    # 发布没成功就没有"发布出去的构件"可验 —— 失败已经由发布那一档报过了,
+    # 这里再报一遍是重复,而且还要白烧一轮 macOS 配额。
+    # 手动触发(w workflow_dispatch)没有上游发布,照跑。
+    if: ${{ github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success' }}
+
     name: 构件与声明对账
     runs-on: ubuntu-26.04
     permissions:
@@ -304,6 +319,11 @@ jobs:
           python scripts/check_published_assets.py \
             --doc-mentions "$GITHUB_WORKSPACE/README.md"
   verify-binaries:
+    # 发布没成功就没有"发布出去的构件"可验 —— 失败已经由发布那一档报过了,
+    # 这里再报一遍是重复,而且还要白烧一轮 macOS 配额。
+    # 手动触发(w workflow_dispatch)没有上游发布,照跑。
+    if: ${{ github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success' }}
+
     strategy:
       fail-fast: false
       matrix:
