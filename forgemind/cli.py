@@ -239,7 +239,7 @@ def cmd_demo(args):
     print(f"  forgemind pick --symbol {symbol}      多因子选股")
     print(f"  forgemind backtest --strategy {args.strategy} --symbol {symbol}   再跑一次回测")
     print("  forgemind mcp                          接入 MCP 客户端(Claude Desktop / Cursor)")
-    print("  forgemind info                         版本、数据源与连接状态")
+    print("  forgemind info                         版本、配置与数据源状态")
     return 0
 
 

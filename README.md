@@ -440,7 +440,7 @@ pytest tests/ -m heavy
 装完之后先确认包本身可用:
 
 ```bash
-forgemind info                      # 版本、数据源、连接状态
+forgemind info                      # 版本、配置与数据源状态
 forgemind backtest --list-strategies # 可用策略清单
 forgemind mcp                       # 以标准输入输出的方式启动 MCP 服务
 ```
