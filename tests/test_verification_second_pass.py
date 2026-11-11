@@ -97,9 +97,13 @@ class TestCliOutputIsCleanAndTruthful:
         """有非零收益就不能报 0 笔交易
 
         :只给 entry 不给 exit 时交易完全不进列表,
-        报出 "Total Return 50.76% / Trades: 0" 的自相矛盾结果。
+        报出 "Total Return 20.31% / Trades: 0" 的自相矛盾结果。
+
+        用的是命令真能跑的策略(单支标的就够)。横截面与组合类策略要在
+        多支标的之间比较,命令一次只喂一支 —— 命令会明确拒绝它们,那
+        件事另有用例管。
         """
-        rc, out = run_cli("backtest", "--strategy", "CrossSectionalMomentum",
+        rc, out = run_cli("backtest", "--strategy", "ma_cross",
                           "--start", "2024-01-01", "--end", "2024-12-31")
         assert rc == 0, out
         ret = _num(out, "Total Return:")

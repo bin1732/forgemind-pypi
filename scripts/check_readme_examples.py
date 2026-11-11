@@ -237,9 +237,7 @@ def check_every_subcommand_is_documented(text: str) -> list[str]:
     problems: list[str] = []
     for cmd in sorted(subcommands):
         if not re.search(rf"forgemind {re.escape(cmd)}\b", text):
-            problems.append(
-                f"README 里没有提到子命令 `forgemind {cmd}` —— " "命令存在,读者找不到它"
-            )
+            problems.append(f"README 里没有提到子命令 `forgemind {cmd}` —— 命令存在,读者找不到它")
     return problems
 
 

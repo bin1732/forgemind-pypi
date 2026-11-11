@@ -381,8 +381,13 @@ class TestApiOverHttpTwice:
 
 class TestEveryStrategyRunsTwice:
     ON_BAR = ["ma_cross", "mean_reversion", "momentum", "bollinger", "buy_hold"]
-    BATCH = ["TimeSeriesMomentum", "CrossSectionalMomentum", "MomentumRotation",
-             "OrnsteinUhlenbeck", "RSIReversion", "MaxSharpe", "RiskParity"]
+    BATCH = ["TimeSeriesMomentum", "MomentumRotation",
+             "OrnsteinUhlenbeck", "RSIReversion"]
+    # 横截面与组合类策略要在多支标的之间比较,命令一次只喂一支标的 ——
+    # 算出来的权重没有意义。命令明确拒绝它们并说清原因(见下面那条用例)。
+    # 这些策略本身是好的:多支标的的数据下它们照常出结果
+    # (tests/test_strategies_extended.py 与流水线里的多标的冒烟都验着)。
+    MULTI_SYMBOL = ["CrossSectionalMomentum", "MaxSharpe", "RiskParity"]
     # 事件类策略依赖基本面/事件列,演示数据(只有 OHLCV)上本来就跑不了。
     # 它们以前"跑通"是因为缺列时静默返回全 0 信号,回测打印 Trades: 0 ——
     # 看着像没信号,实际是数据不够。现在必须明确拒绝,见 TestEventStrategies。
@@ -400,6 +405,18 @@ class TestEveryStrategyRunsTwice:
         rc2, out2, _ = cli("backtest", "--strategy", name,
                            "--start", "2024-01-01", "--end", "2024-12-31")
         assert _strip_run_ids(out) == _strip_run_ids(out2), f"{name} 两次结果不同"
+
+    @pytest.mark.parametrize("name", MULTI_SYMBOL)
+    def test_multi_symbol_strategy_refuses_and_says_why(self, name):
+        """多标的策略在单标的命令上必须明确拒绝,并说清为什么"""
+        rc, out, err = cli("backtest", "--strategy", name,
+                           "--start", "2024-01-01", "--end", "2024-12-31")
+        combined = out + err
+        assert "Traceback" not in combined, f"{name} 抛了裸异常"
+        assert rc != 0, f"{name} 单支标的却报告跑通了 —— 权重没有意义"
+        assert "标的" in combined, f"{name} 没说清为什么跑不了:\n{combined[-400:]}"
+        assert "Total Return" not in combined, (
+            f"{name} 拒绝之后还给了个回测数字 —— 那个数字没有意义")
 
     @pytest.mark.parametrize("name,col", sorted(EVENT.items()))
     def test_event_strategy_refuses_and_says_which_column(self, name, col):
