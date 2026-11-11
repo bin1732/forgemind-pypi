@@ -58,7 +58,13 @@ def asset_kind(name: str) -> str:
 
 
 # 带版本号的独立二进制:forgemind-<版本>-linux / -macos / -windows-x64.exe
-VERSIONED_BINARY = re.compile(r"^forgemind-(?:<[^>]*>|[\d.]+)-(?:linux|macos|windows-x64\.exe)$")
+#
+# 版本号里的 post 号是发布后缀(每次发布给一个新的),形态是
+# "2026.9.3.post61" —— 只认 "[\d.]+" 的话,带 post 号的那一份就
+# 不被当成资产,于是文档里点名的独立二进制根本没被核对(静默漏掉)。
+VERSIONED_BINARY = re.compile(
+    r"^forgemind-(?:<[^>]*>|[\d.]+(?:\.post\d+)?)-(?:linux|macos|windows-x64\.exe)$"
+)
 
 
 def is_asset(name: str) -> bool:
@@ -116,6 +122,61 @@ def release_assets(token: str | None) -> dict[str, int] | None:
     except Exception:
         return None
     return {a["name"]: a["size"] for a in data.get("assets", [])}
+
+
+def release_body(token: str | None) -> str | None:
+    """读 continuous release 的正文。读不到就返回 None。"""
+    if not token:
+        return None
+    url = "https://api.github.com/repos/bin1732/forgemind-pypi/releases/tags/continuous"
+    req = urllib.request.Request(
+        url,
+        headers={
+            "Authorization": f"Bearer {token}",
+            "Accept": "application/vnd.github+json",
+            "User-Agent": "forgemind-assets",
+        },
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=60) as resp:
+            data = json.load(resp)
+    except Exception:
+        return None
+    body = data.get("body")
+    return body if isinstance(body, str) else None
+
+
+def check_release_body(
+    body: str,
+    actual_assets: set[str],
+    published_version: str,
+) -> list[str]:
+    """发布说明要说的与线上实际有的对得上。
+
+    页面上那段字是给读者看的:它说这是哪一版、列了哪些构件。任一句与
+    实际对不上,读者就没法照着做 —— 点一下是 404,或者页面上少了新出的
+    那一份。
+
+    比的是**集合**,不比顺序:发布流程按上传顺序列,平台返回的顺序是另一
+    回事,比顺序会平白报红。
+    """
+    problems: list[str] = []
+    heading = re.search(r"^#\s*ForgeMind\s+(\S+)", body, re.MULTILINE)
+    if published_version and heading and heading.group(1) != published_version:
+        problems.append(
+            f"发布说明写的是 {heading.group(1)},线上这一版是 {published_version} "
+            "—— 页面上留着的可能是上一版的说明"
+        )
+    listed = {n for n in DOC_NAME.findall(CODE_FENCE.sub(" ", body)) if is_asset(n)}
+    absent = actual_assets - listed
+    unknown = listed - actual_assets
+    if absent:
+        problems.append(
+            f"发布说明里没列这些真实存在的构件: {sorted(absent)} —— 读者在页面上看不到它们"
+        )
+    if unknown:
+        problems.append(f"发布说明里列了页面上不存在的构件: {sorted(unknown)} —— 读者点进去是 404")
+    return problems
 
 
 def token_from_env_or_remote() -> str | None:
@@ -391,6 +452,23 @@ def main() -> int:
             for name in sorted(compare_assets):
                 if name not in actual:
                     problems.append(f"清单里的 {name} 不在 release 上")
+
+            # 5) 发布说明:页面上那段字也是对外的一份承诺。
+            #
+            # 发布流程现在每次发布都重写正文(构件传完之后),但"每次都重写"
+            # 是一句承诺,不是保证 —— 流程哪天又改了,页面就停在旧版本,
+            # 而页面上写着"你是最新版"、列着一批下不到了的构件,读的人
+            # 没有办法分辨。
+            body = release_body(token)
+            if body is None:
+                problems.append(
+                    "读不到 continuous release 的正文(缺凭据或网络不可达),发布说明未与线上核对"
+                )
+            else:
+                live_version = ""
+                if remote is not None:
+                    live_version = str(remote.get("published_version") or "")
+                problems.extend(check_release_body(body, set(actual), live_version))
 
     if problems:
         print("发布构件与声明对不上:")
