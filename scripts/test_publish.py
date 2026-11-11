@@ -472,7 +472,11 @@ class TestReleaseBody:
             def fake_call(method, url, data=None, headers=None, retries=4):
                 calls.append((method, url, data))
                 if method == "GET" and "/releases/tags/continuous" in url:
-                    return 200, {"id": 7, "upload_url": "https://uploads/x?{?name,label}", "assets": []}
+                    return 200, {
+                        "id": 7,
+                        "upload_url": "https://uploads/x?{?name,label}",
+                        "assets": [],
+                    }
                 return 200, {"object": {"sha": "sha-base"}}
 
             class _Clock:
@@ -486,12 +490,17 @@ class TestReleaseBody:
 
             with (
                 mock.patch.object(sys, "argv", argv),
-                mock.patch.object(publish, "live_index_filename", return_value="forgemind-1.0-py3-none-any.whl"),
+                mock.patch.object(
+                    publish, "live_index_filename", return_value="forgemind-1.0-py3-none-any.whl"
+                ),
                 mock.patch.object(publish, "wait_assets_downloadable", return_value=True),
                 mock.patch.object(
                     publish,
                     "sync_release_assets",
-                    return_value=(["forgemind-1.0-py3-none-any.whl"], {"forgemind-1.0-py3-none-any.whl": 1}),
+                    return_value=(
+                        ["forgemind-1.0-py3-none-any.whl"],
+                        {"forgemind-1.0-py3-none-any.whl": 1},
+                    ),
                 ),
                 mock.patch.object(publish, "git_write", return_value=(201, "commit-sha")),
                 mock.patch.object(publish, "collect_tree", return_value={}),
