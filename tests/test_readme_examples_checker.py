@@ -50,6 +50,56 @@ class TestCommandMentions:
         assert examples.check_all_mentions(text, blocks) == []
 
 
+class TestReferencedFilesExist:
+    """README 点名的仓内文件必须真的存在 —— 读者点开不该是 404"""
+
+    def test_missing_file_is_reported(self, tmp_path):
+        (tmp_path / "scripts").mkdir()
+        text = "结果记在 `scripts/not_there.md`,那里有详细说明。\n"
+        problems = examples.check_referenced_files_exist(text, tmp_path)
+        assert len(problems) == 1, problems
+        assert "not_there.md" in problems[0]
+
+    def test_existing_file_is_not_reported(self, tmp_path):
+        (tmp_path / "scripts").mkdir()
+        (tmp_path / "scripts" / "there.md").write_text("x", encoding="utf-8")
+        text = "结果记在 `scripts/there.md`。\n"
+        assert examples.check_referenced_files_exist(text, tmp_path) == []
+
+    def test_glob_is_not_treated_as_a_file(self, tmp_path):
+        """通配写法不是一个具体文件,不该报"""
+        text = "全部脚本在 `scripts/check_*.py` 里。\n"
+        assert examples.check_referenced_files_exist(text, tmp_path) == []
+
+    def test_dead_markdown_link_is_reported(self, tmp_path):
+        problems = examples.check_referenced_files_exist("见 [说明](docs/gone.md)。\n", tmp_path)
+        assert len(problems) == 1, problems
+        assert "gone.md" in problems[0]
+
+    def test_real_readme_has_no_dead_references(self):
+        """真的 README 里点名的仓内文件都在"""
+        text = (REPO / "README.md").read_text(encoding="utf-8")
+        assert examples.check_referenced_files_exist(text, REPO) == []
+
+
+class TestEverySubcommandIsDocumented:
+    """命令存在却没写进文档,读者就找不到它"""
+
+    def test_undocumented_command_is_reported(self, monkeypatch):
+        monkeypatch.setattr(examples, "_real_subcommands", lambda: {"info", "brand_new_command"})
+        problems = examples.check_every_subcommand_is_documented("`forgemind info`\n")
+        assert len(problems) == 1, problems
+        assert "brand_new_command" in problems[0]
+
+    def test_documented_command_is_not_reported(self, monkeypatch):
+        monkeypatch.setattr(examples, "_real_subcommands", lambda: {"info"})
+        assert examples.check_every_subcommand_is_documented("`forgemind info`\n") == []
+
+    def test_real_readme_documents_every_command(self):
+        text = (REPO / "README.md").read_text(encoding="utf-8")
+        assert examples.check_every_subcommand_is_documented(text) == []
+
+
 class TestStrategyCount:
     """README 说的策略数要等于命令真能跑的那批"""
 

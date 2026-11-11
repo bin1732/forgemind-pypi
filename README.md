@@ -202,6 +202,9 @@ forgemind agent --symbol 600519.SH
 
 # 以 MCP 服务的方式启动,给 Claude Desktop / Cursor 用
 forgemind mcp
+
+# 看不同任务会路由到哪个模型服务(只看路由结果,不调模型)
+forgemind router-demo
 ```
 
 装不上、报错、看不懂输出,先看 [FAQ](#-faq) 与[错误码速查表](#-错误码速查表)。
@@ -415,11 +418,11 @@ $ forgemind agent --symbol 600519.SH
 
 ```bash
 pytest tests/ -v
-# 674 test files · 10355 tests
+# 674 test files · 10363 tests
 
 # 常规档位:真实业务用例,起真实子进程与真实数据库
 pytest tests/ -m "not heavy"
-# 8515 cases
+# 8523 cases
 
 # 重并发档位:百万级真实运算,单独用更宽的超时执行
 pytest tests/ -m heavy
@@ -432,8 +435,8 @@ pytest tests/ -m heavy
 流水线上按文件分组抽样执行,每个文件仍有代表被执行,代码路径不漏;
 规模本身由本地与专用环境验证。
 
-流水线上的实跑结果记在 `docs/AUDIT_3_DIMENSIONS.md`,那里钉着对应的
-源码提交 —— 数字会随代码变,写进 README 只会变成一句过期的话。
+流水线上的实跑结果以 Actions 页面上的运行记录为准 —— 每一轮运行都钉在
+它自己的源码提交上。数字会随代码变,写进 README 只会变成一句过期的话。
 
 ## 🧪 Verify Your Install
 

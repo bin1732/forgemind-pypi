@@ -54,6 +54,18 @@ _COMMAND_WITH_FLAGS = re.compile(r"forgemind\s+([a-z][a-z0-9-]*)\s+([^\n`#]*)", 
 _FLAG = re.compile(r"--[a-z0-9][a-z0-9-]*")
 
 
+# README 里点名的仓内路径前缀。只认这些 —— 别的反引号内容
+# (命令、选项、参数名)不是文件路径,拿去查存在性只会误报。
+REPO_PATH_PREFIXES = (
+    "forgemind/",
+    "forgemind-ui/",
+    "scripts/",
+    "tests/",
+    "docs/",
+    ".github/",
+)
+
+
 def _real_subcommands() -> set[str]:
     """CLI 真实存在的子命令。"""
     try:
@@ -184,6 +196,54 @@ def check_all_mentions(text: str, blocks: list[str]) -> list[str]:
     return problems
 
 
+def check_referenced_files_exist(text: str, repo_root: Path) -> list[str]:
+    """README 里点名的仓内文件必须真的存在。
+
+    文档指向一个仓里没有的文件,读者点开是 404 —— 而这句话本身看不出
+    有什么问题:路径写得很像样,格式也像那么回事。
+
+    活证据(2026-11-11):README 里有一句"流水线上的实跑结果记在
+    `docs/AUDIT_3_DIMENSIONS.md`",而那个文件在私人仓里(内部审计文档),
+    公开仓并没有 —— 公开仓的读者点开是 404。
+    """
+    problems: list[str] = []
+    for path in sorted(set(re.findall(r"`([^`\n]+)`", text))):
+        if not path.startswith(REPO_PATH_PREFIXES):
+            continue
+        if any(ch in path for ch in "*?"):
+            continue  # 通配写法不是一个具体文件
+        if not (repo_root / path).exists():
+            problems.append(f"README 点名的文件在仓里不存在:{path} —— 读者点开是 404")
+    for link in sorted(set(re.findall(r"\[[^\]]*\]\(([^)]+)\)", text))):
+        if link.startswith(("http", "#", "mailto")):
+            continue
+        if not (repo_root / link).exists():
+            problems.append(f"README 里的链接指向仓里不存在的文件:{link}")
+    return problems
+
+
+def check_every_subcommand_is_documented(text: str) -> list[str]:
+    """真实存在的每个子命令,README 里都要有一处提到。
+
+    这是"README 点名的命令必须存在"那条判据的另一半:命令存在却没写进
+    文档,读者就找不到它。命令是产品的门面 —— 门面上有一扇门,却没有
+    任何地方通向它。
+
+    漏掉的那一个最容易被忽略:它一直都在那儿,能跑,只是没人写下来。
+    """
+    subcommands = _real_subcommands()
+    if not subcommands:
+        return []
+    problems: list[str] = []
+    for cmd in sorted(subcommands):
+        if not re.search(rf"forgemind {re.escape(cmd)}\b", text):
+            problems.append(
+                f"README 里没有提到子命令 `forgemind {cmd}` —— "
+                "命令存在,读者找不到它"
+            )
+    return problems
+
+
 def check_quoted_messages(text: str, repo_root: Path) -> list[str]:
     """FAQ 里引用的报错原文必须还真的会被打印出来。
 
@@ -305,6 +365,8 @@ def main() -> int:
     problems = check_python_blocks(py_blocks)
     problems += check_bash_blocks(bash_blocks)
     problems += check_all_mentions(text, bash_blocks)
+    problems += check_every_subcommand_is_documented(text)
+    problems += check_referenced_files_exist(text, REPO)
     problems += check_strategy_count(text)
     problems += check_error_example(bash_blocks)
     problems += check_quoted_messages(text, REPO)
