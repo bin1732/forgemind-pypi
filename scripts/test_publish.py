@@ -376,6 +376,18 @@ class TestIndexMustActuallySwitch:
                 def sleep(_seconds):
                     return None
 
+            def fake_call(method, url, data=None, headers=None, retries=4):
+                # Release 那一步要的是一个完整的 release 对象(带 id 与
+                # upload_url)。假实现给得比真实现薄,真代码就会在拿不到
+                # id 的地方炸 —— 那是假实现的漏洞,不是真代码的。
+                if method == "GET" and "/releases/tags/continuous" in url:
+                    return 200, {
+                        "id": 7,
+                        "upload_url": "https://uploads/x?{?name,label}",
+                        "assets": [],
+                    }
+                return 200, {"object": {"sha": "sha-base"}}
+
             with (
                 mock.patch.object(sys, "argv", argv),
                 mock.patch.object(publish, "live_index_filename", new=live_name),
@@ -387,11 +399,7 @@ class TestIndexMustActuallySwitch:
                 ),
                 mock.patch.object(publish, "git_write", return_value=(201, "commit-sha")),
                 mock.patch.object(publish, "collect_tree", return_value={}),
-                mock.patch.object(
-                    publish,
-                    "call",
-                    return_value=(200, {"object": {"sha": "sha-base"}}),
-                ),
+                mock.patch.object(publish, "call", side_effect=fake_call),
                 mock.patch.object(publish.time, "time", _Clock.time),
                 mock.patch.object(publish.time, "sleep", _Clock.sleep),
             ):
@@ -406,6 +414,98 @@ class TestIndexMustActuallySwitch:
         """索引切过去了 → 发布照常成功"""
         rc = self._run_publish(lambda timeout=30, index_url=None: "forgemind-1.0-py3-none-any.whl")
         assert rc == 0, "索引切过去了,发布却失败了"
+
+
+class TestReleaseBody:
+    """发布说明:每次发布都重写,构件清单是真的,不给假数字。
+
+    原来只在**创建** Release 时写一次正文,之后每次发布都不管它 ——
+    页面上永远停着创建时那一版:写着最初的版本号、最初的构件清单。
+    """
+
+    def test_body_lists_the_uploaded_assets(self):
+        """正文里的构件清单是这次真传上去的那些"""
+        body = publish._release_body(
+            "1.0",
+            ["forgemind-1.0-py3-none-any.whl", "forgemind-1.0-linux"],
+        )
+        assert "forgemind-1.0-py3-none-any.whl" in body
+        assert "forgemind-1.0-linux" in body
+
+    def test_body_has_no_backtest_claims(self):
+        """正文不给回测数字 —— 那取决于标的与区间,写上去就是一句谎话"""
+        body = publish._release_body("1.0", ["forgemind-1.0-py3-none-any.whl"])
+        assert "Total Return" not in body
+        assert "%" not in body, "发布说明里不该出现回测数字"
+
+    def test_install_url_has_no_trailing_project_name(self):
+        """索引地址后面不能再带 /forgemind/ —— pip 会拼两次,得到 404"""
+        body = publish._release_body("1.0", [])
+        assert "/pypi/simple/ forgemind" in body
+        assert "/pypi/simple/forgemind/" not in body
+
+    def test_body_is_rewritten_on_every_publish(self):
+        """Release 已经存在时,发布仍要重写正文"""
+        import tempfile
+        from unittest import mock
+
+        with tempfile.TemporaryDirectory(prefix="forgemind-body-test-") as tmp:
+            artifacts = Path(tmp) / "artifacts"
+            artifacts.mkdir(parents=True, exist_ok=True)
+            (artifacts / "forgemind-1.0-py3-none-any.whl").write_bytes(b"x" * 1000)
+
+            argv = [
+                "publish.py",
+                "--build-id",
+                "42",
+                "--source-commit",
+                "abc123",
+                "--publish-version",
+                "1.0",
+                "--artifacts",
+                str(artifacts),
+                "--repo",
+                "bin1732/forgemind-pypi",
+            ]
+            calls: list[tuple[str, str, dict | None]] = []
+
+            def fake_call(method, url, data=None, headers=None, retries=4):
+                calls.append((method, url, data))
+                if method == "GET" and "/releases/tags/continuous" in url:
+                    return 200, {"id": 7, "upload_url": "https://uploads/x?{?name,label}", "assets": []}
+                return 200, {"object": {"sha": "sha-base"}}
+
+            class _Clock:
+                @staticmethod
+                def time():
+                    return 1000.0
+
+                @staticmethod
+                def sleep(_seconds):
+                    return None
+
+            with (
+                mock.patch.object(sys, "argv", argv),
+                mock.patch.object(publish, "live_index_filename", return_value="forgemind-1.0-py3-none-any.whl"),
+                mock.patch.object(publish, "wait_assets_downloadable", return_value=True),
+                mock.patch.object(
+                    publish,
+                    "sync_release_assets",
+                    return_value=(["forgemind-1.0-py3-none-any.whl"], {"forgemind-1.0-py3-none-any.whl": 1}),
+                ),
+                mock.patch.object(publish, "git_write", return_value=(201, "commit-sha")),
+                mock.patch.object(publish, "collect_tree", return_value={}),
+                mock.patch.object(publish, "call", side_effect=fake_call),
+                mock.patch.object(publish.time, "time", _Clock.time),
+                mock.patch.object(publish.time, "sleep", _Clock.sleep),
+            ):
+                rc = publish.main()
+            assert rc == 0, "发布失败了"
+            patches = [c for c in calls if c[0] == "PATCH"]
+            assert patches, "发布没有重写 Release 正文 —— 页面上留着的仍是旧的说明"
+            body = (patches[0][2] or {}).get("body", "")
+            assert "forgemind-1.0-py3-none-any.whl" in body, body
+            assert "1.0" in body
 
 
 if __name__ == "__main__":

@@ -377,14 +377,14 @@ def sync_release_assets(rel: dict, files, publish_version: str, call) -> tuple[l
     return uploaded, asset_sizes
 
 
-def _release_body(publish_version: str) -> str:
-    """发布说明。正文与版本号一起生成,措辞单独放在一处便于检查。"""
+def _release_body(publish_version: str, assets: list[str]) -> str:
+    """发布说明。正文与版本号、构件清单一起生成,措辞单独放在一处便于检查。"""
     import subprocess
     import sys
 
     script = pathlib.Path(__file__).resolve().parent / "build_release_body.py"
     proc = subprocess.run(
-        [sys.executable, str(script), publish_version],
+        [sys.executable, str(script), publish_version, *assets],
         capture_output=True,
         text=True,
     )
@@ -430,7 +430,7 @@ def main() -> int:
             {
                 "tag_name": "continuous",
                 "name": "Continuous Builds",
-                "body": _release_body(args.publish_version),
+                "body": _release_body(args.publish_version, []),
                 "prerelease": True,
             },
         )
@@ -438,6 +438,20 @@ def main() -> int:
 
     files = [f for f in sorted(art_dir.rglob("*")) if f.is_file() and f.name != "manifest.json"]
     uploaded, asset_sizes = sync_release_assets(rel, files, args.publish_version, call)
+
+    # 正文在构件传完之后重写一遍。
+    #
+    # 原来只在**创建** Release 时写一次正文,之后每次发布都不管它 ——
+    # 页面上永远停着创建时那一版:写着最初的版本号、最初的构件清单。
+    # 用户在页面上看到的说明与页面上挂着的构件不是同一件事。
+    #
+    # 正文里的构件清单取的是这次真传上去的那些,不是固定的一份。
+    body = _release_body(args.publish_version, uploaded)
+    code, _ = call("PATCH", f"{api}/releases/{rel['id']}", {"body": body})
+    print(f"  [body {code}] 发布说明已更新({len(uploaded)} 个构件)")
+    if code != 200:
+        print("FAIL: 发布说明没更新成功 —— 页面上留着的仍是旧的说明")
+        return 1
 
     # 等新资产在下载端生效,再把索引切过去。
     #
