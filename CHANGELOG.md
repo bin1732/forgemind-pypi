@@ -8,10 +8,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- The Release page is rewritten on every publish. It names the version
+  that was just published, lists the artifacts that are actually
+  downloadable, and links to the changelog. It used to keep the text
+  from the moment the release was created, and the text of the older
+  release quoted a backtest result that no longer held.
+- Every command the CLI offers is now mentioned in the README, and every
+  file the README points at exists. A checker keeps both true: a command
+  that exists but is nowhere in the documentation is a door nobody can
+  find, and a path that does not exist is a link that opens on a 404.
 - The source tree, the tests, the interface and the workflows that gate
   them now live in this repository. It is the only source of truth, the
-  only gate and the only release surface; the private repository is
-  frozen as an archive and no longer carries any of it.
+  only gate and the only release surface; the private repository holds a
+  copy of it and nothing else.
 - A workflow runs the whole test suite against the published wheel rather
   than against the source tree. It waits for the release to finish and
   checks that the published artifact was built from the commit under
@@ -32,6 +41,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   that makes it useful for a program was broken.
 
 ### Fixed
+- The full-scale concurrency tier runs again. A refactor had removed the
+  step that executes it, so the workflow checked out the source, read the
+  manifest and reported success without running a single case. The first
+  real run found four cases that still expected the command to run
+  multi-symbol strategies on a single symbol; the command refuses them on
+  purpose, and the cases now say so.
 - The workflow that runs the tests against the published wheel was
   measuring the source tree. Scripts inserted the repository root into
   the import path when they were imported, so the import found the
