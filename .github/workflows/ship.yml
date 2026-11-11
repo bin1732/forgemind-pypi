@@ -30,6 +30,13 @@ jobs:
   # 三个构建各自 fetch main 的话,main 一动就可能拿到不同的提交 ——
   # wheel 与三个二进制来自不同代码,这种不一致没有任何检查会发现。
   resolve-source:
+    # 只在发布面那个仓里跑。镜像仓(公开仓的拷贝)不发布,这一档算出来的
+    # 版本号与提交没人用 —— 而"整轮都跳过"才说明得了"镜像不是发布面"。
+    #
+    # 少了这个条件,镜像仓的发布会以 success 收尾,发布后那几档验证于是
+    # 在镜像里开跑:验的是公开仓发布出去的东西,拿镜像仓的提交去对公开仓
+    # 的清单,必然对不上 —— 那是假红,不是分家。
+    if: github.repository == 'bin1732/forgemind-pypi'
     runs-on: ubuntu-26.04
     outputs:
       commit: ${{ steps.resolve.outputs.commit }}
@@ -72,6 +79,8 @@ jobs:
 
   build-wheel:
     needs: resolve-source
+    # 同上:镜像仓不构建发布用的轮子(构建出来没人发布,也没人下载)。
+    if: github.repository == 'bin1732/forgemind-pypi'
     runs-on: ubuntu-26.04
     steps:
       # 源码就在这个仓里:构建用的副本是从本次发布的提交 archive 出来的。

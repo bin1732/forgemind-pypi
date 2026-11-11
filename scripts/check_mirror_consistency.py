@@ -13,6 +13,9 @@
   校验值,不是文件名)。
 - 本仓多出来的文件,必须在允许名单里(内部审计文档这类只属于本仓的
   内容)。
+- 发布产物(``releases/`` 与 ``pypi/``)默认不参与比对 —— 公开仓每次
+  发布都动它们,而源码没动。默认名单写在检查器里,靠调用方记得传参
+  迟早会漏一次,漏了那次就是一次"看起来像源码分家"的假红。
 - 顺带报出比的是上游的哪个提交 —— 出了分歧能立刻知道该同步哪一版。
 
 用法:
@@ -34,6 +37,17 @@ import urllib.request
 from pathlib import Path
 
 API = "https://api.github.com"
+
+# 默认不参与比对的路径:发布流程的产物。
+#
+# 公开仓每发一次版就往 main 上落两个提交(发布、清理),落的是构建产物
+# 与索引 —— 它们每次都变,而源码一个字没变。拿它们逐文件比,镜像仓这边
+# 永远对不上,而源码其实一模一样。
+#
+# 这份名单写在检查器里,而不是靠调用方记得传参:靠人记得传,迟早有一次
+# 忘,那一次就是一次假红 —— 而且是那种最坏的假红:报出来的话看着像
+# "源码分家了",会让人去查根本不存在的分家。
+DEFAULT_IGNORE_PREFIXES = ("releases/", "pypi/")
 
 
 def _fetch(url: str) -> dict:
@@ -93,12 +107,20 @@ def main() -> int:
         "--ignore-prefix",
         action="append",
         default=[],
-        help="不参与比对的路径前缀(可重复)。构建产物用它 —— 公开仓每发一次版"
-        "就落两个提交(发布、清理),拿 main 逐文件比,镜像仓这边永远对不上,"
-        "而源码其实一模一样",
+        help="不参与比对的路径前缀(可重复,可叠加在默认名单上)。构建产物"
+        "用它 —— 公开仓每发一次版就落两个提交(发布、清理),拿 main 逐文件"
+        "比,镜像仓这边永远对不上,而源码其实一模一样",
+    )
+    ap.add_argument(
+        "--include-build-artifacts",
+        action="store_true",
+        help="把发布产物(默认忽略的 releases/ 与 pypi/)也算进比对",
     )
     ap.add_argument("--repo", default=".", help="本仓目录(默认当前目录)")
     args = ap.parse_args()
+
+    ignore_prefixes = list(DEFAULT_IGNORE_PREFIXES) if not args.include_build_artifacts else []
+    ignore_prefixes += args.ignore_prefix
 
     repo_root = Path(args.repo).resolve()
     try:
@@ -110,7 +132,7 @@ def main() -> int:
     local = local_files(repo_root)
 
     def ignored(path: str) -> bool:
-        return any(path.startswith(p) for p in args.ignore_prefix)
+        return any(path.startswith(p) for p in ignore_prefixes)
 
     def allowed(path: str) -> bool:
         return path in args.allow_file or any(path.startswith(p) for p in args.allow_prefix)
@@ -144,7 +166,8 @@ def main() -> int:
     print(
         f"本仓与上游 {args.upstream}@{sha[:12]} 逐文件一致"
         f"({len(local)} 个受版本控制的文件;允许名单外的额外文件 0 个;"
-        f"不参与比对的 {sum(1 for p in set(up) | set(local) if ignored(p))} 个)"
+        f"不参与比对的 {sum(1 for p in set(up) | set(local) if ignored(p))} 个,"
+        f"忽略前缀 {', '.join(ignore_prefixes) or '无'})"
     )
     return 0
 

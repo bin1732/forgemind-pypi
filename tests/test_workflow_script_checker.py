@@ -241,6 +241,99 @@ class TestPublishTriggerIsBranchLimited:
             assert problems == [], f"{path.name}: {problems}"
 
 
+class TestReleaseJobsAreRepoGuarded:
+    """发布面相关的作业必须带仓库守卫,而且都指向同一个仓。
+
+    少了守卫,镜像仓(公开仓的拷贝)会把发布那套流程原样再跑一遍:
+    多平台那档白烧 macOS 配额(实测在镜像里排队 15 分钟被平台取消),
+    验证那档拿镜像仓的提交去对公开仓的清单,报出来的是假红。
+    """
+
+    def _ship(self, **overrides) -> dict:
+        data = {
+            "name": "ship",
+            "permissions": {"contents": "write"},
+            "on": {"push": {"branches": ["main"]}},
+            "jobs": {
+                "publish": {
+                    "if": "always() && github.repository == 'owner/pub'",
+                    "runs-on": "ubuntu-26.04",
+                    "steps": [{"run": "echo hi"}],
+                }
+            },
+        }
+        data.update(overrides)
+        return data
+
+    def _verify(self, condition: str | None) -> dict:
+        job = {"runs-on": "ubuntu-26.04", "steps": [{"run": "echo hi"}]}
+        if condition is not None:
+            job["if"] = condition
+        return {
+            "name": "verify",
+            "permissions": {"contents": "read"},
+            "on": {"workflow_run": {"workflows": ["ship"], "types": ["completed"]}},
+            "jobs": {"check": job},
+        }
+
+    def test_guarded_workflows_pass(self):
+        problems = cws.check_release_jobs_are_repo_guarded(
+            [("ship.yml", self._ship()), ("verify.yml", self._verify("github.repository == 'owner/pub'"))]
+        )
+        assert problems == [], problems
+
+    def test_unguarded_job_is_reported(self):
+        """少了守卫 → 必须报出来"""
+        problems = cws.check_release_jobs_are_repo_guarded(
+            [("ship.yml", self._ship()), ("verify.yml", self._verify(None))]
+        )
+        assert len(problems) == 1, problems
+        assert "verify.yml" in problems[0]
+        assert "仓库守卫" in problems[0]
+
+    def test_different_repositories_are_reported(self):
+        """两个发布面 → 必须报出来"""
+        problems = cws.check_release_jobs_are_repo_guarded(
+            [("ship.yml", self._ship()), ("verify.yml", self._verify("github.repository == 'owner/other'"))]
+        )
+        assert problems, problems
+        assert "不同的仓" in problems[0] or "不一致" in problems[0]
+
+    def test_two_publishers_are_reported(self):
+        """两个带 contents: write 的工作流 → 必须报出来"""
+        second = self._ship()
+        second["jobs"]["publish"]["if"] = "github.repository == 'owner/other'"
+        problems = cws.check_release_jobs_are_repo_guarded(
+            [("ship.yml", self._ship()), ("ship2.yml", second)]
+        )
+        assert problems, problems
+        assert "contents: write" in problems[0]
+
+    def test_workflow_outside_release_surface_is_not_judged(self):
+        """跟发布面无关的工作流不受这条判据管"""
+        other = {
+            "name": "ci",
+            "permissions": {"contents": "read"},
+            "on": {"push": {"branches": ["main"]}},
+            "jobs": {"test": {"runs-on": "ubuntu-26.04", "steps": [{"run": "echo hi"}]}},
+        }
+        problems = cws.check_release_jobs_are_repo_guarded(
+            [("ship.yml", self._ship()), ("ci.yml", other)]
+        )
+        assert problems == [], problems
+
+    def test_repository_workflows_satisfy_the_rule(self):
+        """仓里真的都带守卫 —— 这条判据不是空转"""
+        import yaml
+
+        root = Path(__file__).resolve().parent.parent / ".github/workflows"
+        workflows = []
+        for path in sorted(root.glob("*.yml")):
+            workflows.append((path.name, yaml.safe_load(path.read_text(encoding="utf-8"))))
+        problems = cws.check_release_jobs_are_repo_guarded(workflows)
+        assert problems == [], problems
+
+
 class TestConcurrencyGroupsAreNotShared:
     """两个工作流共用一个并发组,必然有一个被取消"""
 

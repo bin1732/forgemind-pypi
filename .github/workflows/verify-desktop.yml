@@ -43,7 +43,10 @@ jobs:
     # 发布没成功就没有"发布出去的构件"可验 —— 失败已经由发布那一档报过了,
     # 这里再报一遍是重复,而且还要白烧一轮 macOS 配额。
     # 手动触发(w workflow_dispatch)没有上游发布,照跑。
-    if: ${{ github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success' }}
+    # 发布面的验证只在发布面那个仓里跑:镜像仓不发布,验的其实是公开仓
+    # 发出去的那一份,拿镜像仓的提交去对公开仓的清单必然对不上(假红);
+    # 多平台那档还会在镜像里重复烧一遍配额。理由详见 ship.yml。
+    if: github.repository == 'bin1732/forgemind-pypi' && (github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success')
 
     name: cargo check (lib.rs)
     runs-on: ubuntu-26.04
@@ -93,7 +96,10 @@ jobs:
     # 发布没成功就没有"发布出去的构件"可验 —— 失败已经由发布那一档报过了,
     # 这里再报一遍是重复,而且还要白烧一轮 macOS 配额。
     # 手动触发(w workflow_dispatch)没有上游发布,照跑。
-    if: ${{ github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success' }}
+    # 发布面的验证只在发布面那个仓里跑:镜像仓不发布,验的其实是公开仓
+    # 发出去的那一份,拿镜像仓的提交去对公开仓的清单必然对不上(假红);
+    # 多平台那档还会在镜像里重复烧一遍配额。理由详见 ship.yml。
+    if: github.repository == 'bin1732/forgemind-pypi' && (github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success')
 
     name: 工作流自检 (runner 标签 / 平台一致)
     runs-on: ubuntu-26.04
@@ -117,7 +123,10 @@ jobs:
     # 发布没成功就没有"发布出去的构件"可验 —— 失败已经由发布那一档报过了,
     # 这里再报一遍是重复,而且还要白烧一轮 macOS 配额。
     # 手动触发(w workflow_dispatch)没有上游发布,照跑。
-    if: ${{ github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success' }}
+    # 发布面的验证只在发布面那个仓里跑:镜像仓不发布,验的其实是公开仓
+    # 发出去的那一份,拿镜像仓的提交去对公开仓的清单必然对不上(假红);
+    # 多平台那档还会在镜像里重复烧一遍配额。理由详见 ship.yml。
+    if: github.repository == 'bin1732/forgemind-pypi' && (github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success')
 
     needs:
     - check-rust

@@ -47,7 +47,14 @@ def _upstream(files: dict[str, str], sha: str = "abc") -> tuple[str, dict[str, s
     return sha, files
 
 
-def _run(monkeypatch, repo: Path, upstream: dict[str, str], allow_prefix=(), allow_file=()):
+def _run(
+    monkeypatch,
+    repo: Path,
+    upstream: dict[str, str],
+    allow_prefix=(),
+    allow_file=(),
+    include_build_artifacts=False,
+):
     import argparse
 
     monkeypatch.setattr(mirror, "upstream_tree", lambda repo_, ref: _upstream(upstream))
@@ -57,6 +64,8 @@ def _run(monkeypatch, repo: Path, upstream: dict[str, str], allow_prefix=(), all
         argv += ["--allow-prefix", pfx]
     for f in allow_file:
         argv += ["--allow-file", f]
+    if include_build_artifacts:
+        argv += ["--include-build-artifacts"]
     monkeypatch.setattr(sys, "argv", argv)
     return mirror.main()
 
@@ -96,6 +105,37 @@ class TestMirrorConsistency:
         up = {"a.py": _blob_of(repo, "a.py")}
         assert _run(monkeypatch, repo, up, allow_prefix=["docs/"]) == 0
         assert "逐文件一致" in capsys.readouterr().out
+
+    # 发布产物这一类:公开仓每发一次版就落两个提交(发布、清理),动的
+    # 是产物不是源码。拿产物逐文件比,镜像仓这边永远对不上,而源码其实
+    # 一模一样 —— 那是假红,而且是最坏的一种:报出来的话看着像源码分家。
+    def test_build_artifacts_are_ignored_by_default(self, tmp_path, monkeypatch, capsys):
+        repo = _make_repo(tmp_path, {"a.py": "x\n"})
+        up = {
+            "a.py": _blob_of(repo, "a.py"),
+            # 上游有、本仓没有(上游刚清理掉)
+            "releases/builds/42/forgemind-x.whl": "0" * 40,
+            "pypi/simple/forgemind/index.html": "1" * 40,
+        }
+        assert _run(monkeypatch, repo, up) == 0, capsys.readouterr().out
+        out = capsys.readouterr().out
+        assert "逐文件一致" in out, out
+        # 忽略了多少个要写清楚 —— 不然"一致"这两个字看着像什么都没比
+        assert "不参与比对的 2 个" in out, out
+
+    def test_extra_build_artifact_in_local_is_ignored(self, tmp_path, monkeypatch, capsys):
+        # 反方向:本仓还留着上游已经清掉的产物
+        repo = _make_repo(tmp_path, {"a.py": "x\n", "releases/builds/42/x.whl": "w\n"})
+        up = {"a.py": _blob_of(repo, "a.py")}
+        assert _run(monkeypatch, repo, up) == 0, capsys.readouterr().out
+        assert "上游没有" not in capsys.readouterr().out
+
+    def test_build_artifacts_can_be_compared_on_demand(self, tmp_path, monkeypatch, capsys):
+        # 真要比的时候也有路走:显式说一声,产物就回到比对范围里
+        repo = _make_repo(tmp_path, {"a.py": "x\n"})
+        up = {"a.py": _blob_of(repo, "a.py"), "releases/builds/42/x.whl": "0" * 40}
+        assert _run(monkeypatch, repo, up, include_build_artifacts=True) == 1
+        assert "缺" in capsys.readouterr().out
 
 
 if __name__ == "__main__":

@@ -342,6 +342,114 @@ def check_publish_trigger_is_branch_limited(path: Path, data: dict) -> list[str]
     return problems
 
 
+def _repo_guard_literal(condition: str) -> str | None:
+    """从作业条件里取出仓库守卫的字面量。
+
+    写法是 `github.repository == 'owner/repo'`。取出的是字面量本身 ——
+    哪个仓是发布面,这件事只由工作流文件说了算,检查器不另抄一份。
+    """
+    match = re.search(r"github\.repository\s*==\s*'([^']+)'", condition)
+    return match.group(1) if match else None
+
+
+def _workflow_run_targets(data: dict) -> list[str]:
+    """取 workflow_run 触发里点名的工作流。"""
+    on = data.get("on")
+    if not isinstance(on, dict):
+        on = data.get(True) if isinstance(data.get(True), dict) else {}
+    run = on.get("workflow_run") if isinstance(on, dict) else None
+    if not isinstance(run, dict):
+        return []
+    names = run.get("workflows")
+    if isinstance(names, str):
+        return [names]
+    return list(names or [])
+
+
+def _has_write_permission(data: dict) -> bool:
+    permissions = data.get("permissions")
+    if not isinstance(permissions, dict):
+        return False
+    return str(permissions.get("contents", "")).lower() == "write"
+
+
+def check_release_jobs_are_repo_guarded(
+    workflows: list[tuple[str, dict]],
+) -> list[str]:
+    """发布面相关的作业必须带仓库守卫,而且都指向同一个仓。
+
+    公开仓是发布面,镜像仓(公开仓的拷贝)不发布。这两件事在流水线里是
+    靠 `github.repository` 分开的 —— 少了守卫,镜像仓会把发布那套流程
+    原样再跑一遍:
+
+    - 构建三个平台的二进制:白烧 macOS 配额(实测在镜像里那档排队
+      15 分钟被平台取消,runner 从未分配)。
+    - 验证"发布出去的构件":验的其实是公开仓发出去的那一份,拿镜像仓
+      的提交去对公开仓的清单,必然对不上 —— 报出来的是"被测的提交不是
+      这次发布的提交",看着像分家,其实是假红。
+
+    判据分两层:
+    - 发布面(有 contents: write 权限的那条,以及挂在它后面的验证那几条)
+      的每个作业都必须有 `github.repository == ...` 守卫。
+    - 这些工作流里的守卫必须指向同一个仓 —— 指向不同的仓就意味着有两
+      个发布面,那正是要防的事。
+    """
+    problems: list[str] = []
+    publishers = [name for name, data in workflows if _has_write_permission(data)]
+    if not publishers:
+        return problems
+    publisher = publishers[0]
+    if len(publishers) > 1:
+        problems.append(
+            f"有多个工作流带 contents: write 权限({', '.join(sorted(publishers))})—— "
+            "发布面只能有一个,发布面有两个就意味着有一份发布不会被门禁拦"
+        )
+
+    surface = {publisher}
+    publisher_ids = {publisher, Path(publisher).stem}
+    for name, data in workflows:
+        if name == publisher:
+            workflow_name = data.get("name")
+            if isinstance(workflow_name, str) and workflow_name:
+                publisher_ids.add(workflow_name)
+    for name, data in workflows:
+        if publisher_ids & set(_workflow_run_targets(data)):
+            surface.add(name)
+
+    literals: dict[str, str] = {}
+    for name, data in workflows:
+        if name not in surface:
+            continue
+        for job_name, job in (data.get("jobs") or {}).items():
+            if not isinstance(job, dict):
+                continue
+            condition = job.get("if")
+            literal = _repo_guard_literal(condition) if isinstance(condition, str) else None
+            if literal is None:
+                problems.append(
+                    f"{name}:{job_name} 没有仓库守卫 —— "
+                    "发布面相关的作业必须在镜像仓里跳过,否则镜像仓会把发布那套"
+                    "流程再跑一遍:多平台那档白烧配额,验证那档对着公开仓的清单"
+                    "比镜像仓的提交,必然报假红"
+                )
+                continue
+            literals.setdefault(name, literal)
+            if literals[name] != literal:
+                problems.append(
+                    f"{name}:{job_name} 的仓库守卫是 {literal},与同一条工作流的 "
+                    f"{literals[name]} 不一致 —— 发布面只能有一个"
+                )
+
+    distinct = set(literals.values())
+    if len(distinct) > 1:
+        who = ", ".join(f"{n}={v}" for n, v in sorted(literals.items()))
+        problems.append(
+            f"发布面工作流指向了不同的仓({who})—— 发布面只能有一个,多个发布面"
+            "意味着有一份发布不会被同一道门禁拦"
+        )
+    return problems
+
+
 def collect_concurrency_group(data: dict) -> str | None:
     """取工作流声明的并发组;没声明(或声明了空的)就是没有。"""
     concurrency = data.get("concurrency")
@@ -430,6 +538,7 @@ def main(repo_root: Path | None = None) -> int:
     problems: list[str] = []
     unverified = 0
     concurrency_groups: list[tuple[str, str]] = []
+    workflows: list[tuple[str, dict]] = []
     for path in sorted(root.glob("*.yml")):
         strict_problem = check_strict_parse(path)
         if strict_problem:
@@ -439,6 +548,7 @@ def main(repo_root: Path | None = None) -> int:
         if not isinstance(data, dict):
             problems.append(f"{path.name}: 内容不是映射")
             continue
+        workflows.append((path.name, data))
         group = collect_concurrency_group(data)
         if group is not None:
             concurrency_groups.append((path.name, group))
@@ -470,6 +580,7 @@ def main(repo_root: Path | None = None) -> int:
         problems.extend(check_publish_trigger_is_branch_limited(path, data))
 
     problems.extend(check_concurrency_groups_are_not_shared(concurrency_groups))
+    problems.extend(check_release_jobs_are_repo_guarded(workflows))
 
     if problems:
         print("工作流脚本写法有问题:")
