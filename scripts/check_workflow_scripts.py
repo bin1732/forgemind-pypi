@@ -342,6 +342,70 @@ def check_publish_trigger_is_branch_limited(path: Path, data: dict) -> list[str]
     return problems
 
 
+# 名字里带这些词,就是"这条工作流/这个作业要跑测试"。
+TEST_CLAIM_MARKERS = ("测试", "heavy", "test")
+# 真的跑测试的痕迹:命令里出现这些才算数。
+TEST_RUNNER_MARKERS = ("pytest", "jest", "npm test", "npx jest")
+
+
+def _declares_tests(*names: object) -> bool:
+    """这些名字里有没有"要跑测试"的声明。"""
+    for name in names:
+        text = str(name or "").lower()
+        if not text:
+            continue
+        if "测试" in text:
+            return True
+        if any(re.search(rf"\b{marker}", text) for marker in ("test", "heavy")):
+            return True
+    return False
+
+
+def _runs_tests(job: dict) -> bool:
+    """这个作业里有没有真的跑测试的步骤。"""
+    for step in job.get("steps") or []:
+        if not isinstance(step, dict):
+            continue
+        run = step.get("run")
+        if not isinstance(run, str):
+            continue
+        if any(marker in run for marker in TEST_RUNNER_MARKERS):
+            return True
+    return False
+
+
+def check_test_workflows_actually_run_tests(
+    workflows: list[tuple[str, dict]],
+) -> list[str]:
+    """声称要跑测试的作业,必须真的有跑测试的步骤。
+
+    活证据(公开仓 bin1732/forgemind-pypi,2026-11-01 到 11-11):重构
+    工作流时把"完整规模重并发测试"的执行步骤连同"取私人仓源码"一起删
+    了,那条流水线从那天起每次只花 7 秒就报绿 —— 检出源码、读一下清单,
+    然后什么也不跑。页面上挂着的是一条绿的"重并发测试(完整规模)",
+    而它一个用例都没跑。
+
+    这种假绿最难发现:徽章是绿的,日志里没有一行报错,只有"跑得比应该的
+    快"这么一点线索。所以判据落在这里 —— 名字里说了要跑测试,步骤里就
+    必须出现真的跑测试的命令。
+    """
+    problems: list[str] = []
+    for name, data in workflows:
+        workflow_name = data.get("name")
+        for job_name, job in (data.get("jobs") or {}).items():
+            if not isinstance(job, dict):
+                continue
+            if not _declares_tests(workflow_name, job_name):
+                continue
+            if _runs_tests(job):
+                continue
+            problems.append(
+                f"{name}:{job_name} 声称要跑测试,却没有任何跑测试的步骤 —— "
+                "这种工作流会报绿,而它一个用例都没跑"
+            )
+    return problems
+
+
 def _repo_guard_literal(condition: str) -> str | None:
     """从作业条件里取出仓库守卫的字面量。
 
@@ -581,6 +645,7 @@ def main(repo_root: Path | None = None) -> int:
 
     problems.extend(check_concurrency_groups_are_not_shared(concurrency_groups))
     problems.extend(check_release_jobs_are_repo_guarded(workflows))
+    problems.extend(check_test_workflows_actually_run_tests(workflows))
 
     if problems:
         print("工作流脚本写法有问题:")

@@ -29,8 +29,33 @@ jobs:
     steps:
     - name: 检出公开仓
       uses: actions/checkout@v7
-      with:
-        ref: main
     - name: 读出构件来源提交
       id: source
       uses: ./.github/actions/resolve-source
+    # 被测的必须是**发布出去的那一份源码**:清单里记着构件是从哪个提交
+    # 做出来的,拿当前分支的头去测它,测的就不是用户装到手上的那份。
+    # 完整历史是必需的 —— 有用例要翻 git 历史。
+    - name: 检出被测的提交
+      uses: actions/checkout@v7
+      with:
+        ref: ${{ steps.source.outputs.commit }}
+        fetch-depth: 0
+    - uses: actions/setup-python@v7
+      with:
+        python-version: '3.11'
+    - name: Install dependencies
+      run: |
+        pip install --break-system-packages --no-cache-dir --prefer-binary -r requirements-ci.txt 2>&1 | tee /tmp/pip-all.log || true
+        pip install --break-system-packages --no-cache-dir --prefer-binary --no-deps -e . 2>&1 | tee -a /tmp/pip-all.log || true
+    - name: 重并发测试(完整规模)
+      env:
+        # 关掉按文件分组的抽样。这个值是**除数**:抽样时每个文件留
+        # len//ratio 个,至少一个 —— 10 是"留十分之一",1 才是"全留"。
+        FORGEMIND_HEAVY_SAMPLE_RATIO: "1"
+      run: |
+        # 单用例 timeout 3600s:完整规模里有跑十几分钟的用例,
+        # 900s 的上限会误杀它们。
+        python -m pytest tests/ \
+          -m heavy \
+          --tb=short -q \
+          --timeout=3600

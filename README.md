@@ -166,7 +166,7 @@ forgemind demo
 ```bash
 forgemind --help
 forgemind backtest --list-strategies   # 有哪些策略
-forgemind info                         # 版本、数据源与连接状态
+forgemind info                         # 版本、配置与数据源状态
 ```
 
 也可以写成 Python:
@@ -415,11 +415,11 @@ $ forgemind agent --symbol 600519.SH
 
 ```bash
 pytest tests/ -v
-# 673 test files · 10342 tests
+# 673 test files · 10347 tests
 
 # 常规档位:真实业务用例,起真实子进程与真实数据库
 pytest tests/ -m "not heavy"
-# 8502 cases
+# 8507 cases
 
 # 重并发档位:百万级真实运算,单独用更宽的超时执行
 pytest tests/ -m heavy

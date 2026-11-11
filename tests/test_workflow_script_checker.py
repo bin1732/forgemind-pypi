@@ -334,6 +334,60 @@ class TestReleaseJobsAreRepoGuarded:
         assert problems == [], problems
 
 
+class TestTestWorkflowsActuallyRunTests:
+    """声称要跑测试的作业,必须真的有跑测试的步骤。
+
+    活证据:2026-11-01 那次重构把"完整规模重并发测试"的执行步骤一起
+    删掉了,那条流水线从那天起每次 7 秒报绿,一个用例都没跑。
+    """
+
+    def _workflow(self, name: str, job: str, steps: list[dict]) -> tuple[str, dict]:
+        return (
+            f"{name}.yml",
+            {
+                "name": name,
+                "jobs": {job: {"runs-on": "ubuntu-26.04", "steps": steps}},
+            },
+        )
+
+    def test_claiming_tests_without_running_them_is_reported(self):
+        problems = cws.check_test_workflows_actually_run_tests(
+            [self._workflow("heavy-full", "heavy-full", [{"run": "echo hi"}])]
+        )
+        assert len(problems) == 1, problems
+        assert "heavy-full" in problems[0]
+        assert "没跑" in problems[0]
+
+    def test_running_pytest_is_accepted(self):
+        problems = cws.check_test_workflows_actually_run_tests(
+            [self._workflow("heavy-full", "heavy-full", [{"run": "python -m pytest tests/ -m heavy"}])]
+        )
+        assert problems == [], problems
+
+    def test_running_jest_is_accepted(self):
+        problems = cws.check_test_workflows_actually_run_tests(
+            [self._workflow("ForgeMind Desktop UI", "test-ui", [{"run": "npx jest --ci"}])]
+        )
+        assert problems == [], problems
+
+    def test_workflow_without_test_claim_is_not_judged(self):
+        problems = cws.check_test_workflows_actually_run_tests(
+            [self._workflow("ship", "publish", [{"run": "echo hi"}])]
+        )
+        assert problems == [], problems
+
+    def test_repository_workflows_satisfy_the_rule(self):
+        """仓里真的都跑上了 —— 这条判据不是空转"""
+        import yaml
+
+        root = Path(__file__).resolve().parent.parent / ".github/workflows"
+        workflows = []
+        for path in sorted(root.glob("*.yml")):
+            workflows.append((path.name, yaml.safe_load(path.read_text(encoding="utf-8"))))
+        problems = cws.check_test_workflows_actually_run_tests(workflows)
+        assert problems == [], problems
+
+
 class TestConcurrencyGroupsAreNotShared:
     """两个工作流共用一个并发组,必然有一个被取消"""
 
