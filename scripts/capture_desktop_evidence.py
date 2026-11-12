@@ -710,7 +710,7 @@ def _run_browser(
             # 名不副实:看图的人看不出审批到底发生了什么。
             page.reload(wait_until="domcontentloaded")
             page.wait_for_timeout(2500)
-            # 布局会被记住(上一轮停在交易布局),回到默认布局 —— 决策面板
+            # 布局会被记住(拍摄时停在交易布局),回到默认布局 —— 决策面板
             # 只在默认布局里,停在交易布局就拍不到它。
             default_button = page.get_by_role("button", name="default")
             if default_button.count() > 0:

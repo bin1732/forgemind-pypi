@@ -32,14 +32,17 @@ export function PortfolioPanel() {
   const livePrices = (p: { symbol: string; avg_price: number; quantity: number }) =>
     currentPrices[p.symbol] ?? p.avg_price;
 
-  const totalEquity = cash + portfolio.reduce(
-    (sum, p) => sum + p.quantity * livePrices(p), 0
-  );
-  const totalCost = cash + portfolio.reduce(
-    (sum, p) => sum + p.quantity * p.avg_price, 0
-  );
-  const pnl = totalEquity - totalCost;
-  const pnlPct = totalCost > 0 ? pnl / totalCost : 0;
+  // 没有组合快照时(cash 为 null)整套金额都算不出来 —— 显示 "—",
+  // 不显示 ¥0:"¥0" 看着像"这个组合一分钱没有",实际是"还没有快照"。
+  const hasSnapshot = cash != null;
+  const totalEquity = hasSnapshot
+    ? cash + portfolio.reduce((sum, p) => sum + p.quantity * livePrices(p), 0)
+    : null;
+  const totalCost = hasSnapshot
+    ? cash + portfolio.reduce((sum, p) => sum + p.quantity * p.avg_price, 0)
+    : null;
+  const pnl = totalEquity != null && totalCost != null ? totalEquity - totalCost : null;
+  const pnlPct = totalCost != null && totalCost > 0 ? (pnl ?? 0) / totalCost : null;
 
   return (
     <div className="space-y-3 p-3">
@@ -59,18 +62,18 @@ export function PortfolioPanel() {
               <span className="text-muted-foreground">PnL</span>
               <span className={cn(
                 "font-mono font-bold",
-                pnl >= 0 ? "text-green-600" : "text-red-600"
+                pnl == null ? "" : pnl >= 0 ? "text-green-600" : "text-red-600"
               )}>
-                {pnl >= 0 ? "+" : ""}{formatCurrency(pnl)}
+                {pnl == null ? "" : pnl >= 0 ? "+" : ""}{formatCurrency(pnl)}
               </span>
             </div>
             <div className="flex justify-between text-xs mt-1">
               <span></span>
               <span className={cn(
                 "font-mono",
-                pnl >= 0 ? "text-green-600" : "text-red-600"
+                pnl == null ? "" : pnl >= 0 ? "text-green-600" : "text-red-600"
               )}>
-                {pnl >= 0 ? "+" : ""}{formatPercent(pnlPct)}
+                {pnl == null ? "" : pnl >= 0 ? "+" : ""}{formatPercent(pnlPct)}
               </span>
             </div>
           </div>

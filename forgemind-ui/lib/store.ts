@@ -82,8 +82,9 @@ interface AppState {
   // 组合
   portfolio: PortfolioPosition[];
   setPortfolio: (p: PortfolioPosition[]) => void;
-  cash: number;
-  setCash: (c: number) => void;
+  // null = 还没有组合快照(不知道),与"现金真的是 0"是两回事
+  cash: number | null;
+  setCash: (c: number | null) => void;
 
   // 6 Agent 决策明细 — 来自 query_portfolio.decisions
   agentDecisions: AgentDecision[];
@@ -190,7 +191,7 @@ export const useAppStore = create<AppState>()(
 
       portfolio: [],
       setPortfolio: (portfolio) => set({ portfolio }),
-      cash: 0,
+      cash: null,
       setCash: (cash) => set({ cash }),
 
       agentDecisions: [],

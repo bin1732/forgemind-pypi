@@ -112,7 +112,7 @@ export async function reloadPortfolio(): Promise<void> {
 
 async function refreshPortfolio(
   setPortfolio: (p: PortfolioPosition[]) => void,
-  setCash: (c: number) => void,
+  setCash: (c: number | null) => void,
   setPipelineResult: (r: unknown) => void,
   setAgentDecisions: (d: AgentDecision[]) => void,
   setRiskMetrics: (m: RiskMetrics | null) => void,
@@ -158,7 +158,9 @@ async function refreshPortfolio(
     current_price: p.avg_price,  // UI 用 avg_price 暂代,直到有真实行情喂入
   }));
   setPortfolio(positions);
-  if (typeof snap.cash === "number") setCash(snap.cash);
+  // 后端没给现金 = 还没有组合快照,置成"不知道"(null),不要留 0 ——
+  // 面板会把 0 渲染成 ¥0,读的人以为这是个空组合。
+  setCash(typeof snap.cash === "number" ? snap.cash : null);
   if (snap) setPipelineResult(snap);
 
   const decisions = (snap.decisions ?? []) as AgentDecision[];
