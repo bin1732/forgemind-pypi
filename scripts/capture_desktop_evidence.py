@@ -517,6 +517,56 @@ def _run_browser(
             return shots
 
         # 逐个面板确认是真数据:该有的文字在,且没有占位文案
+        def expect_any_text(texts: list[str], what: str, timeout: int = 45_000) -> bool:
+            """几个候选里等到任意一个就算数。
+
+            盯的是**语义**不是某一句文案:界面改个措辞,证据不该跟着
+            失效 —— 上一次就是这么变成"永远差一个面板"的(界面把
+            "6 Agent 投票" 改成 "6 Agent 综合",采集脚本仍在等旧文案,
+            每次都报同一个问题,而面板其实好好的)。
+            """
+            for text in texts:
+                try:
+                    page.wait_for_selector(f"text={text}", timeout=timeout)
+                    return True
+                except Exception:  # noqa: BLE001
+                    continue
+            problems.append(f"等不到{what}:{' / '.join(texts)}")
+            return False
+
+        def expect_agent_panel(timeout: int = 45_000) -> bool:
+            """决策相关的面板要渲染出来。
+
+            盯的是**语义**不是某一句文案:界面改个措辞,证据不该跟着
+            失效 —— 上一次就是这么变成"永远差一个面板"的(界面把
+            "6 Agent 投票" 改成 "6 Agent 综合",采集脚本仍在等旧文案,
+            每次都报同一个问题,而面板其实好好的)。
+            """
+            return expect_any_text(
+                ["多 Agent 决策", "6 Agent 综合决策记录", "暂无 6 Agent 真实决策"],
+                "决策面板",
+                timeout=timeout,
+            )
+
+        def expect_agent_votes(timeout: int = 45_000) -> bool:
+            """决策面板要显示真投票,不是空状态。
+
+            判据是"空状态那句不在了":有票时面板列的是 6 个 Agent 的
+            论据,没票时写"暂无 6 Agent 真实决策"。盯后者在不在,比盯
+            某一句文案稳(界面的措辞会变)。
+            """
+            try:
+                page.wait_for_selector("text=多 Agent 决策", timeout=timeout)
+            except Exception:  # noqa: BLE001
+                problems.append("等不到决策面板")
+                return False
+            if page.locator("text=暂无 6 Agent 真实决策").count() > 0:
+                problems.append(
+                    "决策面板还是空状态 —— 审批没有落库,或者界面没读到落库的决策"
+                )
+                return False
+            return True
+
         def expect_text(text: str, timeout: int = 45_000) -> bool:
             try:
                 page.wait_for_selector(f"text={text}", timeout=timeout)
@@ -580,7 +630,7 @@ def _run_browser(
             page.locator("text=切换到研究布局").first.click()
             page.wait_for_timeout(1500)
             expect_text("IC")
-            expect_text("6 Agent 投票")
+            expect_agent_panel()
             assert_no_placeholder()
             snap("07-workspace-research", "研究布局:因子库 + 研究日志 + 组合概览")
             # 因子库有 169 行,研究日志在它下面 —— 中间栏是可滚动的,
@@ -657,6 +707,20 @@ def _run_browser(
         if "已落库" not in approved:
             problems.append(f"桌面的审批没有落库: {approved[:120]}")
         else:
+            # 回到默认布局再拍 —— 决策面板在那边。这张图的名字写着
+            # "决策已拍板并落库",图里却拍的是交易布局、没有决策,证据就
+            # 名不副实:看图的人看不出审批到底发生了什么。
+            page.reload(wait_until="domcontentloaded")
+            page.wait_for_timeout(2500)
+            # 布局会被记住(上一轮停在交易布局),回到默认布局 —— 决策面板
+            # 只在默认布局里,停在交易布局就拍不到它。
+            default_button = page.get_by_role("button", name="default")
+            if default_button.count() > 0:
+                default_button.first.click()
+                page.wait_for_timeout(1500)
+            # 这一张要的是**真投票**:空状态说明决策还没落库,
+            # 不能拿它当"已拍板"的证据。
+            expect_agent_votes()
             snap("10-desktop-agent-approved", "桌面端真点一遍人工审批:决策已拍板并落库")
 
         _dump_console(console, problems)
