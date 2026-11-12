@@ -164,7 +164,7 @@ def cmd_demo(args):
             if n_klines:
                 print(f"1/3 取数 · ✅ 实时行情:{n_klines} 根日线(免费数据源)")
                 data_note = "实时行情"
-        except Exception as exc:  # noqa: BLE001 — 取不到数不该让整条命令失败
+        except Exception:  # noqa: BLE001 — 取不到数不该让整条命令失败
             extra_hint = "免费数据源这次没取到,先用手头的数据"
     else:
         extra_hint = "想拉实时行情就装:pip install 'forgemind[cn]'"
@@ -456,7 +456,7 @@ def cmd_backtest(args):
             metrics=metrics,
         )
         print(f"\n  Backtest run saved: {run_id}")
-    except Exception as e:
+    except Exception:
         # 落盘失败不阻断 backtest 主体流程
         print("\n  ⚠️  回测结果落盘失败")
 

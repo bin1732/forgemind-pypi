@@ -956,7 +956,7 @@ class ForgeMindMCPServer:
                     "SELECT COUNT(*) FROM kline_daily WHERE symbol = ?",
                     [bare_symbol(symbol)],
                 )
-        except Exception as exc:
+        except Exception:
             return {
                 "status": "no_data",
                 "symbol": symbol,
