@@ -561,9 +561,7 @@ def _run_browser(
                 problems.append("等不到决策面板")
                 return False
             if page.locator("text=暂无 6 Agent 真实决策").count() > 0:
-                problems.append(
-                    "决策面板还是空状态 —— 审批没有落库,或者界面没读到落库的决策"
-                )
+                problems.append("决策面板还是空状态 —— 审批没有落库,或者界面没读到落库的决策")
                 return False
             return True
 
