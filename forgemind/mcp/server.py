@@ -1420,9 +1420,29 @@ class ForgeMindMCPServer:
                 for p in picks
             ],
         }
+        skipped = dict(getattr(picker, "last_insufficient", {}) or {})
+        unreadable = dict(getattr(picker, "last_query_errors", {}) or {})
+        if unreadable and picks:
+            # 有选股结果、但有几个标的读不到:也要说出来。悄悄丢掉几个,
+            # 模型会以为池子就那么大。
+            detail = "、".join(f"{k}({v})" for k, v in list(unreadable.items())[:6])
+            out["unreadable"] = unreadable
+            out["hint"] = (
+                f"以下标的读不到本地行情:{detail}。"
+                "确认本地库可读(桌面端开着时会占着同一个库),或换个数据目录。"
+            )
         if not picks:
-            skipped = dict(getattr(picker, "last_insufficient", {}) or {})
-            if skipped:
+            if unreadable:
+                # 读不到 ≠ 没有数据:说成"没有数据",模型会去重试 etl,
+                # 而 etl 同样读不到那个库。
+                detail = "、".join(f"{k}({v})" for k, v in list(unreadable.items())[:6])
+                out["status"] = "query_failed"
+                out["unreadable"] = unreadable
+                out["hint"] = (
+                    f"以下标的读不到本地行情:{detail}。"
+                    "确认本地库可读(桌面端开着时会占着同一个库),或换个数据目录。"
+                )
+            elif skipped:
                 detail = "、".join(
                     f"{k}({v} 根 K 线)" if v else f"{k}(无数据)"
                     for k, v in list(skipped.items())[:6]

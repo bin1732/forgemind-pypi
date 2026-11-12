@@ -34,11 +34,24 @@ class StockPick(BaseModel):
     factors: dict[str, float] = Field(default_factory=dict)  # 各因子得分
 
 
+#: 查询失败时对用户说的话。
+#:
+#: 为什么不给更具体的原因:异常文本里有 DuckDB 的报错原文,连着内部表名
+#: 与整条 SQL。要说清的是"这是读不到,不是没有数据",以及下一步该做什么。
+QUERY_FAILED_REASON = "读不到本地行情"
+
+
 class StockPickerAgent:
     #: 计算 60 日动量 / 20 日均线至少需要这么多根 K 线
     MIN_BARS = 60
     #: 上一次 pick() 中因数据不足被跳过的标的 -> 实际 K 线根数
     last_insufficient: dict[str, int] = {}
+    #: 上一次 pick() 中**读不到**行情的标的 -> 原因。
+    #:
+    #: "读不到"与"没有数据"是两回事,混为一谈会把用户引到错的路上:
+    #: 桌面端开着时它占着同一个库,终端里的查询直接失败 —— 这时候告诉
+    #: 用户"库里没有该标的",他会去跑 etl,而 etl 同样读不到那个库。
+    last_query_errors: dict[str, str] = {}
 
     """
     选股 Agent — 不需要 LLM,纯规则 + 多策略投票
@@ -58,6 +71,8 @@ class StockPickerAgent:
         #: 本次选股所依据的行情最新日期(由 pick() 填充)。
         #: 结论的时效性必须能被调用方读出来 —— 计算正确不代表依据新鲜。
         self.last_data_date: str | None = None
+        #: 读不到行情的标的(实例级:不留在类上,免得跨次调用串味)。
+        self.last_query_errors: dict[str, str] = {}
         logger.info("stock_picker_init")
 
     async def pick(
@@ -87,10 +102,16 @@ class StockPickerAgent:
         # 该先跑 `forgemind etl` 拉更长的区间,而不是只看到 "Top 0 picks"。
         insufficient: dict[str, int] = {}
         self.last_insufficient = insufficient
+        query_errors: dict[str, str] = {}
+        self.last_query_errors = query_errors
 
         for symbol in universe:
             df = self._get_kline(symbol, as_of)
             if df is None:
+                # 查询失败与"确实没有数据"分开记 —— 前者要告诉用户
+                # "读不到",后者才是"去拉数据"。
+                if symbol in self.last_query_errors:
+                    continue
                 insufficient[symbol] = 0
                 continue
             if len(df) < self.MIN_BARS:
@@ -368,4 +389,6 @@ class StockPickerAgent:
             # 实现摊给用户。完整文本留在 debug 里。
             logger.warning("kline_query_failed", symbol=symbol, error_type=type(e).__name__)
             logger.debug("kline_query_failed_detail", symbol=symbol, error=str(e))
+            # 记下来:这次是"读不到",不是"没有数据"。上层要把两者分开说。
+            self.last_query_errors[symbol] = QUERY_FAILED_REASON
             return None

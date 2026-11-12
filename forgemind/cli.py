@@ -608,6 +608,16 @@ def cmd_pick(args):
 
     # 没有结果时必须说清原因,而不是只留一句 "Top 0 picks"
     short = dict(getattr(picker, "last_insufficient", {}) or {})
+    # 读不到行情的标的单列:它们不是"没有数据",是查询失败了。
+    # 混在一起说"库里没有该标的",用户会去跑 etl —— 而 etl 同样读不到
+    # 那个库(桌面端开着时它占着同一个 DuckDB 文件)。
+    unreadable = dict(getattr(picker, "last_query_errors", {}) or {})
+    if unreadable:
+        print("\n=== 读不到本地行情 ===\n")
+        for sym, reason in list(unreadable.items())[:6]:
+            print(f"    {sym:12} {reason}")
+        print("\n  先确认本地库能读:桌面端开着时它占着同一个库,终端里的")
+        print("  读不到 —— 关掉它再试;或用 FORGEMIND_DATA_DIR 换个目录。")
     if not picks and short:
         print("\n=== Top 0 picks ===\n")
         print(
@@ -624,7 +634,12 @@ def cmd_pick(args):
         return
     if not picks:
         print("\n=== Top 0 picks ===\n")
-        print("  候选标的都没有 K 线数据。先跑 `forgemind etl` 拉取数据。")
+        if unreadable:
+            # 上面已经说了"读不到"。这里再说"去拉数据"是自相矛盾:
+            # 拉数据的命令同样读不到那个库。
+            print("  这批标的的行情都没读到,没有可评估的候选。")
+        else:
+            print("  候选标的都没有 K 线数据。先跑 `forgemind etl` 拉取数据。")
         return
 
     print(f"\n=== Top {len(picks)} picks ===\n")
