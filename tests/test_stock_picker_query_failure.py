@@ -74,8 +74,7 @@ class TestQueryFailureIsNotMissingData:
         assert "600519" in picker.last_query_errors
         # 关键:不能同时被算成"数据不足" —— 那会让上层说"库里没有该标的"
         assert "600519" not in picker.last_insufficient, (
-            "查询失败的标的被算成了'数据不足',用户会被引去跑 etl —— "
-            "而 etl 同样读不到那个库"
+            "查询失败的标的被算成了'数据不足',用户会被引去跑 etl —— 而 etl 同样读不到那个库"
         )
 
     def test_missing_data_is_still_insufficient(self):
@@ -86,14 +85,14 @@ class TestQueryFailureIsNotMissingData:
         assert not picker.last_query_errors
 
     def test_query_error_state_does_not_leak_across_picks(self):
-        """上一轮读不到的状态不能留在下一轮"""
+        """前一次读不到的状态不能留在下一次"""
         picker = _picker(_Boom())
         asyncio.run(picker.pick(universe=["600519"], top_n=3))
         assert picker.last_query_errors
         picker = _picker(_Empty())
         asyncio.run(picker.pick(universe=["600519"], top_n=3))
         assert not picker.last_query_errors, (
-            "上一轮的读不到状态留在了下一轮 —— 一次偶发的库占用会一直显示"
+            "前一次的读不到状态留在了下一次 —— 一次偶发的库占用会一直显示"
         )
 
 
@@ -101,8 +100,8 @@ class TestCliSaysWhichOne:
     """命令行要说清是哪一种"""
 
     def test_cli_reports_unreadable_separately(self, tmp_path, capsys):
+
         from forgemind.cli import build_parser, cmd_pick
-        import argparse
 
         args = build_parser().parse_args(["pick", "--symbol", "600519"])
         args.top_n = 3
