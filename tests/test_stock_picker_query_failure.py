@@ -17,14 +17,13 @@
 from __future__ import annotations
 
 import asyncio
-import sys
-from pathlib import Path
 
 import pytest
 
-REPO = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(REPO))
-
+# **不要**把仓根插进 sys.path:同一个进程里后面的所有用例都看得见它,
+# 于是"跑在发布构件上"那一档里 import 会命中源码树 —— 那一档的全部意义
+# 就没有了(实测:插了仓根,那一档立刻报"源码树不能留在导入路径上")。
+# 包本身能从仓根导入(pytest 的根目录已经在路径上),不需要多此一举。
 from forgemind.core.agents.stock_picker import StockPickerAgent  # noqa: E402
 
 
