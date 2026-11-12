@@ -444,7 +444,7 @@ def persist_approved_decision(final: dict) -> dict:
         return {
             "snapshot_id": None,
             "decisions_written": 0,
-            "error": f"{type(exc).__name__}: {exc}",
+            "error": str(exc),
         }
 
     # 6 个 Agent 各自的票 / 置信度 / 论据
@@ -564,7 +564,7 @@ def persist_approved_decision(final: dict) -> dict:
         return {
             "snapshot_id": snap,
             "decisions_written": 0,
-            "error": f"{type(exc).__name__}: {exc}",
+            "error": str(exc),
         }
     return {"snapshot_id": snap, "decisions_written": written, "error": None}
 

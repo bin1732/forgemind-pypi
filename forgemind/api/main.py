@@ -209,7 +209,12 @@ def _load_backtest_prices(symbol: str, start: str, end: str):
     """
     import pandas as pd
 
-    from forgemind.core.data.storage import DuckDBStorage, bare_symbol
+    from forgemind.core.data.storage import (
+        DuckDBStorage,
+        bare_symbol,
+        market_data_unavailable_reason,
+        market_data_unreadable_reason,
+    )
 
     try:
         with DuckDBStorage() as db:
@@ -219,11 +224,12 @@ def _load_backtest_prices(symbol: str, start: str, end: str):
                 "AND date BETWEEN ? AND ? ORDER BY date ASC",
                 [bare_symbol(symbol), start, end],
             )
-    except Exception as exc:
-        # 表还没建(没跑过 forgemind etl)或 schema 异常 —— 走降级路径
-        return None, "synthetic_random_walk", 0, f"读不到本地行情({type(exc).__name__})"
+    except Exception:
+        # 表还没建(没跑过 forgemind etl)或 schema 异常 —— 走降级路径。
+        # 异常类型名不进响应:它是内部实现,写出去读的人只会以为程序坏了。
+        return None, "synthetic_random_walk", 0, market_data_unreadable_reason()
     if found is None or found.empty:
-        return None, "synthetic_random_walk", 0, f"本地没有 {symbol} 的 K 线"
+        return None, "synthetic_random_walk", 0, market_data_unavailable_reason(symbol)
     frame = found.copy()
     frame["date"] = pd.to_datetime(frame["date"])
     frame = frame.set_index("date").sort_index()
@@ -293,7 +299,9 @@ async def run_backtest(req: BacktestRequest):
         )
     except Exception as e:
         logger.exception("backtest_failed", symbol=req.symbol)
-        raise HTTPException(status_code=500, detail=f"回测失败: {type(e).__name__}") from e
+        # 异常类型名留在日志里;响应里只说人话 —— 读者看到
+        # "ValueError" 只以为程序坏了,而程序没坏。
+        raise HTTPException(status_code=500, detail="回测失败,详情见服务日志") from e
 
 
 class AgentRequest(BaseModel):
@@ -665,7 +673,7 @@ async def run_pipeline(req: PipelineRequest):
         pipeline_note = f" · 研究流水线耗时 {getattr(pipe_result, 'duration_seconds', 0):.1f}s"
     except Exception as exc:  # noqa: BLE001
         # 流水线跑不了就如实说,不能静默回落到自造信号
-        pipeline_note = f" · 研究流水线未成功({type(exc).__name__}),signals 为空"
+        pipeline_note = " · 研究流水线未成功,signals 为空"
         logger.warning("pipeline_run_signals_failed", error=str(exc))
 
     return PipelineResult(

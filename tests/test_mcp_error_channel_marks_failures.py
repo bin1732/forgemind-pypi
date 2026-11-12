@@ -126,6 +126,56 @@ class TestRealToolsReportFailures:
                 f"没有数据被当成失败: {result}")
 
 
+class TestFailuresDoNotLeakExceptionNames:
+    """失败原因要留给模型,但异常类名是内部实现,不该出现在文字里。
+
+    活证据(2026-11-12):接口的响应里写着"读不到本地行情(CatalogException)"
+    —— 读的人看到的是 DuckDB 的异常类名,只会以为程序坏了,而程序没坏,
+    只是还没拉数据。
+
+    失败原因本身必须留着(模型要靠它调整参数重试),去掉的只是类名。
+    """
+
+    def _assert_no_exception_name(self, text: str, where: str) -> None:
+        import re
+
+        hits = re.findall(r"\b[A-Z][A-Za-z0-9]*(?:Error|Exception)\b", text)
+        assert not hits, f"{where} 的文字里有异常类名 {hits}: {text[:300]}"
+
+    def test_generic_failure_text_has_no_exception_name(self):
+        """工具抛异常时,框架给的那段话不能带类名"""
+        srv = _server()
+
+        def _boom(**_arguments):
+            raise RuntimeError("内部炸了")
+
+        # 用真的注册口挂上去:只塞 handlers 的话,工具不在清单里,请求
+        # 会在参数校验那一步就被拒,压根走不到失败分支 —— 用例看着通过,
+        # 实际什么都没验。
+        srv._tool("boom", "故意炸的工具", {"type": "object", "properties": {}}, _boom)
+        resp = _call(srv, "boom", {})
+        assert resp["result"].get("isError") is True, resp
+        text = resp["result"]["content"][0]["text"]
+        assert "内部炸了" in text, f"失败原因丢了,模型没法据此重试: {text}"
+        self._assert_no_exception_name(text, "工具失败")
+
+    @pytest.mark.parametrize(
+        "tool,arguments",
+        [
+            ("get_feature", {"name": "压根不存在的因子"}),
+            ("run_backtest", {"strategy": "压根不存在的策略", "symbol": "600519",
+                              "start": "2024-01-01", "end": "2024-06-30"}),
+            ("get_kline", {"symbol": ""}),
+        ],
+    )
+    def test_tool_failures_have_no_exception_name(self, tool, arguments):
+        srv = _server()
+        resp = _call(srv, tool, arguments)
+        result = resp["result"]
+        text = result["content"][0]["text"]
+        self._assert_no_exception_name(text, f"{tool} 的失败")
+
+
 class TestStdioTransportCarriesTheFlag:
     """真 stdio:起子进程、按行发 JSON-RPC,标志要一路传出去"""
 

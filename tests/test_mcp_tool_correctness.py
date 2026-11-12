@@ -74,13 +74,32 @@ class TestCheckIcDecayCallsTheRealFunction:
         assert "compute_ic_decay(window_days" not in src, (
             "window_days 不是 compute_ic_decay 的参数")
 
-    def test_error_message_carries_the_cause(self):
-        """不能再只报 type(exc).__name__ —— 那是把问题踢回给用户"""
-        src = (ROOT / "forgemind/mcp/server.py").read_text(encoding="utf-8")
-        seg = src[src.index("async def _tool_check_ic_decay"):
-                  src.index("async def _tool_query_portfolio")]
-        assert "IC 衰减计算失败: {type(exc).__name__}: {exc}" in seg, (
-            "失败信息必须带上异常内容,不能只有类型名")
+    def test_error_message_carries_the_cause(self, monkeypatch):
+        """失败信息要带上异常内容,也不能只有类名
+
+        不能再只报 type(exc).__name__ —— 那是把问题踢回给用户;但类名本身
+        是内部实现,也不该出现在给模型看的文字里(模型看到 "RuntimeError"
+        只会以为服务坏了)。
+
+        这里盯**行为**:真让读取失败一次,看它报的是什么。原来那条用例盯
+        的是源码里的一行字面量,换个写法就红 —— 行为没变,重构一下就红,
+        那是脆的判据。
+        """
+        import forgemind.core.data.storage as storage
+
+        class _Boom:
+            def __enter__(self):
+                raise RuntimeError("行情库炸了")
+
+            def __exit__(self, *exc_info):
+                return False
+
+        monkeypatch.setattr(storage, "DuckDBStorage", _Boom)
+        result = asyncio.run(ForgeMindMCPServer()._tool_check_ic_decay("kmid", window_days=5))
+        assert result.get("error"), result
+        message = result["error"]
+        assert "行情库炸了" in message, f"失败信息丢了原因: {message}"
+        assert "RuntimeError" not in message, f"失败信息里不该有异常类名: {message}"
 
 
 class TestStockPickExplainsEmptyResults:

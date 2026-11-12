@@ -12,10 +12,18 @@
 
 from __future__ import annotations
 
+import json
+import sys
+from pathlib import Path
+
 import pytest
 from fastapi.routing import APIRoute
 from fastapi.testclient import TestClient
 
+REPO = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(REPO / "scripts"))
+
+import check_cli_output_clean as clean  # noqa: E402
 from forgemind.api.main import app
 
 # (方法, 路径, 查询参数, 请求体)
@@ -45,6 +53,25 @@ APPROVAL_ENDPOINTS = [
     ("POST", "/api/v1/agent/{thread_id}/reject"),
 ]
 
+# 非法输入:错误路径是最容易漏内部实现的地方。
+# (方法, 路径, 请求体或查询参数)
+BAD_REQUESTS = [
+    ("POST", "/api/v1/backtest/run", {"symbol": "600519.SH", "start_date": "bad",
+                                      "end_date": "2024-06-01"}),
+    ("POST", "/api/v1/backtest/run", {"symbol": "600519.SH", "start_date": "2024-06-01",
+                                      "end_date": "2024-01-01"}),
+    ("POST", "/api/v1/backtest/run", {}),
+    ("POST", "/api/v1/backtest/run", {"symbol": 12345}),
+    ("POST", "/api/pipeline/run", {"symbols": "not-a-list", "start": "2024-01-01",
+                                   "end": "2024-03-31"}),
+    ("POST", "/api/pipeline/run", {}),
+    ("POST", "/mcp/tools/call", {}),
+    ("POST", "/mcp/tools/call", {"name": "no_such_tool", "arguments": {}}),
+    ("POST", "/mcp/resources/read", {}),
+    ("POST", "/api/v1/agent/decide", {"symbol": "600519", "cash": "not-a-number",
+                                      "total_equity": 1, "positions": []}),
+]
+
 # 决策端点要跑真实的决策图,单独验
 DECIDE_ENDPOINT = ("POST", "/api/v1/agent/decide")
 
@@ -65,6 +92,53 @@ def _routes() -> set[tuple[str, str]]:
                 continue
             out.add((method, route.path))
     return out
+
+
+class TestResponseHasNoInternals:
+    """响应体不许把内部实现摊给用户。
+
+    命令行那条通道有 `scripts/check_cli_output_clean.py` 守着;接口这一侧
+    原本没有 —— 十六个端点里只有一条被流水线扫过内部实现,其余端点的
+    响应体没人看:里面有 SQL 片段、栈回溯、异常类型名、本机路径,都不会
+    有人发现。
+
+    判据从命令行那套脚本里导入,不在这里另写一份 —— 写了就会漂。
+    """
+
+    def _assert_clean(self, method: str, path: str, payload, text: str) -> None:
+        for label, segment in clean._scan(text, clean.COMPILED_LEAKS):
+            pytest.fail(f"{method} {path} 的响应里有{label}: ...{segment}...")
+        records = clean.find_log_records(payload)
+        assert not records, f"{method} {path} 的响应里有日志记录: {records}"
+
+    @pytest.mark.parametrize("method,path,params,body", ENDPOINTS,
+                             ids=[f"{m} {p}" for m, p, _, _ in ENDPOINTS])
+    def test_success_response_has_no_internals(self, client, method, path, params, body):
+        if method == "GET":
+            r = client.get(path, params=params)
+        else:
+            r = client.post(path, json=body)
+        payload = r.json()
+        self._assert_clean(method, path, payload, json.dumps(payload, ensure_ascii=False))
+
+    @pytest.mark.parametrize("method,path,body", BAD_REQUESTS,
+                             ids=[f"{m} {p}" for m, p, _ in BAD_REQUESTS])
+    def test_error_response_has_no_internals(self, client, method, path, body):
+        """非法输入必须给 4xx,而且错误响应同样不许漏内部。
+
+        错误路径才是最容易漏的地方:处理里 catch 住异常,把 str(exc)
+        塞进 detail,一句 "CatalogException: ..." 就出去了。
+        """
+        if method == "GET":
+            r = client.get(path, params=body)
+        else:
+            r = client.post(path, json=body)
+        assert 400 <= r.status_code < 500, (
+            f"{method} {path} -> {r.status_code}: {r.text[:300]}")
+        payload = r.json()
+        self._assert_clean(method, path, payload, json.dumps(payload, ensure_ascii=False))
+        # 错误响应还得说人话:只有状态码没有内容,等于没回话
+        assert payload.get("detail") or payload.get("error"), f"{method} {path} 没有说明"
 
 
 class TestEndpointSweep:

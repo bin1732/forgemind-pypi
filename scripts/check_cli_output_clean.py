@@ -31,8 +31,10 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
 
-# 用户通道与运维通道分开:同一批特征,两边的严格程度不同。
-STRICT_PATTERNS: list[tuple[str, str]] = [
+# 内部实现的四种形态:SQL 片段、栈回溯、异常类型名、本机路径。
+# 这四种在哪个通道都不该出现 —— 命令行与接口共用同一份判据,写在
+# 一处,免得两处慢慢漂开。
+LEAK_PATTERNS: list[tuple[str, str]] = [
     (
         r"(?i)\b(SELECT\s+.+?\s+FROM|information_schema|WHERE\s+\w+\s*=\s*\?|"
         r"ORDER BY\s+\w|LINE \d+:)",
@@ -44,9 +46,29 @@ STRICT_PATTERNS: list[tuple[str, str]] = [
         r"RuntimeError|OSError|FileNotFoundError|ImportError|DuckDBError)\b",
         "异常类型名",
     ),
+    # 上面那份是常见异常;这里是兜底:任何"大写开头 + Error/Exception
+    # 收尾"的类名都是内部实现。列清单永远列不全 —— 第三方库自己的
+    # 异常类(如 AKShareTimeoutError)不在名单里,却一样不该出现在
+    # 用户看得到的文字里。
+    (r"\b[A-Z][A-Za-z0-9]*(?:Error|Exception)\b", "异常类型名"),
     (r"site-packages|/home/[a-z]|/Users/|[A-Za-z]:\\\\", "本机绝对路径"),
+]
+
+# 原始日志 JSON:一行结构化日志混进了用户通道。
+#
+# 这一条只属于文本通道 —— 接口的响应体是结构化的,"timestamp" 在那里
+# 是一个正经字段(信号时间、健康检查时间),单看它不能算漏。接口那边
+# 用结构化的判据:find_log_records()。
+LOG_JSON_PATTERNS: list[tuple[str, str]] = [
     (r'"event"\s*:|"exc_type"|"exc_msg"|"timestamp"\s*:', "原始日志 JSON"),
 ]
+
+# 日志记录的键。接口那边用:一个对象里同时出现两个以上这些键,
+# 就是一条日志记录混进了响应体。
+LOG_RECORD_KEYS = ("event", "level", "timestamp", "exc_type", "exc_msg", "exc_info")
+
+# 用户通道与运维通道分开:同一批特征,两边的严格程度不同。
+STRICT_PATTERNS: list[tuple[str, str]] = LEAK_PATTERNS + LOG_JSON_PATTERNS
 LOOSE_PATTERNS: list[tuple[str, str]] = [
     (r"(?i)\b(SELECT\s+.+?\s+FROM|information_schema|LINE \d+:)", "SQL 片段"),
     (r"(?i)Traceback \(most recent call last\)", "Python 栈回溯"),
@@ -76,6 +98,7 @@ COMMANDS: list[list[str]] = [
 
 COMPILED_STRICT = [(re.compile(p), label) for p, label in STRICT_PATTERNS]
 COMPILED_LOOSE = [(re.compile(p), label) for p, label in LOOSE_PATTERNS]
+COMPILED_LEAKS = [(re.compile(p), label) for p, label in LEAK_PATTERNS]
 
 
 def _run(args: list[str], repo_root: Path, timeout: int = 240) -> tuple[int, str, str]:
@@ -110,6 +133,29 @@ def _scan(text: str, patterns: list[tuple[re.Pattern, str]]) -> list[tuple[str, 
             segment = text[max(0, m.start() - 30) : m.end() + 30].replace("\n", " ")
             hits.append((label, segment))
     return hits
+
+
+def find_log_records(payload: object, _path: str = "$") -> list[str]:
+    """响应体里混进来的日志记录。
+
+    结构化判据:一个对象里同时出现两个以上日志键,就是一条日志记录
+    混进了响应体。比"文本里有没有某个键"准 —— 接口的正经字段也叫
+    timestamp(信号时间、健康检查时间),单看它不算漏。
+
+    命令行那边用文本判据就够了(它的 stdout 上不该出现整条 JSON 日志);
+    接口这边是结构化的,用同一件事的两种判据。
+    """
+    found: list[str] = []
+    if isinstance(payload, dict):
+        hits = sorted(set(payload) & set(LOG_RECORD_KEYS))
+        if len(hits) >= 2:
+            found.append(f"{_path} 里有日志字段 {hits}")
+        for key, value in payload.items():
+            found.extend(find_log_records(value, f"{_path}.{key}"))
+    elif isinstance(payload, list):
+        for index, value in enumerate(payload):
+            found.extend(find_log_records(value, f"{_path}[{index}]"))
+    return found
 
 
 def check_table_names(text: str, readme: str) -> list[str]:

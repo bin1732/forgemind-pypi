@@ -744,7 +744,7 @@ class EndToEndPipeline:
                 "oos_max_dd": 0.0,
                 "n_folds": 0,
                 "folds_detail": [],
-                "error": f"{type(exc).__name__}: {exc}",
+                "error": str(exc),
             }
 
     def _monte_carlo(
@@ -845,7 +845,7 @@ class EndToEndPipeline:
                 "return_95pct": 0.0,
                 "n_successful": 0,
                 "degenerate": True,
-                "error": f"{type(exc).__name__}: {exc}",
+                "error": str(exc),
             }
 
     def _generate_signals(

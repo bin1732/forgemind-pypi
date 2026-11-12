@@ -26,7 +26,11 @@ from dataclasses import dataclass, field  # noqa: E402
 from datetime import datetime  # noqa: E402
 from typing import Any  # noqa: E402
 
-from forgemind.core.data.storage import bare_symbol  # noqa: E402
+from forgemind.core.data.storage import (  # noqa: E402
+    bare_symbol,
+    market_data_unavailable_reason,
+    market_data_unreadable_reason,
+)
 from forgemind.core.observability.logging import get_logger  # noqa: E402
 
 
@@ -177,7 +181,9 @@ def _tool_execution_failed(req_id: Any, tool_name: str, exc: BaseException) -> d
     调整参数重试。抛成协议错误的话,模型看不到失败原因,对话就断在
     那儿了。
     """
-    detail = str(exc).strip() or type(exc).__name__
+    # 异常类型名不进正文:它是内部实现。失败原因要留给模型(它要据此
+    # 调整参数重试),但不该让它以为是服务端坏了。
+    detail = str(exc).strip() or "没有更多细节"
     return {
         "jsonrpc": "2.0",
         "id": req_id,
@@ -185,7 +191,7 @@ def _tool_execution_failed(req_id: Any, tool_name: str, exc: BaseException) -> d
             "content": [
                 {
                     "type": "text",
-                    "text": (f"工具 '{tool_name}' 执行失败({type(exc).__name__}): {detail}"),
+                    "text": f"工具 '{tool_name}' 执行失败:{detail}",
                 }
             ],
             "isError": True,
@@ -955,7 +961,7 @@ class ForgeMindMCPServer:
                 "status": "no_data",
                 "symbol": symbol,
                 "factors": [],
-                "message": f"读不到本地行情({type(exc).__name__}),先跑 forgemind etl。",
+                "message": market_data_unreadable_reason(),
                 "hint": "先运行 `forgemind etl --symbols ...` 拉取 K 线,再重试。",
             }
         if not n_bars:
@@ -963,7 +969,7 @@ class ForgeMindMCPServer:
                 "status": "no_data",
                 "symbol": symbol,
                 "factors": [],
-                "message": f"本地没有 {symbol} 的 K 线,先跑 forgemind etl。",
+                "message": f"{market_data_unavailable_reason(symbol)},先跑 forgemind etl。",
             }
 
         # 并行算 IC (asyncio.gather)
@@ -1036,7 +1042,7 @@ class ForgeMindMCPServer:
                 )
         except Exception as exc:
             return {
-                "error": f"读取行情失败: {type(exc).__name__}",
+                "error": f"读取行情失败:{exc}",
                 "feature_name": feature_name,
                 "status": "failed",
                 "hint": "确认已运行 `forgemind etl`,且 data/duckdb/main.db 可读。",
@@ -1051,7 +1057,7 @@ class ForgeMindMCPServer:
             with_factors = compute_alpha158(lf)
         except Exception as exc:
             return {
-                "error": f"因子计算失败: {type(exc).__name__}: {exc}",
+                "error": f"因子计算失败:{exc}",
                 "feature_name": feature_name,
                 "status": "failed",
                 "n_bars": int(n_bars),
@@ -1074,7 +1080,7 @@ class ForgeMindMCPServer:
             decay = compute_ic_decay(with_returns, feature_name, cols)
         except Exception as exc:
             return {
-                "error": f"IC 衰减计算失败: {type(exc).__name__}: {exc}",
+                "error": f"IC 衰减计算失败:{exc}",
                 "feature_name": feature_name,
                 "status": "failed",
                 "n_bars": int(n_bars),
@@ -1179,7 +1185,7 @@ class ForgeMindMCPServer:
                     ),
                 }
             return {
-                "error": f"读取行情失败: {type(exc).__name__}: {exc}",
+                "error": f"读取行情失败:{exc}",
                 "symbol": symbol,
                 "status": "failed",
                 "hint": "确认已运行 `forgemind etl` 拉取数据,且 data/duckdb/main.db 可读。",

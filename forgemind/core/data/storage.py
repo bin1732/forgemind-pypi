@@ -32,6 +32,25 @@ def bare_symbol(symbol: str) -> str:
     return s.strip()
 
 
+def market_data_unavailable_reason(symbol: str) -> str:
+    """本地库里没有这个标的的行情 —— 对用户说的一句话。
+
+    命令行、接口、MCP 三条通道说的是同一件事,文案也只在这里写一份:
+    抄三遍就会漂,漂了以后三个地方对不上,谁也说不清哪句是对的。
+    """
+    return f"本地库里没有 {symbol} 的 K 线"
+
+
+def market_data_unreadable_reason() -> str:
+    """本地行情读不了(表还没建或 schema 不对)—— 对用户说的一句话。
+
+    **不写异常类型名。** "CatalogException" 是内部实现:它出现在响应
+    里,读的人只会以为程序坏了 —— 而程序没坏,只是还没拉数据。真正
+    的原因(表没建)用一句话说清楚,类型名留给日志。
+    """
+    return "本地行情库还读不了(表可能还没建,先跑 forgemind etl 拉数据)"
+
+
 def data_freshness(last_date: str | None, today=None) -> str:
     """把"数据最新日期"变成一句人能直接判断的话
 
