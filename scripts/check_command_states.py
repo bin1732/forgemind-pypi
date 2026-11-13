@@ -51,6 +51,9 @@ COMMANDS: list[list[str]] = [
     ["pick", "--symbol", "600519"],
     ["signal", "--symbol", "600519"],
     ["agent", "--symbol", "600519.SH", "--cash", "80000", "--yes"],
+    ["demo"],
+    ["info"],
+    ["router-demo"],
 ]
 
 #: 状态:名字 → 造这个状态要做什么
@@ -59,14 +62,20 @@ STATES = ("no_data", "insufficient", "locked", "no_key")
 #: 内部实现不许出现在输出里的形态(与命令行的判据同源)。
 FORBIDDEN = ("异常类名", "SQL 片段", "Python 栈回溯", "本机绝对路径")
 
+#: 会读本地库的子命令。只有这些命令才需要在"库被占着"时说明读不到 ——
+#: demo 用的是包内置的行情、info 只打印配置、router-demo 只演示路由,
+#: 它们本来就不碰那个库,要求它们说"读不到"是判据自己搞错了。
+NEEDS_LOCAL_STORE = {"backtest", "pick", "signal", "agent"}
+
 #: "读不到"该有的说法。"库被占着"这个状态下,输出里至少要有一个。
 UNREADABLE_MARKERS = ("读不到", "占用")
 
 #: "没有数据"该有的说法。
 MISSING_MARKERS = ("没有 K 线", "无数据", "没有该标的", "库里没有")
 
-#: 说"用了模拟数据"时该有的词。
+#: 提到模拟/合成数据时,旁边必须有的免责说法(不同命令的措辞不一样)。
 SYNTHETIC_MARKERS = ("模拟", "合成")
+DISCLAIMER_MARKERS = ("非真实", "不是模拟", "只用于验证", "不代表")
 
 
 def _duckdb_path(work: Path) -> Path:
@@ -176,8 +185,9 @@ def _check_one(command: list[str], state: str) -> list[str]:
             if kind in FORBIDDEN:
                 problems.append(f"{label}: 输出里有{kind}: ...{segment}...")
 
-        # 2) "库被占着"这个状态下,不许说"没有数据"
-        if state == "locked":
+        # 2) "库被占着"这个状态下,不许说"没有数据"(只对读库的命令有要求)
+        reads_store = command[0] in NEEDS_LOCAL_STORE
+        if state == "locked" and reads_store:
             if any(marker in out for marker in MISSING_MARKERS):
                 problems.append(
                     f"{label}: 输出说'没有数据' —— 连都没连上,不知道有没有。"
@@ -190,7 +200,9 @@ def _check_one(command: list[str], state: str) -> list[str]:
             problems.append(f"{label}: 说了'占用',但这个状态下库没有被占着")
 
         # 4) 用了模拟数据就要标明
-        if any(marker in out for marker in SYNTHETIC_MARKERS) and "非真实" not in out:
+        if any(marker in out for marker in SYNTHETIC_MARKERS) and not any(
+            marker in out for marker in DISCLAIMER_MARKERS
+        ):
             problems.append(f"{label}: 用了模拟数据,却没有标明它不是真实结果")
 
     return problems
