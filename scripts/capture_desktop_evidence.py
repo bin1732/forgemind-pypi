@@ -452,10 +452,15 @@ def capture(args: argparse.Namespace) -> int:
             except subprocess.TimeoutExpired:
                 proc.kill()
 
+    # 工作区脏不脏要写进清单:清单里写着"这是哪个提交拍的",而工作区
+    # 脏的时候,画面里可能有还没提交的东西 —— 看图的人会以为那就是那个
+    # 提交的样子。
+    dirty = _worktree_dirty()
     manifest = {
         "app_version": app_version,
         "tauri_version": tauri_version,
         "source_commit": _git_commit(),
+        "worktree_dirty": dirty,
         "captured_at": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
         "backend": base,
         "shots": shots,
@@ -463,6 +468,9 @@ def capture(args: argparse.Namespace) -> int:
     (out_dir / "manifest.json").write_text(
         json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8"
     )
+
+    if dirty:
+        print("注意:工作区有未提交的改动 —— 这批画面里可能有还没进提交的东西。")
 
     if problems:
         print("采集过程中发现问题:")
@@ -480,6 +488,21 @@ def _git_commit() -> str:
         text=True,
     )
     return proc.stdout.strip() if proc.returncode == 0 else ""
+
+
+def _worktree_dirty() -> bool:
+    """工作区有没有未提交的改动。
+
+    证据清单里写着"这是哪个提交拍的"。工作区脏的时候,这句话只对了一
+    半 —— 画面里可能有还没提交的东西。看图的人以为那就是那个提交的样子。
+    所以清单里要写明工作区是不是干净的。
+    """
+    proc = subprocess.run(
+        ["git", "-C", str(REPO), "status", "--porcelain"],
+        capture_output=True,
+        text=True,
+    )
+    return bool(proc.stdout.strip())
 
 
 def _run_browser(
