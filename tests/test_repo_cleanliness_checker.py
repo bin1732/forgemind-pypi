@@ -59,5 +59,74 @@ class TestMojibakeCheck:
         assert not problems, problems
 
 
+class TestImportPathPollution:
+    """测试文件不许把仓根塞进导入路径"""
+
+    def _file(self, tmp_path, name: str, body: str):
+        path = tmp_path / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(body, encoding="utf-8")
+        return path
+
+    def test_repo_root_insert_is_reported(self, tmp_path):
+        bad = self._file(
+            tmp_path,
+            "tests/test_x.py",
+            "import sys\nfrom pathlib import Path\n"
+            "REPO = Path(__file__).resolve().parent.parent\n"
+            "sys.path.insert(0, str(REPO))\n",
+        )
+        problems = cleanliness.check_tests_do_not_pollute_import_path(tmp_path, [bad])
+        assert len(problems) == 1, problems
+        assert "导入路径" in problems[0]
+
+    def test_pythonpath_to_repo_root_is_reported(self, tmp_path):
+        bad = self._file(
+            tmp_path,
+            "tests/test_y.py",
+            "env = dict(os.environ)\nenv[\"PYTHONPATH\"] = str(REPO)\n",
+        )
+        problems = cleanliness.check_tests_do_not_pollute_import_path(tmp_path, [bad])
+        assert len(problems) == 1, problems
+
+    def test_subdirectory_insert_is_not_reported(self, tmp_path):
+        """放一个子目录(比如 scripts/)不是仓根 —— 不该报,否则成了噪声"""
+        ok = self._file(
+            tmp_path,
+            "tests/test_z.py",
+            "sys.path.insert(0, str(Path(__file__).resolve().parent.parent / \"scripts\"))\n",
+        )
+        assert cleanliness.check_tests_do_not_pollute_import_path(tmp_path, [ok]) == []
+
+    def test_comment_mentioning_it_is_not_reported(self, tmp_path):
+        """注释里提一句不算"""
+        ok = self._file(
+            tmp_path,
+            "tests/test_w.py",
+            "# 不要 sys.path.insert(0, str(REPO)) —— 那会把源码树顶上去\n",
+        )
+        assert cleanliness.check_tests_do_not_pollute_import_path(tmp_path, [ok]) == []
+
+    def test_the_central_helper_is_exempt(self, tmp_path):
+        """tests/_path_setup.py 是集中出口,它就是做这件事的"""
+        ok = self._file(
+            tmp_path,
+            "tests/_path_setup.py",
+            "sys.path.insert(0, str(REPO_ROOT))\n",
+        )
+        assert cleanliness.check_tests_do_not_pollute_import_path(tmp_path, [ok]) == []
+
+    def test_repository_has_no_import_path_pollution(self):
+        """仓里现在没有把仓根塞进导入路径的测试文件"""
+        import subprocess
+
+        tracked = subprocess.run(
+            ["git", "ls-files"], cwd=REPO, capture_output=True, text=True, check=True
+        ).stdout.split()
+        files = [REPO / f for f in tracked if (REPO / f).is_file()]
+        problems = cleanliness.check_tests_do_not_pollute_import_path(REPO, files)
+        assert not problems, problems
+
+
 if __name__ == "__main__":
     raise SystemExit(pytest.main([__file__, "-v"]))

@@ -23,8 +23,11 @@ from pathlib import Path
 
 import pytest
 
+# **不要**把仓根插进 sys.path:同一个进程里后面的所有用例都看得见它,
+# 于是"跑在发布构件上"那一档里 import 会命中源码树 —— 那一档的全部意义
+# 就没有了。包本身能从仓根导入(pytest 的根目录已经在路径上),
+# 不需要多此一举。
 REPO = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(REPO))
 
 
 from forgemind.core.data.storage import (  # noqa: E402
@@ -123,12 +126,18 @@ class TestLockConflictIsRecognized:
 class TestCliTellsTheTruth:
     """命令行在库被占着时说的话"""
 
-    def _run_backtest(self, db_path: str) -> str:
-        proc = subprocess.run(
+    def _run_backtest(self, db_path: str, capsys) -> str:
+        """在**当前进程里**跑一次回测命令。
+
+        刻意不起子进程:子进程要 import 本仓的包,就得把仓根放进
+        PYTHONPATH —— 而那一档("跑在发布构件上")最忌讳的就是仓根出现在
+        导入路径上,那样 import 会命中源码树,那一档就白跑了。
+        (实测:这么写过一次,那一档当场报"源码树不能留在导入路径上"。)
+        """
+        from forgemind.cli import build_parser, cmd_backtest
+
+        args = build_parser().parse_args(
             [
-                sys.executable,
-                "-m",
-                "forgemind.cli",
                 "backtest",
                 "--symbol",
                 "600519",
@@ -136,23 +145,19 @@ class TestCliTellsTheTruth:
                 "2024-01-01",
                 "--end",
                 "2024-06-30",
-            ],
-            capture_output=True,
-            text=True,
-            timeout=300,
-            cwd=str(REPO),
-            env={
-                "PATH": "/usr/bin:/bin",
-                "PYTHONPATH": str(REPO),
-                "FORGEMIND_DATA_DIR": str(Path(db_path).parent),
-                "FORGEMIND_DUCKDB_PATH": db_path,
-                "HOME": "/tmp",
-            },
+            ]
         )
-        return proc.stdout + proc.stderr
+        cmd_backtest(args)
+        captured = capsys.readouterr()
+        return captured.out + captured.err
 
-    def test_locked_db_is_reported_as_locked_not_as_missing(self, locked_db):
-        out = self._run_backtest(locked_db)
+    def test_locked_db_is_reported_as_locked_not_as_missing(self, locked_db, capsys):
+        # 设置里的库路径是单例:改了环境变量也要把那个实例指过来
+        # (仓库既有的隔离三件套:setenv + cache_clear + 改 singleton 字段)。
+        import forgemind.core.config.settings as settings_mod
+
+        settings_mod.get_settings().duckdb_path = locked_db
+        out = self._run_backtest(locked_db, capsys)
         assert "占用" in out, out
         # 不能说"库里没有" —— 连都没连上,不知道有没有
         assert "在库里没有 K 线" not in out, out

@@ -23,6 +23,7 @@
 from __future__ import annotations
 
 import argparse
+import ast
 import subprocess
 import sys
 from pathlib import Path
@@ -323,6 +324,106 @@ def check_commit_messages(repo: Path, limit: int = 300) -> list[str]:
     return problems
 
 
+def _is_repo_root_expr(node) -> bool:
+    """这个表达式是不是"仓根本身"。
+
+    放一个子目录(比如 REPO / "scripts")不算 —— 那不会让 import 命中
+    源码树的包。
+    """
+    if isinstance(node, ast.Name):
+        return node.id in ("REPO", "REPO_ROOT")
+    if isinstance(node, ast.Call) and isinstance(node.func, ast.Name):
+        # str(REPO) / str(REPO_ROOT)
+        if node.func.id == "str" and node.args:
+            return _is_repo_root_expr(node.args[0])
+    if isinstance(node, ast.Attribute) and isinstance(node.value, ast.Call):
+        # Path(__file__).resolve().parent.parent
+        call = node.value
+        if isinstance(call.func, ast.Attribute) and call.func.attr == "resolve":
+            if isinstance(call.func.value, ast.Attribute) and call.func.value.attr == "parent":
+                return node.attr == "parent"
+    if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Div):
+        # REPO / "scripts" —— 子目录,不是仓根
+        return False
+    return False
+
+
+def _path_api_call(node: ast.AST):
+    """这是不是 sys.path.insert / sys.path.append?是就返回那个路径参数。"""
+    if not isinstance(node, ast.Call) or not isinstance(node.func, ast.Attribute):
+        return None
+    if node.func.attr not in ("insert", "append"):
+        return None
+    owner = node.func.value
+    if not isinstance(owner, ast.Attribute) or owner.attr != "path":
+        return None
+    if not isinstance(owner.value, ast.Name) or owner.value.id != "sys":
+        return None
+    if node.func.attr == "append":
+        return node.args[0] if node.args else None
+    return node.args[1] if len(node.args) >= 2 else None
+
+
+def _pythonpath_assignment(node: ast.AST):
+    """这是不是给 PYTHONPATH 赋值?是就返回那个值。"""
+    if not isinstance(node, ast.Assign) or not node.targets:
+        return None
+    target = node.targets[0]
+    if not isinstance(target, ast.Subscript):
+        return None
+    key = target.slice
+    if not (isinstance(key, ast.Constant) and key.value == "PYTHONPATH"):
+        return None
+    return node.value
+
+
+def check_tests_do_not_pollute_import_path(repo: Path, files: list[Path]) -> list[str]:
+    """测试文件不许把仓根塞进导入路径。
+
+    同一个进程里后面的所有用例都看得见它 —— 于是"跑在发布构件上"那一档
+    里 import 会命中源码树,那一档的全部意义就没有了(它测的是"装出来的
+    那一份",不是源码)。
+
+    这不是假想:同一个错我犯过三次 —— 一次是测试文件头插仓根,一次是
+    子进程的 PYTHONPATH 指向仓根,一次是 MCP 的 stdio 用例自己拼
+    PYTHONPATH。三次都是那一档自己抓住的,可那要等一整轮流水线才发现
+    (一轮约二十分钟)。这里把它变成推之前就能看见的东西。
+
+    用 AST 判,不用文本匹配:字符串里写个例子(像本文件的用例)不算违规,
+    真的调用才算。
+
+    例外:`tests/_path_setup.py` 是仓库自己的集中出口 —— 它在**不是**测
+    装出来的包时才会把仓根放上路径,那是刻意的。
+    """
+    problems: list[str] = []
+    for path in files:
+        rel = str(path.relative_to(repo))
+        if not rel.startswith("tests/") or rel == "tests/_path_setup.py":
+            continue
+        try:
+            text = path.read_text(encoding="utf-8")
+            tree = ast.parse(text)
+        except Exception:  # noqa: BLE001 — 读不了/解析不了就不判这一条
+            continue
+        for node in ast.walk(tree):
+            candidates = []
+            path_arg = _path_api_call(node)
+            if path_arg is not None:
+                candidates.append(path_arg)
+            value = _pythonpath_assignment(node)
+            if value is not None:
+                candidates.append(value)
+            for arg in candidates:
+                if _is_repo_root_expr(arg):
+                    problems.append(
+                        f"{rel}:{getattr(node, 'lineno', 0)} 把仓根放进了导入路径 —— "
+                        "同一进程里后面的用例都看得见它,'跑在发布构件上'那一档"
+                        "会因此 import 到源码树,那一档就白跑了"
+                    )
+                    break
+    return problems
+
+
 def check_dirty_worktree(repo: Path) -> list[str]:
     """工作区应当没有未提交的改动。"""
     return [f"工作区有未提交改动: {line}" for line in _worktree_lines(repo)]
@@ -354,6 +455,7 @@ def main() -> int:
     problems += check_mojibake(repo, files)
     problems += check_secret_files(repo, files)
     problems += check_duplicate_source_copy(repo, files)
+    problems += check_tests_do_not_pollute_import_path(repo, files)
     if args.public:
         problems += check_public_layout(repo, files)
     problems += check_dirty_worktree(repo)

@@ -24,7 +24,6 @@ from __future__ import annotations
 
 import asyncio
 import json
-import os
 import subprocess
 import sys
 from pathlib import Path
@@ -34,6 +33,8 @@ import pytest
 REPO = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO / "forgemind"))
 
+from _path_setup import child_env  # noqa: E402
+
 from forgemind.mcp.server import ForgeMindMCPServer  # noqa: E402
 
 
@@ -42,10 +43,16 @@ def _server() -> ForgeMindMCPServer:
 
 
 def _call(srv: ForgeMindMCPServer, name: str, arguments: dict) -> dict:
-    return asyncio.run(srv.handle_request({
-        "jsonrpc": "2.0", "id": 1, "method": "tools/call",
-        "params": {"name": name, "arguments": arguments},
-    }))
+    return asyncio.run(
+        srv.handle_request(
+            {
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "tools/call",
+                "params": {"name": name, "arguments": arguments},
+            }
+        )
+    )
 
 
 class TestFrameworkMarksFailures:
@@ -64,18 +71,20 @@ class TestFrameworkMarksFailures:
         assert "因子不存在" in resp["result"]["content"][0]["text"]
 
     def test_no_data_is_not_a_failure(self):
-        """"没有数据"是工具正常跑完的回答,不是工具坏了"""
+        """ "没有数据"是工具正常跑完的回答,不是工具坏了"""
         srv = _server()
 
         async def _no_data(**kwargs):
-            return {"status": "no_data", "symbol": "600519",
-                    "message": "本地没有 600519 的 K 线,先跑 forgemind etl。"}
+            return {
+                "status": "no_data",
+                "symbol": "600519",
+                "message": "本地没有 600519 的 K 线,先跑 forgemind etl。",
+            }
 
         srv.handlers["tool/list_factor_ic"] = _no_data
         resp = _call(srv, "list_factor_ic", {})
         assert "error" not in resp, resp
-        assert not resp["result"].get("isError"), (
-            f"没有数据被当成了失败: {resp}")
+        assert not resp["result"].get("isError"), f"没有数据被当成了失败: {resp}"
 
     def test_empty_error_value_is_not_a_failure(self):
         srv = _server()
@@ -96,10 +105,21 @@ class TestRealToolsReportFailures:
         [
             ("get_feature", {"name": "压根不存在的因子"}, "not found"),
             ("trace_feature_usage", {"feature_id": "压根不存在的因子"}, "not found"),
-            ("run_backtest", {"strategy": "压根不存在的策略", "symbol": "600519",
-                              "start": "2024-01-01", "end": "2024-06-30"}, "未知策略"),
-            ("output_signal", {"symbol": "600519", "side": "FOO",
-                               "confidence": 0.5, "rationale": "探针"}, "side"),
+            (
+                "run_backtest",
+                {
+                    "strategy": "压根不存在的策略",
+                    "symbol": "600519",
+                    "start": "2024-01-01",
+                    "end": "2024-06-30",
+                },
+                "未知策略",
+            ),
+            (
+                "output_signal",
+                {"symbol": "600519", "side": "FOO", "confidence": 0.5, "rationale": "探针"},
+                "side",
+            ),
             ("get_kline", {"symbol": ""}, "symbol"),
         ],
     )
@@ -107,10 +127,12 @@ class TestRealToolsReportFailures:
         srv = _server()
         resp = _call(srv, tool, arguments)
         assert "error" not in resp, (
-            f"{tool} 的失败走了协议错误通道,模型看不到原因: {resp.get('error')}")
+            f"{tool} 的失败走了协议错误通道,模型看不到原因: {resp.get('error')}"
+        )
         result = resp["result"]
         assert result.get("isError") is True, (
-            f"{tool} 失败了却没有标 isError,失败被当成正常结果: {result}")
+            f"{tool} 失败了却没有标 isError,失败被当成正常结果: {result}"
+        )
         text = result["content"][0]["text"]
         assert fragment in text, f"{tool} 的失败原因里看不到 {fragment}: {text}"
 
@@ -122,8 +144,7 @@ class TestRealToolsReportFailures:
         result = resp["result"]
         payload = json.loads(result["content"][0]["text"])
         if payload.get("status") == "no_data":
-            assert not result.get("isError"), (
-                f"没有数据被当成失败: {result}")
+            assert not result.get("isError"), f"没有数据被当成失败: {result}"
 
 
 class TestFailuresDoNotLeakExceptionNames:
@@ -163,8 +184,15 @@ class TestFailuresDoNotLeakExceptionNames:
         "tool,arguments",
         [
             ("get_feature", {"name": "压根不存在的因子"}),
-            ("run_backtest", {"strategy": "压根不存在的策略", "symbol": "600519",
-                              "start": "2024-01-01", "end": "2024-06-30"}),
+            (
+                "run_backtest",
+                {
+                    "strategy": "压根不存在的策略",
+                    "symbol": "600519",
+                    "start": "2024-01-01",
+                    "end": "2024-06-30",
+                },
+            ),
             ("get_kline", {"symbol": ""}),
         ],
     )
@@ -181,20 +209,33 @@ class TestStdioTransportCarriesTheFlag:
 
     @staticmethod
     def _run_over_stdio(tool: str, arguments: dict) -> dict:
-        env = dict(os.environ)
-        env["PYTHONPATH"] = str(REPO)
-        env["PYTHONSAFEPATH"] = "1"
-        env["FORGEMIND_LOG_LEVEL"] = "ERROR"
+        # 子进程的环境走仓里统一的助手("验装出来的那份"那一档里,子进程
+        # 也必须 import 到装好的发行包)。自己拼 PYTHONPATH 会把源码树顶
+        # 上去 —— 那一档里这个用例就仍在测源码,却看着像在测发布构件。
+        env = child_env(FORGEMIND_LOG_LEVEL="ERROR")
         proc = subprocess.Popen(
             [sys.executable, "-m", "forgemind.mcp.server"],
-            stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-            text=True, encoding="utf-8", env=env, cwd=str(REPO),
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            encoding="utf-8",
+            env=env,
+            cwd=str(REPO),
         )
         try:
-            proc.stdin.write(json.dumps({
-                "jsonrpc": "2.0", "id": 1, "method": "tools/call",
-                "params": {"name": tool, "arguments": arguments},
-            }, ensure_ascii=False) + "\n")
+            proc.stdin.write(
+                json.dumps(
+                    {
+                        "jsonrpc": "2.0",
+                        "id": 1,
+                        "method": "tools/call",
+                        "params": {"name": tool, "arguments": arguments},
+                    },
+                    ensure_ascii=False,
+                )
+                + "\n"
+            )
             proc.stdin.flush()
             line = proc.stdout.readline()
             assert line, "服务端没有响应"
@@ -218,18 +259,30 @@ class TestStdioTransportCarriesTheFlag:
 
     def test_stdout_carries_only_json_rpc(self):
         """stdout 上只能有 JSON-RPC 响应 —— 日志混进来客户端就解析不了"""
-        env = dict(os.environ)
-        env["PYTHONPATH"] = str(REPO)
-        env["PYTHONSAFEPATH"] = "1"
+        # 同样走统一助手(理由见上面那处)。
+        env = child_env()
         proc = subprocess.Popen(
             [sys.executable, "-m", "forgemind.mcp.server"],
-            stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-            text=True, encoding="utf-8", env=env, cwd=str(REPO),
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            encoding="utf-8",
+            env=env,
+            cwd=str(REPO),
         )
         try:
-            proc.stdin.write(json.dumps({
-                "jsonrpc": "2.0", "id": 1, "method": "tools/list", "params": {},
-            }) + "\n")
+            proc.stdin.write(
+                json.dumps(
+                    {
+                        "jsonrpc": "2.0",
+                        "id": 1,
+                        "method": "tools/list",
+                        "params": {},
+                    }
+                )
+                + "\n"
+            )
             proc.stdin.flush()
             line = proc.stdout.readline()
             payload = json.loads(line)  # 解析不了就说明 stdout 上混了别的东西
