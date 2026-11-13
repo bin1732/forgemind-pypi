@@ -413,7 +413,7 @@ con.close()
 | 1 | 一般错误 | PM 节点已经跑过、仍按审批规则拒绝落盘 | 检查状态再重跑 |
 | 2 | 参数与审批类 | argparse 用法错误、没给子命令、策略名不存在、这个命令喂不了该策略、策略要额外参数、演示数据缺列、非交互模式未传 `--yes`;一次装不下(`MemoryError`)也归这里 | 照提示改参数,或缩小标的范围分批跑 |
 | 3 | 数据/上游类 | `TimeoutError`(上游无响应)/ 0 bars(取数失败) | 重试或换源 |
-| 4 | 资源类 | `OSError errno=28`(磁盘 ENOSPC) | 清理磁盘 |
+| 4 | 资源类 | 磁盘 ENOSPC(`OSError errno=28`)、本地库被另一个进程占着(桌面端开着时) | 清理磁盘;或关掉占着它的那个进程 |
 | 130 | 用户中断 | 按了 Ctrl+C | 重跑 |
 
 举例:
@@ -436,11 +436,11 @@ $ forgemind agent --symbol 600519.SH
 
 ```bash
 pytest tests/ -v
-# 677 test files · 10412 tests
+# 678 test files · 10418 tests
 
 # 常规档位:真实业务用例,起真实子进程与真实数据库
 pytest tests/ -m "not heavy"
-# 8572 cases
+# 8578 cases
 
 # 重并发档位:百万级真实运算,单独用更宽的超时执行
 pytest tests/ -m heavy

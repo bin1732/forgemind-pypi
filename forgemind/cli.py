@@ -32,6 +32,11 @@ EXIT_DATA = 3
 EXIT_RESOURCE = 4
 EXIT_INTERRUPTED = 130
 
+from forgemind.core.data.storage import LocalStoreLockedError  # noqa: E402
+from forgemind.core.observability.logging import get_logger  # noqa: E402
+
+logger = get_logger("forgemind.cli")
+
 
 def _force_utf8_stdio() -> None:
     """Windows 控制台默认是 GBK/cp1252,打印中文与 emoji 会直接崩
@@ -1022,12 +1027,32 @@ def main():
         os.environ["FORGEMIND_LOG_LEVEL"] = "WARNING"
     setup_logging()
 
-    if args.command == "info":
-        cmd_info(args)
-    else:
-        rc = args.func(args)
-        if rc is not None and rc != 0:
-            sys.exit(rc)
+    try:
+        if args.command == "info":
+            cmd_info(args)
+        else:
+            rc = args.func(args)
+            if rc is not None and rc != 0:
+                sys.exit(rc)
+    except LocalStoreLockedError as exc:
+        # 本地库被另一个进程占着(桌面端开着时它就占着)。这是"资源类"
+        # 情况,退出码 4 —— 与"磁盘满了"同一类。
+        #
+        # 栈回溯绝不能打给用户:里面是本机路径与内部模块名,读的人只会
+        # 以为程序坏了,而程序没坏 —— 只是那个库暂时用不了。
+        print(f"⚠️  {exc}", file=sys.stderr)
+        sys.exit(EXIT_RESOURCE)
+    except KeyboardInterrupt:
+        sys.exit(EXIT_INTERRUPTED)
+    except Exception:
+        # 意料之外的错误:完整文本留在日志里,用户看到的是一句人话。
+        # 退出码非零 ⇒ 这条命令算失败,不会被当成"跑通了"。
+        logger.exception("cli_command_failed", command=args.command)
+        print(
+            f"⚠️  forgemind {args.command} 执行失败,详情见日志(设置 FORGEMIND_LOG_LEVEL=info)",
+            file=sys.stderr,
+        )
+        sys.exit(EXIT_GENERAL)
 
 
 if __name__ == "__main__":
