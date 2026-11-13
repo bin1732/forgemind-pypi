@@ -8,7 +8,11 @@ from pydantic import BaseModel, Field  # noqa: E402
 if TYPE_CHECKING:
     import pandas as pd
 
-from forgemind.core.data.storage import DuckDBStorage, bare_symbol  # noqa: E402
+from forgemind.core.data.storage import (
+    DuckDBStorage,
+    LocalStoreLockedError,
+    bare_symbol,
+)  # noqa: E402
 from forgemind.core.observability.logging import get_logger  # noqa: E402
 
 logger = get_logger("forgemind.stock_picker")
@@ -383,6 +387,13 @@ class StockPickerAgent:
                 # 翻回时间正序:iloc[-1] 必须是最新一根
                 df = df.sort_values("date", ascending=True).reset_index(drop=True)
                 return df
+        except LocalStoreLockedError as exc:
+            # 库被别的进程占着(桌面端开着时它就占着)。这句话是给用户看的,
+            # 直接说"本地库正被另一个进程占用" —— 说成"库里没有该标的"
+            # 会让他去拉数据,而拉数据同样连不上那个库。
+            logger.warning("kline_query_failed", symbol=symbol, reason="store_locked")
+            self.last_query_errors[symbol] = str(exc)
+            return None
         except Exception as e:
             # 告警里只放异常类型:原始文本里有 DuckDB 的报错原文,连着内部
             # 表名与整条 SQL。选股失败要说清是"取不到数据",不是把内部

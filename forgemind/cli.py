@@ -307,7 +307,11 @@ def cmd_backtest(args):
     price_df = None
     real_data_note = ""
     if args.symbol:
-        from forgemind.core.data.storage import DuckDBStorage, bare_symbol
+        from forgemind.core.data.storage import (
+            DuckDBStorage,
+            LocalStoreLockedError,
+            bare_symbol,
+        )
 
         # ETL 落库用 6 位代码,CLI / MCP 入参常带交易所后缀(.SH / .SZ)。
         # 不归一化就查不到真数据,然后被静默降级到模拟 —— 用户以为自己跑通了
@@ -315,6 +319,8 @@ def cmd_backtest(args):
         # 任何上游(CLI / API / MCP)传 '600519.SH' / 'SH600519' 都能命中。
         symbol_db = bare_symbol(args.symbol)
         table_missing = False
+        # 读不到(True)与确实没有(False)要分开:降级时说的话不一样。
+        read_failed = False
         try:
             with DuckDBStorage() as _db:
                 # 先问"这张表在不在",再去查它。第一次跑的人库里还没有这张
@@ -331,11 +337,19 @@ def cmd_backtest(args):
                         "AND date BETWEEN ? AND ? ORDER BY date ASC",
                         [symbol_db, args.start, args.end],
                     )
-        except Exception as _db_err:
-            # 真出错了(连不上、schema 异常)—— 不强求,走降级路径。只说
-            # 错误类型,不印原始异常文本:那里面有内部表名与整条 SQL。
-            print(f"⚠️  查本地行情库失败({type(_db_err).__name__})")
+        except LocalStoreLockedError as _locked:
+            # 库被另一个进程占着(桌面端开着时它就占着)。这不是"库里没有
+            # 数据",说成后者会让用户去拉数据 —— 而拉数据同样连不上那个库。
+            print(f"⚠️  {_locked}")
             price_df = None
+            read_failed = True
+        except Exception:
+            # 真出错了(连不上、schema 异常)—— 不强求,走降级路径。不印
+            # 原始异常文本:那里面有内部表名与整条 SQL;异常类名也一并
+            # 去掉 —— 那是内部实现,读的人只会以为程序坏了。
+            print("⚠️  查本地行情库失败(原因见服务日志)")
+            price_df = None
+            read_failed = True
         if price_df is not None and not price_df.empty:
             price_df["date"] = pd.to_datetime(price_df["date"])
             price_df = price_df.set_index("date").sort_index()
@@ -353,12 +367,17 @@ def cmd_backtest(args):
         # 话术要跟着实际情况走:用户明明给了 --symbol,却说"未指定
         # --symbol",等于骗他,后面再跟一条"去拉这个标的"的提示,更矛盾。
         if args.symbol:
-            print(f"⚠️  {args.symbol} 在库里没有 K 线,使用 np.random 合成行情(非真实市场)")
-            print(
-                "   提示: forgemind etl --symbols "
-                + args.symbol
-                + f" --start {args.start} --end {args.end}"
-            )
+            if read_failed:
+                # 连不上的时候不能说"库里没有" —— 不知道有没有,连都没连上。
+                print(f"⚠️  {args.symbol} 的行情读不到,使用 np.random 合成行情(非真实市场)")
+                print("   上面那条说了为什么读不到;先把那个原因解决,这里才有真数据")
+            else:
+                print(f"⚠️  {args.symbol} 在库里没有 K 线,使用 np.random 合成行情(非真实市场)")
+                print(
+                    "   提示: forgemind etl --symbols "
+                    + args.symbol
+                    + f" --start {args.start} --end {args.end}"
+                )
         else:
             print("⚠️  未指定 --symbol 且 DuckDB 无数据,使用 np.random 合成行情(非真实市场)")
             print("   提示: forgemind etl --symbols 600519 --start 2024-01-01 --end 2024-12-31")
@@ -616,8 +635,11 @@ def cmd_pick(args):
         print("\n=== 读不到本地行情 ===\n")
         for sym, reason in list(unreadable.items())[:6]:
             print(f"    {sym:12} {reason}")
-        print("\n  先确认本地库能读:桌面端开着时它占着同一个库,终端里的")
-        print("  读不到 —— 关掉它再试;或用 FORGEMIND_DATA_DIR 换个目录。")
+        # 理由里已经说清了原因(库被占着)时,这段通用提示就是重复 ——
+        # 同一件事说两遍,读的人反而要判断哪句才是真的。
+        if not any("占用" in reason for reason in unreadable.values()):
+            print("\n  先确认本地库能读:桌面端开着时它占着同一个库,终端里的")
+            print("  读不到 —— 关掉它再试;或用 FORGEMIND_DATA_DIR 换个目录。")
     if not picks and short:
         print("\n=== Top 0 picks ===\n")
         print(

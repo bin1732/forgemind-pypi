@@ -12,6 +12,35 @@ from forgemind.core.observability.logging import get_logger
 logger = get_logger("forgemind.storage")
 
 
+class LocalStoreLockedError(RuntimeError):
+    """本地库正被另一个进程占着。
+
+    DuckDB 的文件锁是**独占**的:同一个库文件,同一时间只能一个进程打开
+    (只读模式也不行 —— 实测过,read_only=True 一样被锁挡)。于是"桌面端
+    开着"的时候,终端里的命令连不上那个库。
+
+    这件事必须单独认出来:连不上与"库里没有数据"是两回事,说成后者会把
+    用户引到一条同样跑不通的路上(他会去拉数据,而拉数据同样连不上)。
+    """
+
+    def __init__(self, path: str | None = None):
+        self.path = path
+        super().__init__(
+            "本地库正被另一个进程占用 —— 桌面端开着时它会占着同一个库。"
+            "关掉那个进程再试,或用 FORGEMIND_DATA_DIR 换个目录。"
+        )
+
+
+def is_lock_conflict(exc: BaseException) -> bool:
+    """这个异常是不是"库被另一个进程占着"。
+
+    认的是 DuckDB 的报错文本里那句锁冲突 —— 没有别的信号:它没有自己的
+    异常类型,也不带错误码。
+    """
+    text = str(exc).lower()
+    return "conflicting lock" in text or "could not set lock" in text
+
+
 def bare_symbol(symbol: str) -> str:
     """把 '600519.SH' / 'sh600519' / 'SH600519' 统一成 DuckDB 里存的 '600519'
 
@@ -134,7 +163,14 @@ class DuckDBStorage:
             if root is None:
                 # 首次连接要加锁: 缓存冷的时候多个线程会同时 connect 同一个
                 # path, DuckDB 会回 "Unique file handle conflict"
-                root = duckdb.connect(self.path)
+                try:
+                    root = duckdb.connect(self.path)
+                except Exception as exc:
+                    # 库被别的进程占着 → 一件可识别的事,不是"连不上"。
+                    # 原始报错里有本机路径,不往外带。
+                    if is_lock_conflict(exc):
+                        raise LocalStoreLockedError(self.path) from None
+                    raise
                 if not force_new:
                     _DUCKDB_CONN_CACHE[self.path] = root
             # 每次拿一个游标: 同一个数据库实例, 但结果槽各自独立。
