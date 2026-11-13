@@ -369,6 +369,24 @@ forgemind etl --symbols AAPL --start 2024-01-01 --end 2024-12-31
 </details>
 
 <details>
+<summary><b>Q: 桌面端开着的时候,终端里的命令报 "本地库正被另一个进程占用" 怎么办?</b></summary>
+
+A: 这是 DuckDB 的文件锁:同一个库文件,同一时间只能一个进程打开(只读模式
+也不行 —— 实测过)。桌面端的 sidecar 开着时它就占着那个库,终端里的命令
+自然连不上。三条路,挑一条:
+
+```bash
+# 1) 关掉桌面端,终端里再跑
+# 2) 给桌面端换个数据目录(它自己也就用那个目录)
+# 3) 给终端命令换个数据目录
+FORGEMIND_DATA_DIR=./data-cli forgemind pick --symbol 600519
+```
+
+命令不会假装成功:它会明说"读不到",降级到模拟行情时也会标出来是模拟
+数据 —— 你不会拿到一份看着像真实回测的假结果。
+</details>
+
+<details>
 <summary><b>Q: 多个 test 一起跑就报 "Unique file handle conflict",分开跑又没事?</b></summary>
 
 A: 这是 DuckDB 的已知限制:同一个数据文件不能同时被一个只读连接和一个读写连接打开。
