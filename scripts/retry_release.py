@@ -11,11 +11,11 @@ runner_name 为空、steps 为 0)。发布于是没发出去:构件不齐,发布
 
 **为什么不能自己重试**:作业是被平台杀掉的,作业里的任何重试逻辑都跟着
 一起没了。恢复只能从**运行**这一层做:把失败的作业重跑一遍。已经成功的
-那些作业的构件还留在这一轮里,所以只要 macOS 那个补上,发布就能继续。
+那些作业的构件还留在这次运行里,所以只要 macOS 那个补上,发布就能继续。
 
 用法:
     python scripts/retry_release.py                 # 找最近一次失败的发布并补跑
-    python scripts/retry_release.py --run 12345     # 指定那一轮
+    python scripts/retry_release.py --run 12345     # 指定那次运行
     python scripts/retry_release.py --wait          # 等它跑完,报最终结论
 """
 
@@ -78,9 +78,9 @@ def latest_failed_publish_run(repo: str, token: str) -> dict:
 
 
 def is_on_main_head(repo: str, token: str, run: dict) -> bool:
-    """这一轮的提交还在 main 的头上吗?
+    """这次运行的提交还在 main 的头上吗?
 
-    补跑会把**那一轮**的构件发布出去。如果那一轮的提交已经被后来的提交
+    补跑会把**那次运行**的构件发布出去。如果那次运行的提交已经被后来的提交
     取代(通常是因为它自己有问题、被改掉重推了),补跑等于把旧版本再发一遍
     —— 线上索引会指向一个已经不该发的提交。
 
@@ -91,19 +91,19 @@ def is_on_main_head(repo: str, token: str, run: dict) -> bool:
 
 
 def failed_jobs(repo: str, token: str, run_id: int) -> list[dict]:
-    """这一轮里失败的作业。"""
+    """这次运行里失败的作业。"""
     url = f"{API}/repos/{repo}/actions/runs/{run_id}/jobs?per_page=100"
     data = request("GET", url, token)
     return [j for j in data.get("jobs", []) if j.get("conclusion") not in ("success", "skipped")]
 
 
 def rerun_failed(repo: str, token: str, run_id: int) -> None:
-    """把这一轮失败的作业重跑一遍。"""
+    """把这次运行失败的作业重跑一遍。"""
     request("POST", f"{API}/repos/{repo}/actions/runs/{run_id}/rerun-failed-jobs", token, {})
 
 
 def run_state(repo: str, token: str, run_id: int) -> tuple[str, str | None]:
-    """这一轮的状态与结论。"""
+    """这次运行的状态与结论。"""
     url = f"{API}/repos/{repo}/actions/runs/{run_id}"
     data = request("GET", url, token)
     return data.get("status", ""), data.get("conclusion")
@@ -127,12 +127,12 @@ def published_version(repo: str, token: str) -> str:
 def main() -> int:
     parser = argparse.ArgumentParser(description="补跑被平台取消的发布作业")
     parser.add_argument("--repo", default=DEFAULT_REPO, help="发布面那个仓(owner/repo)")
-    parser.add_argument("--run", type=int, default=None, help="要补跑的那一轮运行编号")
+    parser.add_argument("--run", type=int, default=None, help="要补跑的那次运行运行编号")
     parser.add_argument("--wait", action="store_true", help="等它跑完,报最终结论")
     parser.add_argument(
         "--force",
         action="store_true",
-        help="即使那一轮的提交已经不在 main 头上也补跑(会把那个旧版本发一遍)",
+        help="即使那次运行的提交已经不在 main 头上也补跑(会把那个旧版本发一遍)",
     )
     parser.add_argument("--timeout", type=int, default=3600, help="等待上限(秒)")
     args = parser.parse_args()
@@ -149,12 +149,12 @@ def main() -> int:
 
     jobs = failed_jobs(args.repo, token, run_id)
     if not jobs:
-        print("这一轮没有失败的作业 —— 不用补跑")
+        print("这次运行没有失败的作业 —— 不用补跑")
         return 0
 
     if not args.force and not is_on_main_head(args.repo, token, run):
-        print("这一轮的提交已经不在 main 的头上了 —— 补跑会把那个旧提交再发一遍。")
-        print(f"  那一轮:{run.get('head_sha', '')[:8]}")
+        print("这次运行的提交已经不在 main 的头上了 —— 补跑会把那个旧提交再发一遍。")
+        print(f"  那次运行:{run.get('head_sha', '')[:8]}")
         print(
             f"  main 头:{(request('GET', f'{API}/repos/{args.repo}/commits/main', token).get('sha') or '')[:8]}"
         )
@@ -176,14 +176,14 @@ def main() -> int:
         status, conclusion = run_state(args.repo, token, run_id)
         if status == "completed":
             after = published_version(args.repo, token)
-            print(f"这一轮跑完了,结论 {conclusion};线上版本:{before} → {after}")
+            print(f"这次运行跑完了,结论 {conclusion};线上版本:{before} → {after}")
             if conclusion == "success" and after != before:
                 print("发布补上了 ✓")
                 return 0
-            print("没有发布出去 —— 看这一轮的作业日志找原因。")
+            print("没有发布出去 —— 看这次运行的作业日志找原因。")
             return 1
         time.sleep(30)
-    print("等待超时。去看那一轮的作业日志。")
+    print("等待超时。去看那次运行的作业日志。")
     return 1
 
 

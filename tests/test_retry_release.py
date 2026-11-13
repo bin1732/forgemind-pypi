@@ -1,9 +1,9 @@
 # Copyright (c) 2026 灵感引擎工坊 (bin1732)
 # SPDX-License-Identifier: Apache-2.0
 
-"""发布补跑工具:找得到那一轮、叫得动补跑、读得出线上版本。
+"""发布补跑工具:找得到那次运行、叫得动补跑、读得出线上版本。
 
-发布被平台的 macOS 队列卡住时,恢复的入口就是"把这一轮失败的作业重跑
+发布被平台的 macOS 队列卡住时,恢复的入口就是"把这次运行失败的作业重跑
 一遍"。这个工具把那条路径做成一条命令,并且**说清楚它动了什么** ——
 一个悄悄改状态、只回一句"好了"的脚本,下次没人敢用。
 """
@@ -86,12 +86,12 @@ class TestFailedJobs:
 
 
 class TestOnMainHead:
-    """补跑只对"还在 main 头上"的那一轮有意义"""
+    """补跑只对"还在 main 头上"的那次运行有意义"""
 
     def test_same_sha_is_on_head(self, monkeypatch):
         api = FakeApi()
         monkeypatch.setattr(retry, "request", api.request)
-        # /commits/main 返回的就是这一轮的提交
+        # /commits/main 返回的就是这次运行的提交
         monkeypatch.setattr(
             retry,
             "request",
