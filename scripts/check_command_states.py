@@ -174,7 +174,6 @@ def _run(
 
 
 def _check_one(command: list[str], state: str) -> list[str]:
-    problems: list[str] = []
     with tempfile.TemporaryDirectory(prefix="forgemind_state_") as tmp:
         work = Path(tmp)
         db = _duckdb_path(work)
@@ -205,53 +204,65 @@ def _check_one(command: list[str], state: str) -> list[str]:
             except subprocess.TimeoutExpired:
                 holder.kill()
 
-        label = f"forgemind {' '.join(command)} [{state}]"
+        return check_output_rules(command, state, rc, out)
 
-        # 1) 内部实现不许出现
-        for kind, segment in leak._scan(out, leak.COMPILED_LEAKS):
-            if kind in FORBIDDEN:
-                problems.append(f"{label}: 输出里有{kind}: ...{segment}...")
 
-        # 2) "库被占着"这个状态下,不许说"没有数据"(只对读库的命令有要求)
-        reads_store = command[0] in NEEDS_LOCAL_STORE
-        if state == "locked" and reads_store:
-            if any(marker in out for marker in MISSING_MARKERS):
-                problems.append(
-                    f"{label}: 输出说'没有数据' —— 连都没连上,不知道有没有。"
-                    f"应当说:{'/'.join(UNREADABLE_MARKERS)}"
-                )
-            if not any(marker in out for marker in UNREADABLE_MARKERS):
-                problems.append(f"{label}: 没说要读不到 —— 用户不知道该做什么")
-        # 3) 别的状态下,不该冒出"被占用"
-        if state != "locked" and any(marker in out for marker in ("占用",)):
-            problems.append(f"{label}: 说了'占用',但这个状态下库没有被占着")
+def check_output_rules(command: list[str], state: str, rc: int, out: str) -> list[str]:
+    """这个状态下的输出合不合规矩。返回问题清单(空 = 合规)。
 
-        # 4) 用了模拟数据就要标明
-        if any(marker in out for marker in SYNTHETIC_MARKERS) and not any(
-            marker in out for marker in DISCLAIMER_MARKERS
-        ):
-            problems.append(f"{label}: 用了模拟数据,却没有标明它不是真实结果")
+    单独抽出来是为了能**用编出来的输出**逐条验规则 —— 规则是这份
+    判据的硬骨头,却最不容易测:靠真跑命令来验,每加一条规则都要
+    付一遍真跑的钱,而且"规则没生效"与"场景没造出来"分不开。
+    """
+    problems: list[str] = []
+    label = f"forgemind {' '.join(command)} [{state}]"
 
-        # 5) 资源类状态:退出码必须是 4,而且不该吐出回测数字。
-        #    库被占着、存储写不进去的时候,命令什么都没跑成 ——
-        #    给一组数字出来,读的人只会以为它跑通了。
-        if state in ("locked", "write_full") and reads_store:
-            if rc != 4:
-                problems.append(f"{label}: 退出码 {rc} —— 这一类是资源类,表里写的是 4")
-            for marker in ("Total Return", "Sharpe", "Max Drawdown"):
-                if marker in out:
-                    problems.append(
-                        f"{label}: 吐出了回测数字({marker})—— "
-                        f"这一类状态下连落盘都写不进去,给数字等于说'跑通了'"
-                    )
+    # 1) 内部实现不许出现
+    for kind, segment in leak._scan(out, leak.COMPILED_LEAKS):
+        if kind in FORBIDDEN:
+            problems.append(f"{label}: 输出里有{kind}: ...{segment}...")
 
-        # 6) "写不进去"也不许说成"没有数据"
-        if state == "write_full" and any(marker in out for marker in MISSING_MARKERS):
+    # 2) "库被占着"这个状态下,不许说"没有数据"(只对读库的命令有要求)
+    reads_store = command[0] in NEEDS_LOCAL_STORE
+    if state == "locked" and reads_store:
+        if any(marker in out for marker in MISSING_MARKERS):
             problems.append(
-                f"{label}: 输出说'没有数据' —— 写不进去与没有数据是两回事,"
-                f"说成后者会让用户去拉数据,而写不进去的时候拉数据同样写不进去"
+                f"{label}: 输出说'没有数据' —— 连都没连上,不知道有没有。"
+                f"应当说:{'/'.join(UNREADABLE_MARKERS)}"
             )
+        if not any(marker in out for marker in UNREADABLE_MARKERS):
+            problems.append(f"{label}: 没说要读不到 —— 用户不知道该做什么")
+    # 3) 别的状态下,不该冒出"被占用"
+    if state != "locked" and any(marker in out for marker in ("占用",)):
+        problems.append(f"{label}: 说了'占用',但这个状态下库没有被占着")
 
+    # 4) 用了模拟数据就要标明
+    if any(marker in out for marker in SYNTHETIC_MARKERS) and not any(
+        marker in out for marker in DISCLAIMER_MARKERS
+    ):
+        problems.append(f"{label}: 用了模拟数据,却没有标明它不是真实结果")
+
+    # 5) 资源类状态:退出码必须是 4,而且不该吐出回测数字。
+    #    库被占着、存储写不进去的时候,命令什么都没跑成 ——
+    #    给一组数字出来,读的人只会以为它跑通了。
+    if state in ("locked", "write_full") and reads_store:
+        if rc != 4:
+            problems.append(f"{label}: 退出码 {rc} —— 这一类是资源类,表里写的是 4")
+        for marker in ("Total Return", "Sharpe", "Max Drawdown"):
+            if marker in out:
+                problems.append(
+                    f"{label}: 吐出了回测数字({marker})—— "
+                    f"这一类状态下连落盘都写不进去,给数字等于说'跑通了'"
+                )
+
+    # 6) "写不进去"也不许说成"没有数据"
+    if state == "write_full" and any(marker in out for marker in MISSING_MARKERS):
+        problems.append(
+            f"{label}: 输出说'没有数据' —— 写不进去与没有数据是两回事,"
+            f"说成后者会让用户去拉数据,而写不进去的时候拉数据同样写不进去"
+        )
+
+    return problems
     return problems
 
 

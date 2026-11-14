@@ -25,7 +25,13 @@ import check_command_states as states  # noqa: E402
 
 class TestStateRules:
     def test_states_are_defined(self):
-        assert set(states.STATES) == {"no_data", "insufficient", "locked", "no_key"}
+        assert set(states.STATES) == {
+            "no_data",
+            "insufficient",
+            "locked",
+            "no_key",
+            "write_full",
+        }
         assert states.COMMANDS, "没有要核的命令"
 
     def test_every_command_runs_in_every_state(self):
@@ -34,7 +40,8 @@ class TestStateRules:
             for state in states.STATES:
                 assert state in states.STATES
                 # 命令本身得是能跑的形态:第一个元素是子命令名
-                assert command[0] and not command[0].startswith("-"), command
+                assert command[0]
+                assert not command[0].startswith("-"), command
 
     def test_forbidden_kinds_are_internal_implementation(self):
         """不许出现的那几种,都是内部实现"""
@@ -48,6 +55,60 @@ class TestStateRules:
         assert set(states.UNREADABLE_MARKERS) & set(states.MISSING_MARKERS) == set()
 
 
+class TestRulesOnSyntheticOutput:
+    """规则本身,用编出来的输出逐条验。
+
+    真跑一遍能验"整条命令在这个状态下合规",但验不出**哪条规则**在
+    起作用 —— 规则没生效与场景没造出来,在真跑里长得一模一样。
+    这里直接喂输出,把每条规则单独钉住:该报的报,不该报的不报。
+    """
+
+    def test_resource_state_demands_exit_code_four(self):
+        """资源类状态下,退出码必须是 4"""
+        problems = states.check_output_rules(
+            ["backtest", "--symbol", "600519"],
+            "locked",
+            0,
+            "本地库正被另一个进程占用\n",
+        )
+        assert any("退出码 0" in p for p in problems), problems
+
+    def test_resource_state_forbids_result_numbers(self):
+        """资源类状态下不许吐出回测数字"""
+        problems = states.check_output_rules(
+            ["backtest", "--symbol", "600519"],
+            "locked",
+            4,
+            "本地库正被另一个进程占用\nTotal Return: 11.54%\nSharpe: 0.87\n",
+        )
+        assert any("Total Return" in p for p in problems), problems
+
+    def test_write_failure_must_not_be_reported_as_missing_data(self):
+        """写不进去与没有数据是两回事"""
+        problems = states.check_output_rules(
+            ["backtest", "--symbol", "600519"],
+            "write_full",
+            4,
+            "600519 在库里没有 K 线\n",
+        )
+        assert any("没有数据" in p for p in problems), problems
+
+    def test_compliant_output_has_no_problems(self):
+        """合规的输出不该被报出问题 —— 规则太宽会让人不再看它"""
+        problems = states.check_output_rules(
+            ["backtest", "--symbol", "600519"],
+            "locked",
+            4,
+            "本地库正被另一个进程占用 —— 关掉那个进程再试\n",
+        )
+        assert not problems, problems
+
+    def test_commands_not_touching_the_store_are_not_judged(self):
+        """不碰本地库的命令不该被判退出码"""
+        problems = states.check_output_rules(["info"], "locked", 0, "版本 2026.9.3\n")
+        assert not problems, problems
+
+
 class TestRealOutputIsChecked:
     """用真的命令输出做样本"""
 
@@ -56,6 +117,22 @@ class TestRealOutputIsChecked:
         problems = states._check_one(
             ["backtest", "--symbol", "600519", "--start", "2024-01-01", "--end", "2024-06-30"],
             "locked",
+        )
+        assert not problems, problems
+
+    def test_write_full_state_is_checked_on_real_output(self):
+        """写不进去这个状态也要真跑一遍 —— 没跑过的规则等于没有规则"""
+        problems = states._check_one(
+            [
+                "backtest",
+                "--symbol",
+                "600519",
+                "--start",
+                "2024-01-01",
+                "--end",
+                "2024-06-30",
+            ],
+            "write_full",
         )
         assert not problems, problems
 
