@@ -172,6 +172,20 @@ def _template_arguments(template: str) -> list[dict]:
     ]
 
 
+def _is_our_own_error(exc: BaseException) -> bool:
+    """这个异常是我们自己抛的,还是第三方库抛的。
+
+    自己抛的异常文本是写给人听的("symbol 不能为空"),放进给模型的正文
+    里有用 —— 模型据此改参数。第三方库的原始报错里有本机路径、内部表名
+    与整条 SQL,那些是内部实现。
+
+    内置异常(builtins)算我们自己的:参数校验抛的就是它们,而第三方拿
+    它们装内部信息的做法少见。
+    """
+    module = type(exc).__module__ or ""
+    return module.startswith("forgemind") or module == "builtins"
+
+
 def _tool_execution_failed(req_id: Any, tool_name: str, exc: BaseException) -> dict[str, Any]:
     """工具执行失败:在 result 里回 isError,而不是抛协议层错误。
 
@@ -181,9 +195,26 @@ def _tool_execution_failed(req_id: Any, tool_name: str, exc: BaseException) -> d
     调整参数重试。抛成协议错误的话,模型看不到失败原因,对话就断在
     那儿了。
     """
-    # 异常类型名不进正文:它是内部实现。失败原因要留给模型(它要据此
-    # 调整参数重试),但不该让它以为是服务端坏了。
-    detail = str(exc).strip() or "没有更多细节"
+    # 失败原因要留给模型(它要据此调整参数重试),但**不能是第三方库的
+    # 原始报错** —— 那里面有本机路径、内部表名与整条 SQL,也有第三方
+    # 异常类名,那些是内部实现,不该出现在给模型的正文里。
+    #
+    # 分三种:
+    # - 资源类(库被占着 / 写不进去):那是"环境暂时用不了",模型该告诉
+    #   用户去处理环境,而不是换个参数重试。
+    # - 我们自己抛的人话(如"symbol 不能为空"):留在正文里有用 ——
+    #   模型据此改参数。
+    # - 第三方库抛的:只说"原因见服务日志",完整文本留日志。
+    from forgemind.core.data.storage import is_resource_error, resource_unavailable_reason
+
+    if is_resource_error(exc):
+        detail = resource_unavailable_reason(exc)
+    elif _is_our_own_error(exc):
+        detail = str(exc).strip() or "没有更多细节"
+    else:
+        detail = "原因见服务日志"
+        logger.error("mcp_tool_failed", tool=tool_name, error_type=type(exc).__name__)
+        logger.debug("mcp_tool_failed_detail", tool=tool_name, error=str(exc))
     return {
         "jsonrpc": "2.0",
         "id": req_id,
@@ -806,7 +837,21 @@ class ForgeMindMCPServer:
                     "AND date BETWEEN ? AND ? ORDER BY date ASC",
                     [bare_symbol(symbol), start, end],
                 )
-        except Exception:
+        except Exception as exc:
+            from forgemind.core.data.storage import (
+                is_resource_error,
+                resource_unavailable_reason,
+            )
+
+            if is_resource_error(exc):
+                # 库被占着 / 写不进去:这不是"没有数据"。降级到合成行情
+                # 更糟 —— 模型会拿着一组随机游走当成回测结果。
+                return {
+                    "error": resource_unavailable_reason(exc),
+                    "status": "store_unavailable",
+                    "symbol": symbol,
+                    "strategy": strategy,
+                }
             # 表不存在(init_duckdb 没跑)或 schema 异常 —— 走降级路径
             found = None
         if found is not None and not found.empty:
@@ -956,7 +1001,22 @@ class ForgeMindMCPServer:
                     "SELECT COUNT(*) FROM kline_daily WHERE symbol = ?",
                     [bare_symbol(symbol)],
                 )
-        except Exception:
+        except Exception as exc:
+            from forgemind.core.data.storage import (
+                is_resource_error,
+                resource_unavailable_reason,
+            )
+
+            if is_resource_error(exc):
+                # 库被占着 / 写不进去:说"还没拉数据"是误导 —— 拉数据
+                # 同样连不上那个库。
+                return {
+                    "status": "store_unavailable",
+                    "symbol": symbol,
+                    "factors": [],
+                    "message": resource_unavailable_reason(exc),
+                    "hint": "本地库暂时用不了;上面说清了该怎么办。",
+                }
             return {
                 "status": "no_data",
                 "symbol": symbol,
@@ -1041,8 +1101,24 @@ class ForgeMindMCPServer:
                     "FROM kline_daily ORDER BY symbol, date"
                 )
         except Exception as exc:
+            from forgemind.core.data.storage import (
+                is_resource_error,
+                resource_unavailable_reason,
+            )
+
+            if is_resource_error(exc):
+                # 库被占着 / 写不进去:提示"去拉数据"是误导 ——
+                # 拉数据同样连不上那个库。
+                return {
+                    "error": resource_unavailable_reason(exc),
+                    "feature_name": feature_name,
+                    "status": "store_unavailable",
+                    "hint": "本地库暂时用不了;上面说清了该怎么办。",
+                }
+            logger.error("mcp_ic_decay_read_failed", error_type=type(exc).__name__)
+            logger.debug("mcp_ic_decay_read_failed_detail", error=str(exc))
             return {
-                "error": f"读取行情失败:{exc}",
+                "error": "读取行情失败(原因见服务日志)",
                 "feature_name": feature_name,
                 "status": "failed",
                 "hint": "确认已运行 `forgemind etl`,且 data/duckdb/main.db 可读。",
@@ -1056,8 +1132,10 @@ class ForgeMindMCPServer:
         try:
             with_factors = compute_alpha158(lf)
         except Exception as exc:
+            logger.error("mcp_factor_compute_failed", error_type=type(exc).__name__)
+            logger.debug("mcp_factor_compute_failed_detail", error=str(exc))
             return {
-                "error": f"因子计算失败:{exc}",
+                "error": "因子计算失败(原因见服务日志)",
                 "feature_name": feature_name,
                 "status": "failed",
                 "n_bars": int(n_bars),
@@ -1079,8 +1157,10 @@ class ForgeMindMCPServer:
         try:
             decay = compute_ic_decay(with_returns, feature_name, cols)
         except Exception as exc:
+            logger.error("mcp_ic_decay_compute_failed", error_type=type(exc).__name__)
+            logger.debug("mcp_ic_decay_compute_failed_detail", error=str(exc))
             return {
-                "error": f"IC 衰减计算失败:{exc}",
+                "error": "IC 衰减计算失败(原因见服务日志)",
                 "feature_name": feature_name,
                 "status": "failed",
                 "n_bars": int(n_bars),
@@ -1184,8 +1264,24 @@ class ForgeMindMCPServer:
                         "建立 data/duckdb/main.db 并拉取 K 线。"
                     ),
                 }
+            from forgemind.core.data.storage import (
+                is_resource_error,
+                resource_unavailable_reason,
+            )
+
+            if is_resource_error(exc):
+                # 库被占着 / 写不进去:说"去拉数据"是误导 ——
+                # 拉数据同样连不上那个库。
+                return {
+                    "error": resource_unavailable_reason(exc),
+                    "symbol": symbol,
+                    "status": "store_unavailable",
+                    "hint": "本地库暂时用不了;上面说清了该怎么办。",
+                }
+            logger.error("mcp_get_kline_failed", error_type=type(exc).__name__)
+            logger.debug("mcp_get_kline_failed_detail", error=str(exc))
             return {
-                "error": f"读取行情失败:{exc}",
+                "error": "读取行情失败(原因见服务日志)",
                 "symbol": symbol,
                 "status": "failed",
                 "hint": "确认已运行 `forgemind etl` 拉取数据,且 data/duckdb/main.db 可读。",

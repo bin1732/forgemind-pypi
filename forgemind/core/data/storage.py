@@ -134,6 +134,28 @@ def market_data_unreadable_reason() -> str:
     return "本地行情库还读不了(表可能还没建,先跑 forgemind etl 拉数据)"
 
 
+def resource_unavailable_reason(exc: BaseException) -> str:
+    """资源类故障(库被占着 / 存储写不进去)该怎么说 —— 一处定义,各处引用。
+
+    与 market_data_unreadable_reason 分开:那个说的是"还没拉数据",
+    这个说的是"环境暂时用不了"。混起来会把用户引到一条同样跑不通的路上
+    —— 库被占着的时候去拉数据,拉数据同样连不上那个库。
+
+    **不写异常类型名。** 那是内部实现,留给日志。
+    """
+    if isinstance(exc, LocalStoreLockedError):
+        return (
+            "本地库正被另一个进程占用(桌面端开着时它就占着同一个库)。"
+            "关掉那个进程再试,或用 FORGEMIND_DATA_DIR 换个目录。"
+        )
+    if isinstance(exc, LocalStoreWriteError):
+        return (
+            "本地库写不进去(磁盘满了、配额用完了,或没有写权限)。"
+            "清出空间或改好权限后重试,或用 FORGEMIND_DATA_DIR 换个目录。"
+        )
+    return "本地库暂时用不了。"
+
+
 def data_freshness(last_date: str | None, today=None) -> str:
     """把"数据最新日期"变成一句人能直接判断的话
 

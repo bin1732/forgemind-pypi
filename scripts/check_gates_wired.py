@@ -32,6 +32,10 @@ NOT_A_GATE = {
     "retry_release.py": (
         "发布被平台的 macOS 队列卡住时手动补跑的工具:要凭据、要不要补跑要人判断,不是流水线里的门禁"
     ),
+    "mcp_tool_probes.py": (
+        "MCP 工具的合法参数表 —— 是判据用的探针数据,本身不是门禁。"
+        "门禁是 check_mcp_output_clean.py,参数表由它与回归测试共用"
+    ),
 }
 
 # 脚本名出现在工作流里就算被调用

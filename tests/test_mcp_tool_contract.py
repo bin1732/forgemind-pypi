@@ -30,6 +30,11 @@ import pytest
 from _path_setup import child_env, inline_path_setup
 
 REPO = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(REPO / "scripts"))
+
+# MCP 工具的合法参数表在 scripts/mcp_tool_probes.py —— 判据与这份回归
+# 测试共用一份,免得两处各写一套、慢慢漂开。
+import mcp_tool_probes as probes  # noqa: E402
 
 
 def _parse_like_javascript(text: str):
@@ -44,29 +49,10 @@ def _parse_like_javascript(text: str):
 
     return json.loads(text, parse_constant=_reject)
 
-# 每个工具的合法参数(取自 tools/list 声明的 required)
-TOOL_CALLS = [
-    ("search_features", {"query": "momentum"}),
-    ("get_feature", {"name": "kmid"}),
-    ("trace_feature_usage", {"feature_id": "KMID"}),
-    ("run_backtest", {"strategy": "ma_cross", "symbol": "600519",
-                      "start": "2024-01-01", "end": "2024-06-30"}),
-    ("output_signal", {"symbol": "600519.SH", "side": "buy",
-                       "confidence": 0.8, "rationale": "契约测试"}),
-    ("check_ic_decay", {"feature_name": "kmid", "window_days": 30}),
-    ("list_factor_ic", {"symbol": "600519", "window_days": 5}),
-    ("get_kline", {"symbol": "600519", "limit": 5}),
-    ("query_portfolio", {}),
-    ("stock_pick", {"universe": ["600519", "000001"], "top_n": 2}),
-    # 人工审批链路:准备阶段停下 → 用 thread_id 拍板
-    ("agent_decide", {"symbol": "600519.SH", "cash": 100000,
-                      "total_equity": 200000,
-                      "positions": [{"symbol": "600519.SH", "quantity": 100,
-                                     "avg_price": 1500}]}),
-    ("agent_approve", {"thread_id": "contract-test", "approved": True}),
-]
+# 每个工具的合法参数(取自 tools/list 声明的 required)—— 与判据共用一份
+TOOL_CALLS = probes.TOOL_CALLS
 
-TOOL_CALLS_BY_NAME = dict(TOOL_CALLS)
+TOOL_CALLS_BY_NAME = probes.TOOL_CALLS_BY_NAME
 
 RESOURCE_URIS = [
     "forgemind://features", "forgemind://strategies", "forgemind://symbols",
@@ -83,22 +69,13 @@ def _server():
 
 
 def _legal_args(name: str, args: dict) -> dict:
-    """补上必须是真值的参数。
+    """补上必须是真值的参数(与判据共用一份实现)。
 
     agent_approve 的 thread_id 必须是**真**的 —— 拿假的去调,工具会报
     "找不到待审批的决策",返回的是错误文本而不是 JSON,那测的就不是这个
     工具的正常输出了。先跑一次 agent_decide 拿真 thread_id。
     """
-    if name != "agent_approve":
-        return args
-    import asyncio as _asyncio
-    import json as _json
-
-    srv = _server()
-    resp = _asyncio.run(_call(srv, "agent_decide", TOOL_CALLS_BY_NAME["agent_decide"]))
-    thread_id = _json.loads(_tool_text(resp)).get("thread_id", "")
-    assert thread_id, "agent_decide 没给出 thread_id"
-    return {**args, "thread_id": thread_id}
+    return probes.legal_args(name, args)
 
 
 async def _call(srv, name, args):
