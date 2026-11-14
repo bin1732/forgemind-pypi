@@ -187,7 +187,12 @@ class DecisionLog:
 def _load_kline(symbol: str, limit: int = 250) -> pd.DataFrame | None:
     """从 DuckDB 读该标的的真实 K 线(需先跑 forgemind etl)"""
     try:
-        from forgemind.core.data.storage import DuckDBStorage, bare_symbol
+        from forgemind.core.data.storage import (
+            DuckDBStorage,
+            LocalStoreLockedError,
+            LocalStoreWriteError,
+            bare_symbol,
+        )
 
         with DuckDBStorage() as db:
             # 先问表在不在:第一次跑的人库里还没有这张表,那是正常情况。
@@ -201,6 +206,11 @@ def _load_kline(symbol: str, limit: int = 250) -> pd.DataFrame | None:
         if df is None or len(df) < 30:
             return None
         return df.iloc[::-1].reset_index(drop=True)  # 升序
+    except (LocalStoreLockedError, LocalStoreWriteError):
+        # 资源类故障(库被占着、存储写不进去):这是**失败**,不是"这个
+        # 标的没有行情"。吞掉它的话,agent 会拿着空数据把整条决策跑完,
+        # 最后报"跑通了" —— 而它一个真实读数都没拿到。
+        raise
     except Exception as exc:  # noqa: BLE001
         logger.warning("agent_kline_load_failed", symbol=symbol, error_type=type(exc).__name__)
         return None
@@ -427,6 +437,7 @@ def persist_approved_decision(final: dict) -> dict:
     原因随返回值带出去,由调用方如实展示。
     """
     from forgemind.core.data.storage import (
+        is_resource_error,
         save_portfolio_decisions,
         save_portfolio_snapshot,
     )
@@ -445,6 +456,10 @@ def persist_approved_decision(final: dict) -> dict:
             "snapshot_id": None,
             "decisions_written": 0,
             "error": str(exc),
+            # 资源类(库被占着/存储写不进去)与别的落盘失败要分开:
+            # 前者是环境问题,用户做完对应动作就能继续,命令该按资源类
+            # 失败退出(退出码 4);后者不该把整条命令拖成失败。
+            "resource_blocked": is_resource_error(exc),
         }
 
     # 6 个 Agent 各自的票 / 置信度 / 论据
@@ -565,8 +580,14 @@ def persist_approved_decision(final: dict) -> dict:
             "snapshot_id": snap,
             "decisions_written": 0,
             "error": str(exc),
+            "resource_blocked": is_resource_error(exc),
         }
-    return {"snapshot_id": snap, "decisions_written": written, "error": None}
+    return {
+        "snapshot_id": snap,
+        "decisions_written": written,
+        "error": None,
+        "resource_blocked": False,
+    }
 
 
 def _decision_price(state: AgentState, current_position: dict | None) -> float:
@@ -804,6 +825,8 @@ async def resume_decision(
     """
     from langchain_core.runnables import RunnableConfig
 
+    from forgemind.core.data.storage import is_resource_error
+
     graph = get_agent_graph()
     config = RunnableConfig(configurable={"thread_id": thread_id})
     result: dict = {
@@ -824,6 +847,11 @@ async def resume_decision(
         try:
             final = await graph.ainvoke(None, config=config)
         except Exception as exc:  # noqa: BLE001
+            if is_resource_error(exc):
+                # 资源类故障(库被占着、存储写不进去)不是"找不到待审批的
+                # 决策" —— 包成 LookupError 会让调用方以为审批丢了,
+                # 而实际是本地库暂时用不了。放它原样冒出去。
+                raise
             raise LookupError(
                 f"thread_id={thread_id} 找不到待审批的决策 "
                 f"(可能没先跑 /decide,或 checkpointer 未初始化):{exc}"

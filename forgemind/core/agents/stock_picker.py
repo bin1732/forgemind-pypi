@@ -11,6 +11,7 @@ if TYPE_CHECKING:
 from forgemind.core.data.storage import (
     DuckDBStorage,
     LocalStoreLockedError,
+    LocalStoreWriteError,
     bare_symbol,
 )  # noqa: E402
 from forgemind.core.observability.logging import get_logger  # noqa: E402
@@ -56,6 +57,13 @@ class StockPickerAgent:
     #: 桌面端开着时它占着同一个库,终端里的查询直接失败 —— 这时候告诉
     #: 用户"库里没有该标的",他会去跑 etl,而 etl 同样读不到那个库。
     last_query_errors: dict[str, str] = {}
+    #: 上一次 pick() 中撞上**资源类**故障的标的 -> 原因。
+    #:
+    #: 资源类(库被另一个进程占着、存储写不进去)与"没有数据"要分开:
+    #: 前者命令是失败的,退出码 4;后者是正常的"没有候选"。这个属性
+    #: 就是给上层判断这一点的 —— 只看文字会漏判,因为两者的提示长得
+    #: 不一样但都能读成"没选出来"。
+    last_resource_errors: dict[str, str] = {}
 
     """
     选股 Agent — 不需要 LLM,纯规则 + 多策略投票
@@ -108,6 +116,8 @@ class StockPickerAgent:
         self.last_insufficient = insufficient
         query_errors: dict[str, str] = {}
         self.last_query_errors = query_errors
+        resource_errors: dict[str, str] = {}
+        self.last_resource_errors = resource_errors
 
         for symbol in universe:
             df = self._get_kline(symbol, as_of)
@@ -393,6 +403,14 @@ class StockPickerAgent:
             # 会让他去拉数据,而拉数据同样连不上那个库。
             logger.warning("kline_query_failed", symbol=symbol, reason="store_locked")
             self.last_query_errors[symbol] = str(exc)
+            self.last_resource_errors[symbol] = str(exc)
+            return None
+        except LocalStoreWriteError as exc:
+            # 存储写不进去(磁盘满、配额满、权限不足)。同样是资源类:
+            # 命令是失败的,不是"这个标的数据不足"。
+            logger.warning("kline_query_failed", symbol=symbol, reason="store_write_failed")
+            self.last_query_errors[symbol] = str(exc)
+            self.last_resource_errors[symbol] = str(exc)
             return None
         except Exception as e:
             # 告警里只放异常类型:原始文本里有 DuckDB 的报错原文,连着内部

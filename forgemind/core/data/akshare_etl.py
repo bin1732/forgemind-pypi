@@ -7,7 +7,11 @@ import time
 import pandas as pd
 
 from forgemind.core.data.fetch_guard import call_with_timeout
-from forgemind.core.data.storage import DuckDBStorage, create_market_tables
+from forgemind.core.data.storage import (
+    DuckDBStorage,
+    create_market_tables,
+    is_write_failure,
+)
 from forgemind.core.observability.logging import get_logger
 
 logger = get_logger("forgemind.akshare_etl")
@@ -26,9 +30,11 @@ def _classify_fetch_error(exc: Exception) -> str:
     # "connection" 字样,只看文本会把它误判成 unclassified
     if isinstance(exc, (ConnectionError, TimeoutError)):
         return "network_unreachable"
-    if isinstance(exc, PermissionError) or "permission" in msg or "errno 13" in msg:
-        return "storage_permission_denied"
-    if "no space" in msg or "disk full" in msg or "errno 28" in msg:
+    if is_write_failure(exc):
+        # 写不进去(磁盘满、配额满、权限不足)—— 判定只有一处:存储层
+        # 认得这些报错的样子。这里只负责把它归到 ETL 自己的分类名上。
+        if isinstance(exc, PermissionError) or "permission" in msg or "errno 13" in msg:
+            return "storage_permission_denied"
         return "storage_full"
     # DuckDB 并发写分类:
     # ConstraintException → 只有 PK/UNIQUE 冲突是并发,其它(NOT NULL / CHECK)

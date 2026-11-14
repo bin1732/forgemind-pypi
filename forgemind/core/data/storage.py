@@ -31,6 +31,24 @@ class LocalStoreLockedError(RuntimeError):
         )
 
 
+class LocalStoreWriteError(RuntimeError):
+    """存储写不进去(磁盘满、配额满、权限不足)。
+
+    与 LocalStoreLockedError 是两回事:那是"读不到",这个是"写不进去"。
+    两者都归资源类,但用户要做的事不一样 —— 一个要关掉占着库的进程,
+    一个要清磁盘或改权限。
+
+    原始报错里有本机路径,不往外带。
+    """
+
+    def __init__(self, path: str | None = None):
+        self.path = path
+        super().__init__(
+            "存储写不进去 —— 磁盘满了、配额用完了,或没有写权限。"
+            "清出空间或改好权限后重试;也可以用 FORGEMIND_DATA_DIR 换个目录。"
+        )
+
+
 def is_lock_conflict(exc: BaseException) -> bool:
     """这个异常是不是"库被另一个进程占着"。
 
@@ -39,6 +57,42 @@ def is_lock_conflict(exc: BaseException) -> bool:
     """
     text = str(exc).lower()
     return "conflicting lock" in text or "could not set lock" in text
+
+
+#: 写不进去的样子。DuckDB 的写失败**不带 errno** —— 异常对象上没有,
+#: 只能看报错文本。这些措辞是 DuckDB 与操作系统给出来的。
+WRITE_FAILURE_MARKERS = (
+    "file too large",  # errno 27:超出文件大小上限(配额)
+    "no space left",  # errno 28:磁盘满
+    "disk full",
+    "permission denied",  # errno 13:权限不足
+    "errno 27",
+    "errno 28",
+    "errno 13",
+)
+
+
+def is_write_failure(exc: BaseException) -> bool:
+    """这个异常是不是"写不进去"(磁盘满、配额满、权限不足)。
+
+    判定只看报错文本:上一层的异常没有 errno,底层可能包着带 errno
+    的 OSError —— 所以要顺着 cause 链找下去。
+    """
+    if any(marker in str(exc).lower() for marker in WRITE_FAILURE_MARKERS):
+        return True
+    cause = exc.__cause__
+    if cause is not None and cause is not exc:
+        return is_write_failure(cause)
+    return False
+
+
+def is_resource_error(exc: BaseException) -> bool:
+    """这个异常是不是"资源类"(库被占着 / 存储写不进去)。
+
+    这两类都是"环境暂时用不了":用户做完对应的动作就能继续 —— 关掉
+    占着库的进程,或清出磁盘空间。命令行的退出码表把这一类归到 4。
+    """
+    return isinstance(exc, (LocalStoreLockedError, LocalStoreWriteError))
 
 
 def bare_symbol(symbol: str) -> str:
@@ -150,7 +204,14 @@ class DuckDBStorage:
         settings = get_settings()
         self.path = path or settings.duckdb_path
         self.force_new = force_new
-        Path(self.path).parent.mkdir(parents=True, exist_ok=True)
+        try:
+            Path(self.path).parent.mkdir(parents=True, exist_ok=True)
+        except OSError as exc:
+            # 建目录就写不进去(没权限/磁盘满)—— 与后面的写失败是同一件
+            # 事,归到同一个错上,用户清一次磁盘或改一次权限就够。
+            if getattr(exc, "errno", None) in (13, 27, 28) or is_write_failure(exc):
+                raise LocalStoreWriteError(self.path) from None
+            raise
         self.conn: duckdb.DuckDBPyConnection | None = None
         logger.info("duckdb_storage_init", path=self.path, force_new=force_new)
 
@@ -170,6 +231,11 @@ class DuckDBStorage:
                     # 原始报错里有本机路径,不往外带。
                     if is_lock_conflict(exc):
                         raise LocalStoreLockedError(self.path) from None
+                    # 写不进去:连接本身就要写文件(建库文件与 WAL),磁盘满
+                    # 或配额用完时,失败发生在**连接**这一步,还没走到
+                    # 执行 SQL。不认它的话,上层只能笼统地说"连不上"。
+                    if is_write_failure(exc):
+                        raise LocalStoreWriteError(self.path) from None
                     raise
                 if not force_new:
                     _DUCKDB_CONN_CACHE[self.path] = root
@@ -208,18 +274,33 @@ class DuckDBStorage:
         """执行 SQL(insert/update/ddl)"""
         if not self.conn:
             raise RuntimeError("Use within 'with' block")
-        if params:
-            self.conn.execute(sql, params)
-        else:
-            self.conn.execute(sql)
+        try:
+            if params:
+                self.conn.execute(sql, params)
+            else:
+                self.conn.execute(sql)
+        except Exception as exc:
+            # 写不进去要说清楚 —— 不然上层只能笼统地说"落盘失败",
+            # 用户不知道要去清磁盘还是要改权限。原始报错里有本机路径,
+            # 不往外带。
+            if is_write_failure(exc):
+                raise LocalStoreWriteError(self.path) from None
+            raise
 
     def query_df(self, sql: str, params: list | None = None):
         """查询 → DataFrame"""
         if not self.conn:
             raise RuntimeError("Use within 'with' block")
-        if params:
-            return self.conn.execute(sql, params).df()
-        return self.conn.execute(sql).df()
+        try:
+            if params:
+                return self.conn.execute(sql, params).df()
+            return self.conn.execute(sql).df()
+        except Exception as exc:
+            # 读也会写(DuckDB 的 WAL),所以磁盘满的时候"读"也会失败。
+            # 归到同一个错上 —— 用户清磁盘就够,不该分两种说法。
+            if is_write_failure(exc):
+                raise LocalStoreWriteError(self.path) from None
+            raise
 
     def query_scalar(self, sql: str, params: list | None = None):
         """查询 → 单值"""
@@ -297,7 +378,7 @@ _init_lock = _threading.Lock()
 _init_done_for: set[str] = set()
 
 
-def init_duckdb():
+def init_duckdb(wait_for_lock: bool = False):
     """初始化 DuckDB — 创建本地表
 
     进程内单次:同 (db path) 只跑一次 DDL,避免并发线程同时
@@ -305,10 +386,20 @@ def init_duckdb():
     ("TransactionException: Catalog write-write conflict on create
     with ... idx_kline_symbol_date")。新 db path 重新初始化。
 
-    跨进程并发: 多进程同时 init 同一 db path 会撞 DuckDB file lock
-    (IOException: Could not set lock on file)。加重试: 锁住时退避
-    等另一个进程 init 完, 之后 schema 已是完整, 后续 _init_done_for
-    标记在本进程 cache (再 init 同进程就是 no-op)。
+    跨进程并发: 多进程同时 init 同一 db path 会撞 DuckDB file lock。
+    DuckDB 的进程间锁是**排他**的 —— 连只读连接都连不上。所以"抢着
+    建表"只能靠等: 后来者等前一个建完、放开锁,再自己连上。
+
+    **等不等,由调用方明确选择**(wait_for_lock):
+
+    - False(默认)—— 锁冲突立刻抛。命令路径用这个。库被桌面端这类
+      长驻进程占着时,锁不会自己放开,让用户对着一条命令干等几十秒
+      才看到"库被占着",是白等。
+    - True —— 等前一个建完。明确知道"有人正在建表"的地方用这个
+      (并发建库的用例、ETL 建库)。
+
+    抛出的错是 LocalStoreLockedError —— 它是"读不到",不是"没有数据"。
+    说成后者会把用户引到一条同样跑不通的路上。
     """
     import random
     import time as _time
@@ -331,14 +422,27 @@ def init_duckdb():
                 _do_init_duckdb_ddl(settings.duckdb_path)
                 _init_done_for.add(settings.duckdb_path)
                 return
-            except (duckdb.IOException, duckdb.OperationalError) as e:
+            except (LocalStoreLockedError, duckdb.IOException, duckdb.OperationalError) as e:
                 last_err = e
                 err_str = str(e).lower()
-                if "lock" in err_str or "could not set" in err_str or "conflicting" in err_str:
-                    _time.sleep(random.uniform(0.05, min(2.0, 0.1 * (2 ** min(_attempt, 5)))))
-                    continue
-                # 非 lock 错 — 不重试, 直接抛
-                raise
+                is_lock = (
+                    isinstance(e, LocalStoreLockedError)
+                    or "lock" in err_str
+                    or "could not set" in err_str
+                    or "conflicting" in err_str
+                )
+                if not is_lock:
+                    # 非锁错 — 不重试, 直接抛
+                    raise
+                if not wait_for_lock:
+                    # 库被占着,而占着它的进程不会自己放开。立刻把这件事
+                    # 说清楚,好过让用户干等。锁冲突只有一种含义:
+                    # 读不到 —— 不是"库里没有数据"。
+                    if isinstance(e, LocalStoreLockedError):
+                        raise
+                    raise LocalStoreLockedError(settings.duckdb_path) from None
+                _time.sleep(random.uniform(0.05, min(2.0, 0.1 * (2 ** min(_attempt, 5)))))
+                continue
         # 重试次数用尽仍因 lock 失败 — 抛最后错
         if last_err:
             raise last_err

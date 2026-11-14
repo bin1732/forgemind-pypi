@@ -15,6 +15,12 @@ DuckDB 自身的 file lock + retry
   2. 第一个进来拿 conn 写 DDL
   3. 后面的 catch TransactionException → 等 → 重试
   4. 全部 3 个最终都成功 (init_duckdb 幂等)
+
+**为什么显式传 wait_for_lock=True**:DuckDB 的进程间锁是排他的,抢着
+建表的后来者只能等前一个建完、放开锁。等多久由调用方决定:
+init_duckdb 默认不等待(库被桌面端这类长驻进程占着时,等下去锁也不会
+自己放开,让用户干等是白等);明确知道"有人正在建表"的地方才传
+wait_for_lock=True。这几个用例正是那种地方。
 """
 import os
 import subprocess
@@ -40,7 +46,7 @@ os.environ['FORGEMIND_LOG_LEVEL'] = 'WARNING'
 from forgemind.core.config.settings import get_settings
 get_settings.cache_clear()
 from forgemind.core.data import storage
-storage.init_duckdb()
+storage.init_duckdb(wait_for_lock=True)
 print('PROC {i} OK', flush=True)
 """],
             stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
@@ -86,7 +92,7 @@ def test_concurrent_save_signals_same_db(tmp_path):
             "from forgemind.core.data import storage\n"
             "storage._DUCKDB_CONN_CACHE.clear()\n"
             "storage._init_done_for.clear()\n"
-            "storage.init_duckdb()\n"
+            "storage.init_duckdb(wait_for_lock=True)\n"
             "time.sleep(%(delay)s)\n"
             "storage.save_signal('sig_p%(i)d', '600519', 'BUY', %(conf)s, 'reason %(i)d', 'concurrent_test')\n"
             "print('PROC %(i)d OK', flush=True)\n"
@@ -131,7 +137,7 @@ os.environ['FORGEMIND_LOG_LEVEL'] = 'ERROR'
 from forgemind.core.config.settings import get_settings
 get_settings.cache_clear()
 from forgemind.core.data import storage
-storage.init_duckdb()
+storage.init_duckdb(wait_for_lock=True)
 print('OK', flush=True)
 """],
             stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,

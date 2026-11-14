@@ -32,7 +32,10 @@ EXIT_DATA = 3
 EXIT_RESOURCE = 4
 EXIT_INTERRUPTED = 130
 
-from forgemind.core.data.storage import LocalStoreLockedError  # noqa: E402
+from forgemind.core.data.storage import (  # noqa: E402
+    LocalStoreLockedError,
+    LocalStoreWriteError,
+)
 from forgemind.core.observability.logging import get_logger  # noqa: E402
 
 logger = get_logger("forgemind.cli")
@@ -315,6 +318,7 @@ def cmd_backtest(args):
         from forgemind.core.data.storage import (
             DuckDBStorage,
             LocalStoreLockedError,
+            LocalStoreWriteError,
             bare_symbol,
         )
 
@@ -345,9 +349,16 @@ def cmd_backtest(args):
         except LocalStoreLockedError as _locked:
             # 库被另一个进程占着(桌面端开着时它就占着)。这不是"库里没有
             # 数据",说成后者会让用户去拉数据 —— 而拉数据同样连不上那个库。
+            #
+            # 也不降级到模拟行情:连模拟结果的落盘都写不进去,而且那组
+            # 数字会被当成"跑通了"。按退出码表,这一类是资源类(4)。
             print(f"⚠️  {_locked}")
-            price_df = None
-            read_failed = True
+            raise SystemExit(EXIT_RESOURCE) from None
+        except LocalStoreWriteError as _write:
+            # 写不进去(磁盘满、配额满、权限不足)。同样不降级 —— 降级出来
+            # 的数字落不了盘,还给用户一个"成功"。
+            print(f"⚠️  {_write}")
+            raise SystemExit(EXIT_RESOURCE) from None
         except Exception:
             # 真出错了(连不上、schema 异常)—— 不强求,走降级路径。不印
             # 原始异常文本:那里面有内部表名与整条 SQL;异常类名也一并
@@ -480,6 +491,11 @@ def cmd_backtest(args):
             metrics=metrics,
         )
         print(f"\n  Backtest run saved: {run_id}")
+    except LocalStoreWriteError as _write:
+        # 落盘写不进去(磁盘满、配额满、权限不足):结果没存下来。
+        # 这种不能当成功 —— 退出码表里,资源类是 4。
+        print(f"\n  ❌ 回测结果落盘失败:{_write}")
+        raise SystemExit(EXIT_RESOURCE) from None
     except Exception:
         # 落盘失败不阻断 backtest 主体流程
         print("\n  ⚠️  回测结果落盘失败")
@@ -645,6 +661,12 @@ def cmd_pick(args):
         if not any("占用" in reason for reason in unreadable.values()):
             print("\n  先确认本地库能读:桌面端开着时它占着同一个库,终端里的")
             print("  读不到 —— 关掉它再试;或用 FORGEMIND_DATA_DIR 换个目录。")
+    # 资源类故障(库被占着、存储写不进去):这条命令是**失败的**,不是
+    # "没有选出候选"。退出码表里这一类是 4 —— 报 0 会让调用方以为
+    # 选股跑过了,而它一个候选都没算出来。
+    if dict(getattr(picker, "last_resource_errors", {}) or {}):
+        print("\n  本地库暂时用不了,这次选股没有跑成。")
+        sys.exit(EXIT_RESOURCE)
     if not picks and short:
         print("\n=== Top 0 picks ===\n")
         print(
@@ -1042,6 +1064,29 @@ def main():
         # 以为程序坏了,而程序没坏 —— 只是那个库暂时用不了。
         print(f"⚠️  {exc}", file=sys.stderr)
         sys.exit(EXIT_RESOURCE)
+    except LocalStoreWriteError as exc:
+        # 存储写不进去(磁盘满、配额满、权限不足)。资源类,退出码 4。
+        print(f"⚠️  {exc}", file=sys.stderr)
+        sys.exit(EXIT_RESOURCE)
+    except TimeoutError:
+        # 上游无响应。退出码表里这一类是 3(数据/上游类)—— 与 ETL
+        # 命令自己处理的那条一致。同一件事不该在两条命令上给两个码。
+        print(
+            f"⚠️  上游无响应,forgemind {args.command} 中断(详情见日志)",
+            file=sys.stderr,
+        )
+        sys.exit(EXIT_DATA)
+    except OSError as exc:
+        # 存储写不进去(磁盘满、配额满、权限不足):资源类,码是 4。
+        # 别的 OSError 不归类,交给下面的兜底 —— 那说明是我们没预料到
+        # 的情况,不该顺手贴一个分类标签上去。
+        if getattr(exc, "errno", None) in (13, 27, 28):
+            print(
+                f"⚠️  存储写不进去,forgemind {args.command} 中断(详情见日志)",
+                file=sys.stderr,
+            )
+            sys.exit(EXIT_RESOURCE)
+        raise
     except KeyboardInterrupt:
         sys.exit(EXIT_INTERRUPTED)
     except Exception:

@@ -26,19 +26,33 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
-# (说明, 命令, 期望退出码)。期望的码必须出现在 README 的表里。
-PROBES: tuple[tuple[str, tuple[str, ...], int], ...] = (
-    ("正常完成", ("info",), 0),
-    ("正常完成", ("signal",), 0),
-    ("argparse 用法错误", ("backtest", "--bogus-flag"), 2),
-    ("策略名不存在", ("backtest", "--strategy", "NoSuchStrategyAnywhere"), 2),
-    ("这个命令喂不了该策略", ("backtest", "--strategy", "MaxSharpe"), 2),
-    ("没给子命令", (), 2),
-    ("策略要额外参数", ("backtest", "--strategy", "PairsTrading"), 2),
+#: (说明, 命令, 期望退出码, 怎么造这个场景)。造不出来的场景就别写进
+#: 表里 —— 那正是这张表要治的病:写着"磁盘满 = 4"却没人验过。
+#: setup 为 None 表示不需要特殊环境。
+#:
+#: 场景怎么造(都是真的,不是 mock):
+#:   locked        —— 另一个真进程占着同一个库文件
+#:   write_full    —— 子进程的写文件上限被压到 4 KB,写不进去
+#:   timeout_upstream —— 注入一个 import 就抛超时的假上游模块
+PROBES: tuple[tuple[str, tuple[str, ...], int, str | None], ...] = (
+    ("正常完成", ("info",), 0, None),
+    ("正常完成", ("signal",), 0, None),
+    ("argparse 用法错误", ("backtest", "--bogus-flag"), 2, None),
+    ("策略名不存在", ("backtest", "--strategy", "NoSuchStrategyAnywhere"), 2, None),
+    ("这个命令喂不了该策略", ("backtest", "--strategy", "MaxSharpe"), 2, None),
+    ("没给子命令", (), 2, None),
+    ("策略要额外参数", ("backtest", "--strategy", "PairsTrading"), 2, None),
     (
         "数据源没装,一条没取到",
         ("etl", "--symbols", "600519", "--start", "2024-01-01", "--end", "2024-01-31"),
         3,
+        None,
+    ),
+    (
+        "上游无响应",
+        ("etl", "--symbols", "600519", "--start", "2024-01-01", "--end", "2024-01-31"),
+        3,
+        "timeout_upstream",
     ),
     (
         "非交互模式未审批",
@@ -54,6 +68,43 @@ PROBES: tuple[tuple[str, tuple[str, ...], int], ...] = (
             "1600",
         ),
         2,
+        None,
+    ),
+    (
+        "本地库被另一个进程占着",
+        (
+            "backtest",
+            "--symbol",
+            "600519",
+            "--start",
+            "2024-01-01",
+            "--end",
+            "2024-06-30",
+        ),
+        4,
+        "locked",
+    ),
+    (
+        "存储写不进去",
+        (
+            "backtest",
+            "--symbol",
+            "600519",
+            "--start",
+            "2024-01-01",
+            "--end",
+            "2024-06-30",
+        ),
+        4,
+        "write_full",
+    ),
+    (
+        # 这条命令自己不管资源类的错,交给命令行的统一兜底 —— 所以
+        # 它罩的是兜底那条路。少了兜底,这一条会红。
+        "存储写不进去(走统一兜底)",
+        ("signal", "--symbol", "600519"),
+        4,
+        "write_full",
     ),
 )
 
@@ -63,9 +114,12 @@ PROBES: tuple[tuple[str, tuple[str, ...], int], ...] = (
 # 两份。130(用户中断)在这里但不在探针里:它是 Python 对未捕获
 # KeyboardInterrupt 的标准退出码,不是某个命令自己定的。
 #
-# 1 与 4 也不在探针里:1 要 PM 节点已经跑过(得先跑一遍 agent 再重放),
-# 4 要磁盘真的满(ENOSPC)—— 都不是能稳定造出来的状态。它们的码值由
-# forgemind/cli.py 里的具名常量守着,表里的措辞由 EXPECTED_CODES 守着。
+# 1 也不在探针里:它要 PM 节点已经跑过(得先跑一遍 agent 再重放)。
+#
+# 4 现在**在**探针里了 —— 以前这条被写成"磁盘真的满(ENOSPC)造不出来",
+# 于是表里"资源类"那一行从来没人验过,命令实际给出别的码也没人知道。
+# 造不出来的说法要靠"另找一个真能造出来的法子"推翻,不能就这么信了:
+# 写不进去可以用压写上限来造,库被占着可以用另一个真进程来造。
 EXPECTED_CODES = (0, 1, 2, 3, 4, 130)
 
 _TABLE_ROW = re.compile(r"^\|\s*(\d+)\s*\|\s*([^|]+?)\s*\|", re.M)
@@ -94,12 +148,65 @@ def looks_like_missing_dependency(output: str) -> bool:
     return "ModuleNotFoundError" in output or "No module named" in output
 
 
-def run_probe(argv: tuple[str, ...], db_path: Path) -> tuple[int, str]:
+def _lock_holder(db_path: Path):
+    """起一个真进程占着这个库文件。返回那个进程。"""
+    return subprocess.Popen(
+        [
+            sys.executable,
+            "-c",
+            (
+                "import duckdb, sys, time\n"
+                "con = duckdb.connect(sys.argv[1])\n"
+                "print('held', flush=True)\n"
+                "time.sleep(600)\n"
+            ),
+            str(db_path),
+        ],
+        stdout=subprocess.PIPE,
+        text=True,
+    )
+
+
+def _fake_upstream_dir(root: Path) -> Path:
+    """造一个"import 就抛超时"的上游模块目录。
+
+    真上游无响应时,代码走的就是这条路:取数调用超时 → 归类成上游类。
+    注入一个假模块,比等一个真的网络超时既快又稳定 —— 而走的是同一段
+    代码,不是 mock。
+    """
+    pkg = root / "fake_upstream"
+    pkg.mkdir(parents=True, exist_ok=True)
+    (pkg / "akshare.py").write_text(
+        "raise TimeoutError('上游行情源无响应')\n",
+        encoding="utf-8",
+    )
+    return pkg
+
+
+def run_probe(
+    argv: tuple[str, ...],
+    db_path: Path,
+    setup: str | None = None,
+    extra_path: Path | None = None,
+) -> tuple[int, str]:
     """跑一个命令,返回 (退出码, 失败时的输出)。"""
     env = dict(os.environ)
     env["FORGEMIND_DUCKDB_PATH"] = str(db_path)
     env["FORGEMIND_LOG_LEVEL"] = "ERROR"
     env["FORGEMIND_NONINTERACTIVE"] = "1"
+    if extra_path is not None:
+        env["PYTHONPATH"] = os.pathsep.join(
+            [str(extra_path), env.get("PYTHONPATH", "")],
+        ).rstrip(os.pathsep)
+    preexec = None
+    if setup == "write_full":
+        # 子进程能写的文件不超过 4 KB —— 磁盘满/配额用完时的样子。
+        # 真去填满磁盘做不到(要 root),压写上限是同一类故障:写不进去。
+        def preexec() -> None:  # noqa: F811 — 闭包,名字在下面才用
+            import resource
+
+            resource.setrlimit(resource.RLIMIT_FSIZE, (4096, 4096))
+
     result = subprocess.run(
         [sys.executable, "-m", "forgemind.cli", *argv],
         cwd=REPO_ROOT,
@@ -107,8 +214,39 @@ def run_probe(argv: tuple[str, ...], db_path: Path) -> tuple[int, str]:
         text=True,
         timeout=600,
         env=env,
+        preexec_fn=preexec,
     )
     return result.returncode, (result.stdout + result.stderr)[-400:]
+
+
+def probe_with_setup(
+    label: str,
+    argv: tuple[str, ...],
+    db_path: Path,
+    setup: str | None,
+    tmp_root: Path,
+) -> tuple[int, str]:
+    """按场景造好环境,再跑探针。"""
+    if setup == "locked":
+        holder = _lock_holder(db_path)
+        assert holder.stdout is not None
+        holder.stdout.readline()  # 等它真的握住锁
+        try:
+            return run_probe(argv, db_path, setup=setup)
+        finally:
+            holder.terminate()
+            try:
+                holder.wait(timeout=10)
+            except subprocess.TimeoutExpired:
+                holder.kill()
+    if setup == "timeout_upstream":
+        return run_probe(
+            argv,
+            db_path,
+            setup=setup,
+            extra_path=_fake_upstream_dir(tmp_root),
+        )
+    return run_probe(argv, db_path, setup=setup)
 
 
 def main() -> int:
@@ -138,9 +276,13 @@ def main() -> int:
         problems.append(f"表里多了退出码 {code}(该有的码是 {list(EXPECTED_CODES)})")
 
     with tempfile.TemporaryDirectory(prefix="forgemind-exit-codes-") as tmp:
-        db = Path(tmp) / "exit_codes.db"
-        for label, argv, expected in PROBES:
-            actual, output = run_probe(argv, db)
+        tmp_root = Path(tmp)
+        for index, (label, argv, expected, setup) in enumerate(PROBES):
+            # 每个探针用自己的库文件:共用一个的话,前一个探针已经把库
+            # 建好了,后一个探针的写入量变小,"写不进去"就造不出来了 ——
+            # 场景没真被造出来,探针却"通过"了。
+            db = tmp_root / f"probe_{index}.db"
+            actual, output = probe_with_setup(label, argv, db, setup, tmp_root)
             # 命令压根没跑起来,与"退出码不对"是两回事:前者是环境缺东西,
             # 混在一起报,会把环境的毛病说成行为不符。
             if looks_like_missing_dependency(output):

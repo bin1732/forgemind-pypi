@@ -11,7 +11,7 @@ DuckDB 文件,终端里的命令连不上那个库,可命令说的是"在库里�
 那一次是手工撞上的。这一类问题靠手工撞,下一次换个状态就漏了。所以把
 "每个状态该说什么"做成机器判据,每一轮都跑。
 
-**四种状态**:
+**五种状态**:
 
 | 状态 | 怎么造出来 | 该说什么 |
 |---|---|---|
@@ -19,6 +19,7 @@ DuckDB 文件,终端里的命令连不上那个库,可命令说的是"在库里�
 | 数据不足 | 库里只有几根 K 线 | 说"仅 N 根",说清差多少 |
 | 库被占着 | 另一个进程占着同一个库文件 | 说"读不到/被占用",**不许**说"没有数据" |
 | 没有密钥 | 不配模型服务商的密钥 | 说清缺哪个,不要编 |
+| 写不进去 | 子进程的写文件上限被压到 4 KB | 说"存储写不进去",退出码 4,**不许**产出数字 |
 
 **每种状态下都成立的三条**:
 
@@ -26,6 +27,12 @@ DuckDB 文件,终端里的命令连不上那个库,可命令说的是"在库里�
 2. 降级到模拟数据时必须标明是模拟 —— 用户不该拿到一份看着像真实回测的
    假结果。
 3. "读不到"与"没有数据"必须分开说。
+
+**另外两条,只对碰本地库的命令**:
+
+4. 库被占着或写不进去时,退出码必须是 4(资源类),不能报成功。
+5. 这两种状态下不许吐出回测数字 —— 连落盘都写不进去,给数字等于
+   说"跑通了"。
 
 用法:
     python scripts/check_command_states.py
@@ -57,7 +64,7 @@ COMMANDS: list[list[str]] = [
 ]
 
 #: 状态:名字 → 造这个状态要做什么
-STATES = ("no_data", "insufficient", "locked", "no_key")
+STATES = ("no_data", "insufficient", "locked", "no_key", "write_full")
 
 #: 内部实现不许出现在输出里的形态(与命令行的判据同源)。
 FORBIDDEN = ("异常类名", "SQL 片段", "Python 栈回溯", "本机绝对路径")
@@ -126,7 +133,12 @@ def _lock_holder(path: Path):
     )
 
 
-def _run(command: list[str], work: Path, db: Path) -> tuple[int, str]:
+def _run(
+    command: list[str],
+    work: Path,
+    db: Path,
+    limit_file_size: bool = False,
+) -> tuple[int, str]:
     env = dict(os.environ)
     env["PYTHONPATH"] = str(REPO)
     env["PYTHONSAFEPATH"] = "1"
@@ -137,6 +149,15 @@ def _run(command: list[str], work: Path, db: Path) -> tuple[int, str]:
     for key in list(env):
         if key.endswith("_API_KEY") or key in ("OPENAI_API_KEY", "ANTHROPIC_API_KEY"):
             env.pop(key)
+    preexec = None
+    if limit_file_size:
+        # 子进程能写的文件不超过 4 KB —— 磁盘满/配额用完时的样子。
+        # 真去填满磁盘做不到(要 root),压写上限是同一类故障:写不进去。
+        def preexec() -> None:  # noqa: F811 — 闭包,名字在下面才用
+            import resource
+
+            resource.setrlimit(resource.RLIMIT_FSIZE, (4096, 4096))
+
     try:
         proc = subprocess.run(
             [sys.executable, "-m", "forgemind.cli", *command],
@@ -145,6 +166,7 @@ def _run(command: list[str], work: Path, db: Path) -> tuple[int, str]:
             timeout=240,
             cwd=str(work),
             env=env,
+            preexec_fn=preexec,
         )
     except subprocess.TimeoutExpired:
         return 124, "(超时)"
@@ -169,8 +191,13 @@ def _check_one(command: list[str], state: str) -> list[str]:
             time.sleep(0.3)
         elif state == "no_key":
             _make_db(db, 5)
+        elif state == "write_full":
+            # 刻意**不**建库:库文件还不存在,子进程第一次连上它时就得
+            # 写它 —— 那一步就会撞上写上限。库已经建好的话,写入量很小,
+            # 这个状态就造不出来了(造不出来 ≠ 通过)。
+            pass
 
-        rc, out = _run(command, work, db)
+        rc, out = _run(command, work, db, limit_file_size=(state == "write_full"))
         if holder is not None:
             holder.terminate()
             try:
@@ -204,6 +231,26 @@ def _check_one(command: list[str], state: str) -> list[str]:
             marker in out for marker in DISCLAIMER_MARKERS
         ):
             problems.append(f"{label}: 用了模拟数据,却没有标明它不是真实结果")
+
+        # 5) 资源类状态:退出码必须是 4,而且不该吐出回测数字。
+        #    库被占着、存储写不进去的时候,命令什么都没跑成 ——
+        #    给一组数字出来,读的人只会以为它跑通了。
+        if state in ("locked", "write_full") and reads_store:
+            if rc != 4:
+                problems.append(f"{label}: 退出码 {rc} —— 这一类是资源类,表里写的是 4")
+            for marker in ("Total Return", "Sharpe", "Max Drawdown"):
+                if marker in out:
+                    problems.append(
+                        f"{label}: 吐出了回测数字({marker})—— "
+                        f"这一类状态下连落盘都写不进去,给数字等于说'跑通了'"
+                    )
+
+        # 6) "写不进去"也不许说成"没有数据"
+        if state == "write_full" and any(marker in out for marker in MISSING_MARKERS):
+            problems.append(
+                f"{label}: 输出说'没有数据' —— 写不进去与没有数据是两回事,"
+                f"说成后者会让用户去拉数据,而写不进去的时候拉数据同样写不进去"
+            )
 
     return problems
 

@@ -126,13 +126,16 @@ class TestLockConflictIsRecognized:
 class TestCliTellsTheTruth:
     """命令行在库被占着时说的话"""
 
-    def _run_backtest(self, db_path: str, capsys) -> str:
+    def _run_backtest(self, db_path: str, capsys) -> tuple[str, int]:
         """在**当前进程里**跑一次回测命令。
 
         刻意不起子进程:子进程要 import 本仓的包,就得把仓根放进
         PYTHONPATH —— 而那一档("跑在发布构件上")最忌讳的就是仓根出现在
         导入路径上,那样 import 会命中源码树,那一档就白跑了。
         (实测:这么写过一次,那一档当场报"源码树不能留在导入路径上"。)
+
+        返回 (输出, 退出码)。库被占着时命令按资源类失败,退出码是 4 ——
+        退出码表里这一类写着"本地库被另一个进程占着"。
         """
         from forgemind.cli import build_parser, cmd_backtest
 
@@ -147,9 +150,13 @@ class TestCliTellsTheTruth:
                 "2024-06-30",
             ]
         )
-        cmd_backtest(args)
+        exit_code = 0
+        try:
+            cmd_backtest(args)
+        except SystemExit as exc:
+            exit_code = int(exc.code or 0)
         captured = capsys.readouterr()
-        return captured.out + captured.err
+        return captured.out + captured.err, exit_code
 
     def test_locked_db_is_reported_as_locked_not_as_missing(self, locked_db, capsys):
         # 设置里的库路径是单例:改了环境变量也要把那个实例指过来
@@ -157,13 +164,31 @@ class TestCliTellsTheTruth:
         import forgemind.core.config.settings as settings_mod
 
         settings_mod.get_settings().duckdb_path = locked_db
-        out = self._run_backtest(locked_db, capsys)
+        out, exit_code = self._run_backtest(locked_db, capsys)
         assert "占用" in out, out
         # 不能说"库里没有" —— 连都没连上,不知道有没有
         assert "在库里没有 K 线" not in out, out
         # 异常类名是内部实现,不该出现在用户看得到的文字里
         assert "IOException" not in out, out
         assert "LocalStoreLockedError" not in out, out
+        # 资源类:退出码 4。命令不该报成功 —— 库被占着的时候它什么都没
+        # 跑成,报成功会让人以为回测跑过了。
+        assert exit_code == 4, f"退出码应为 4(资源类),实际 {exit_code};输出: {out!r}"
+
+    def test_locked_db_does_not_fall_back_to_simulated_numbers(self, locked_db, capsys):
+        """库被占着时不该降级到模拟行情。
+
+        降级出来的数字看着像回测结果,连模拟数据的提示都在下面一行 ——
+        截图分享出去的就是一组假数字。而且连模拟结果的落盘都写不进去。
+        """
+        import forgemind.core.config.settings as settings_mod
+
+        settings_mod.get_settings().duckdb_path = locked_db
+        out, exit_code = self._run_backtest(locked_db, capsys)
+        assert exit_code == 4, f"退出码应为 4(资源类),实际 {exit_code};输出: {out!r}"
+        assert "合成行情" not in out, out
+        assert "模拟数据" not in out, out
+        assert "Total Return" not in out, out
 
 
 if __name__ == "__main__":
