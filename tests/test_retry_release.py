@@ -85,27 +85,54 @@ class TestFailedJobs:
         ]
 
 
-class TestOnMainHead:
-    """补跑只对"还在 main 头上"的那次运行有意义"""
+class TestReachableFromMain:
+    """补跑只对"还在 main 历史里"的那次运行有意义。
 
-    def test_same_sha_is_on_head(self, monkeypatch):
-        api = FakeApi()
-        monkeypatch.setattr(retry, "request", api.request)
-        # /commits/main 返回的就是这次运行的提交
+    注意判据不是"是不是 main 的头":发布本身会往 main 上落一个
+    "Publish build"提交,按"是不是头"来判,正常的补跑会被一律拦下。
+    """
+
+    def test_commit_in_main_history_is_allowed(self, monkeypatch):
+        # compare 说 main 在这次运行的提交之后(ahead)⇒ 它是 main 的祖先
         monkeypatch.setattr(
             retry,
             "request",
-            lambda method, url, token, payload=None: {"sha": "a" * 40},
+            lambda method, url, token, payload=None: {"status": "ahead"},
         )
-        assert retry.is_on_main_head("o/r", "t", {"head_sha": "a" * 40}) is True
+        assert retry.is_reachable_from_main("o/r", "t", {"head_sha": "a" * 40}) is True
 
-    def test_different_sha_is_not_on_head(self, monkeypatch):
+    def test_identical_is_allowed(self, monkeypatch):
         monkeypatch.setattr(
             retry,
             "request",
-            lambda method, url, token, payload=None: {"sha": "b" * 40},
+            lambda method, url, token, payload=None: {"status": "identical"},
         )
-        assert retry.is_on_main_head("o/r", "t", {"head_sha": "a" * 40}) is False
+        assert retry.is_reachable_from_main("o/r", "t", {"head_sha": "a" * 40}) is True
+
+    def test_diverged_is_refused(self, monkeypatch):
+        # 被改掉重推过(与 main 分叉)⇒ 补跑等于把一个不该发的提交再发一遍
+        monkeypatch.setattr(
+            retry,
+            "request",
+            lambda method, url, token, payload=None: {"status": "diverged"},
+        )
+        assert retry.is_reachable_from_main("o/r", "t", {"head_sha": "a" * 40}) is False
+
+    def test_behind_is_refused(self, monkeypatch):
+        monkeypatch.setattr(
+            retry,
+            "request",
+            lambda method, url, token, payload=None: {"status": "behind"},
+        )
+        assert retry.is_reachable_from_main("o/r", "t", {"head_sha": "a" * 40}) is False
+
+    def test_missing_sha_is_refused(self, monkeypatch):
+        monkeypatch.setattr(
+            retry,
+            "request",
+            lambda method, url, token, payload=None: {"status": "ahead"},
+        )
+        assert retry.is_reachable_from_main("o/r", "t", {"head_sha": ""}) is False
 
 
 class TestRerun:

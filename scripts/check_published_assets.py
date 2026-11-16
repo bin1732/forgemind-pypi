@@ -21,17 +21,21 @@
 from __future__ import annotations
 
 import argparse
-import base64
 import hashlib
 import json
 import os
+import pathlib
 import re
 import subprocess
 import sys
+
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 import urllib.error
 import urllib.parse
 import urllib.request
 from pathlib import Path
+
+from _manifest_reader import read_manifest  # noqa: E402
 
 REPO = Path(__file__).resolve().parent.parent
 
@@ -81,25 +85,15 @@ def is_asset(name: str) -> bool:
 
 
 def remote_manifest(token: str | None) -> dict | None:
-    """读远端 main 上的清单。读不到就返回 None。"""
+    """读远端 main 上的清单。读不到就返回 None。
+
+    读清单带重试:读的是自己刚发布的状态,接口可能给一次空响应。
+    """
     if not token:
         return None
-    url = (
-        "https://api.github.com/repos/bin1732/forgemind-pypi/contents/releases/builds/manifest.json"
-    )
-    req = urllib.request.Request(
-        url,
-        headers={
-            "Authorization": f"Bearer {token}",
-            "Accept": "application/vnd.github+json",
-            "User-Agent": "forgemind-assets",
-        },
-    )
     try:
-        with urllib.request.urlopen(req, timeout=60) as resp:
-            payload = json.load(resp)
-        return json.loads(base64.b64decode(payload["content"]))
-    except Exception:
+        return read_manifest("bin1732/forgemind-pypi", token)
+    except RuntimeError:
         return None
 
 

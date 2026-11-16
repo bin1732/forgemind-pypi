@@ -24,10 +24,14 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import pathlib
 import sys
 import time
 import urllib.error
 import urllib.request
+
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
+from _manifest_reader import read_manifest  # noqa: E402
 
 API = "https://api.github.com"
 DEFAULT_REPO = "bin1732/forgemind-pypi"
@@ -77,17 +81,25 @@ def latest_failed_publish_run(repo: str, token: str) -> dict:
     raise SystemExit("没有失败的发布运行 —— 不用补跑")
 
 
-def is_on_main_head(repo: str, token: str, run: dict) -> bool:
-    """这次运行的提交还在 main 的头上吗?
+def is_reachable_from_main(repo: str, token: str, run: dict) -> bool:
+    """这次运行的提交还在 main 的历史里吗?
 
-    补跑会把**那次运行**的构件发布出去。如果那次运行的提交已经被后来的提交
-    取代(通常是因为它自己有问题、被改掉重推了),补跑等于把旧版本再发一遍
-    —— 线上索引会指向一个已经不该发的提交。
+    补跑会把**那次运行**的构件发布出去。如果那次运行的提交已经被改掉
+    重推过(与 main 分叉了),补跑等于把一个已经不该发的提交再发一遍。
 
-    所以默认拒绝,除非显式 --force。
+    注意:比较的是"在不在 main 的历史里",**不是**"是不是 main 的头" ——
+    发布本身就会往 main 上落一个"Publish build"提交,于是任何一次发布跑完
+    之后,main 的头都已经不是那次运行的提交了。按"是不是头"来判,正常的
+    补跑会被一律拦下(实测拦过一次)。
+
+    判据与 scripts/verify.py 里对账用的是同一套(compare 的 status),
+    两处各判一次会慢慢漂开。
     """
-    head = request("GET", f"{API}/repos/{repo}/commits/main", token)
-    return str(head.get("sha", "")) == str(run.get("head_sha", ""))
+    sha = str(run.get("head_sha", ""))
+    if not sha:
+        return False
+    data = request("GET", f"{API}/repos/{repo}/compare/{sha}...main", token)
+    return str(data.get("status", "")) in ("ahead", "identical")
 
 
 def failed_jobs(repo: str, token: str, run_id: int) -> list[dict]:
@@ -110,18 +122,12 @@ def run_state(repo: str, token: str, run_id: int) -> tuple[str, str | None]:
 
 
 def published_version(repo: str, token: str) -> str:
-    """线上清单里的发布版本。"""
-    url = f"{API}/repos/{repo}/contents/releases/builds/manifest.json"
-    req = urllib.request.Request(
-        url,
-        headers={
-            "Authorization": f"Bearer {token}",
-            "Accept": "application/vnd.github.raw",
-            "User-Agent": "forgemind-retry-release",
-        },
-    )
-    with urllib.request.urlopen(req, timeout=60) as resp:
-        return str(json.load(resp).get("published_version", ""))
+    """线上清单里的发布版本。
+
+    读清单带重试 —— 读的是自己刚发布的状态,接口可能给一次空响应。
+    """
+    manifest = read_manifest(repo, token)
+    return str((manifest or {}).get("published_version", ""))
 
 
 def main() -> int:
@@ -152,8 +158,8 @@ def main() -> int:
         print("这次运行没有失败的作业 —— 不用补跑")
         return 0
 
-    if not args.force and not is_on_main_head(args.repo, token, run):
-        print("这次运行的提交已经不在 main 的头上了 —— 补跑会把那个旧提交再发一遍。")
+    if not args.force and not is_reachable_from_main(args.repo, token, run):
+        print("这次运行的提交已经不在 main 的历史里了 —— 补跑会把那个旧提交再发一遍。")
         print(f"  那次运行:{run.get('head_sha', '')[:8]}")
         print(
             f"  main 头:{(request('GET', f'{API}/repos/{args.repo}/commits/main', token).get('sha') or '')[:8]}"

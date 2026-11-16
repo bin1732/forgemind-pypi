@@ -549,7 +549,6 @@ def s_repo_consistency() -> tuple[bool, str]:
     if not token:
         return True, "无 GITHUB_TOKEN,跳过"
     try:
-        import base64
         import urllib.request
 
         def api(path: str):
@@ -562,8 +561,11 @@ def s_repo_consistency() -> tuple[bool, str]:
             )
             return json.loads(urllib.request.urlopen(req, timeout=30).read())
 
-        manifest = api("/repos/bin1732/forgemind-pypi/contents/releases/builds/manifest.json")
-        published = json.loads(base64.b64decode(manifest["content"]).decode())
+        # 读清单带重试:读的是自己刚发布的状态,接口可能给一次空响应。
+        sys.path.insert(0, str(Path(__file__).resolve().parent))
+        from _manifest_reader import read_manifest
+
+        published = read_manifest("bin1732/forgemind-pypi", token) or {}
         commit = published.get("source_commit", "")
         if not commit:
             return False, "清单里没有 source_commit —— 构件出自哪里说不清"
