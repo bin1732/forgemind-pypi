@@ -349,15 +349,16 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v7
+      - name: 读出发布清单
+        id: manifest
+        uses: ./.github/actions/read-manifest
       - name: Download the released binary
         shell: bash
         run: |
           # 资产名带发布版本:名字不变的资产,GitHub 的 CDN 会继续发旧副本,
           # 下到的会是有意为之的上一个构建。版本从清单里读 —— 清单记的
           # 就是这次发布用的名字。
-          version=$(curl -sS --max-time 60 \
-            https://raw.githubusercontent.com/bin1732/forgemind-pypi/main/releases/builds/manifest.json \
-            | jq -r '.published_version // ""')
+          version="${{ steps.manifest.outputs.published_version }}"
           if [ -z "$version" ]; then
             echo "FAIL: 清单里没有 published_version"; exit 1
           fi

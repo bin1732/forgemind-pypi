@@ -1,0 +1,105 @@
+name: 读出发布清单
+description: 从公开仓的清单里读出这次发布的来源提交、版本与构建号 —— 读不到就重试
+
+# 清单是"发了什么、从哪个提交来"的唯一真源。发布刚写完清单时就去读它,
+# 接口可能给一个空响应,或者 CDN 还没同步。拿到空文件就当"线上没发布"
+# 是误判:实测一次就让整档桌面端验证红了,而发布本身是好的。
+#
+# 所以这里**读不到就重试**,重试多次仍读不到才报错。读到的内容必须是
+# 能解析的 JSON —— 只看"文件非空"不够:接口出错时也会给一段文字。
+#
+# 各处都该用这个动作,别各写一份 curl:重试策略、解析方式、字段名只有
+# 一处,就不会慢慢漂开。
+
+inputs:
+  allow_missing:
+    description: 清单还不存在(第一次发布)时算不算正常
+    required: false
+    default: "false"
+
+outputs:
+  source_commit:
+    description: 构件的来源提交
+    value: ${{ steps.read.outputs.source_commit }}
+  published_version:
+    description: 清单里记的发布版本
+    value: ${{ steps.read.outputs.published_version }}
+  build_id:
+    description: 清单里记的构建号
+    value: ${{ steps.read.outputs.build_id }}
+
+runs:
+  using: composite
+  steps:
+    - name: 从清单读出发布信息
+      id: read
+      shell: bash
+      env:
+        GH_TOKEN: ${{ github.token }}
+        REPO: ${{ github.repository }}
+      run: |
+        set -euo pipefail
+        # Accept 用 raw:contents 接口默认返回的是 base64 包着的 content,
+        # 解析出来是空的(自己写过一回:读出来三个字段全是空,还以为线上
+        # 没发布)。raw 头直接给文件原文。
+        #
+        # **404 与"读不到"要分开**:清单还不存在是第一次发布时的正常状态,
+        # 而接口抖动/限流给的是别的东西。混在一起,读不到就被当成"没有
+        # 上一次发布" —— 版本号会从头算起,发出一个比线上还旧的号,用户
+        # 的 pip 根本不会升级。
+        MISSING=0
+        read_manifest() {
+          code=$(curl -sS -o "$RUNNER_TEMP/manifest.json" -w "%{http_code}" \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H "Accept: application/vnd.github.raw" \
+            "https://api.github.com/repos/$REPO/contents/releases/builds/manifest.json" \
+            2>/dev/null) || return 1
+          if [ "$code" = "404" ]; then
+            if [ "${{ inputs.allow_missing }}" = "true" ]; then
+              # 真的还不存在(第一次发布)—— 与"读到了却读不出内容"是两回事,
+              # 后面分开处理。
+              MISSING=1
+              : > "$RUNNER_TEMP/manifest.json"
+              return 0
+            fi
+            echo "清单还不存在" >&2
+            return 1
+          fi
+          [ "$code" = "200" ] || return 1
+          [ -s "$RUNNER_TEMP/manifest.json" ] || return 1
+          python3 -c "import json,sys; json.load(open(sys.argv[1]))" \
+            "$RUNNER_TEMP/manifest.json" 2>/dev/null || return 1
+          return 0
+        }
+        got=0
+        for attempt in 1 2 3 4 5 6; do
+          if read_manifest; then
+            got=1
+            break
+          fi
+          echo "第 $attempt 次读清单没拿到可解析的内容,重试" >&2
+          sleep $((attempt * 3))
+        done
+        if [ "$got" != "1" ]; then
+          echo "清单读不到 —— 试了 6 次都没拿到可解析的内容" >&2
+          exit 1
+        fi
+        if [ "$MISSING" = "1" ]; then
+          echo "清单还不存在 —— 按调用方的要求,这算正常" >&2
+          echo "source_commit=" >> "$GITHUB_OUTPUT"
+          echo "published_version=" >> "$GITHUB_OUTPUT"
+          echo "build_id=" >> "$GITHUB_OUTPUT"
+          exit 0
+        fi
+        # 解析写成一行:多行 heredoc 在 YAML 里缩进容易出错,收在这里。
+        read -r sha published build < <(python3 -c "import json,sys;d=json.load(open(sys.argv[1]));print(d.get('source_commit',''),d.get('published_version',''),d.get('build_id',''))" "$RUNNER_TEMP/manifest.json")
+        if [ -z "$sha" ]; then
+          echo "清单里没有 source_commit —— 构件没记来源提交" >&2
+          exit 1
+        fi
+        echo "构件来源提交: $sha"
+        echo "清单发布版本: ${published:-无}"
+        echo "清单构建号: ${build:-无}"
+        echo "source_commit=$sha" >> "$GITHUB_OUTPUT"
+        echo "published_version=$published" >> "$GITHUB_OUTPUT"
+        echo "build_id=$build" >> "$GITHUB_OUTPUT"
