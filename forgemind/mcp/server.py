@@ -186,6 +186,29 @@ def _is_our_own_error(exc: BaseException) -> bool:
     return module.startswith("forgemind") or module == "builtins"
 
 
+def _failure_detail(exc: BaseException, tool: str = "") -> str:
+    """这个异常该对模型说成什么 —— 一处判断,各处引用。
+
+    三种,各有各的说法:
+
+    - 资源类(库被占着 / 存储写不进去):那是"环境暂时用不了",模型该
+      告诉用户去处理环境,而不是换个参数重试。
+    - 我们自己抛的人话(如"symbol 不能为空"):原文留着 —— 模型据此改
+      参数,只说"失败了"对它没有任何用。
+    - 第三方库抛的:只说"原因见服务日志"。原始报错里有本机路径、内部
+      表名与整条 SQL,那些是内部实现,不该出现在给模型的正文里。
+    """
+    from forgemind.core.data.storage import is_resource_error, resource_unavailable_reason
+
+    if is_resource_error(exc):
+        return resource_unavailable_reason(exc)
+    if _is_our_own_error(exc):
+        return str(exc).strip() or "没有更多细节"
+    logger.error("mcp_tool_failed", tool=tool, error_type=type(exc).__name__)
+    logger.debug("mcp_tool_failed_detail", tool=tool, error=str(exc))
+    return "原因见服务日志"
+
+
 def _tool_execution_failed(req_id: Any, tool_name: str, exc: BaseException) -> dict[str, Any]:
     """工具执行失败:在 result 里回 isError,而不是抛协议层错误。
 
@@ -205,16 +228,7 @@ def _tool_execution_failed(req_id: Any, tool_name: str, exc: BaseException) -> d
     # - 我们自己抛的人话(如"symbol 不能为空"):留在正文里有用 ——
     #   模型据此改参数。
     # - 第三方库抛的:只说"原因见服务日志",完整文本留日志。
-    from forgemind.core.data.storage import is_resource_error, resource_unavailable_reason
-
-    if is_resource_error(exc):
-        detail = resource_unavailable_reason(exc)
-    elif _is_our_own_error(exc):
-        detail = str(exc).strip() or "没有更多细节"
-    else:
-        detail = "原因见服务日志"
-        logger.error("mcp_tool_failed", tool=tool_name, error_type=type(exc).__name__)
-        logger.debug("mcp_tool_failed_detail", tool=tool_name, error=str(exc))
+    detail = _failure_detail(exc, tool=tool_name)
     return {
         "jsonrpc": "2.0",
         "id": req_id,
@@ -1064,7 +1078,8 @@ class ForgeMindMCPServer:
         """IC 衰减 — 调用 `compute_ic_decay` 真实计算,无数据时返回结构化错误。
 
         Returns:
-            `{"status": "ok", "by_day": {day: ic}}` 或 `{"status": "empty", "reason": ...}`
+            `{"status": "computed", "ic_by_horizon": {天数: ic}, "ic_mean": ...,
+            "icir": ...}`;没有可用样本时是 `{"status": "no_data", ...}`
         """
         import polars as pl
 
@@ -1073,7 +1088,7 @@ class ForgeMindMCPServer:
             compute_forward_returns,
             get_all_factors,
         )
-        from forgemind.core.factors.ic_monitor import compute_ic_decay
+        from forgemind.core.factors.ic_monitor import compute_ic, compute_ic_decay
 
         all_factors = get_all_factors()
         resolved = self._resolve_factor_name(feature_name, all_factors)
@@ -1115,10 +1130,8 @@ class ForgeMindMCPServer:
                     "status": "store_unavailable",
                     "hint": "本地库暂时用不了;上面说清了该怎么办。",
                 }
-            logger.error("mcp_ic_decay_read_failed", error_type=type(exc).__name__)
-            logger.debug("mcp_ic_decay_read_failed_detail", error=str(exc))
             return {
-                "error": "读取行情失败(原因见服务日志)",
+                "error": _failure_detail(exc, tool="check_ic_decay"),
                 "feature_name": feature_name,
                 "status": "failed",
                 "hint": "确认已运行 `forgemind etl`,且 data/duckdb/main.db 可读。",
@@ -1132,10 +1145,8 @@ class ForgeMindMCPServer:
         try:
             with_factors = compute_alpha158(lf)
         except Exception as exc:
-            logger.error("mcp_factor_compute_failed", error_type=type(exc).__name__)
-            logger.debug("mcp_factor_compute_failed_detail", error=str(exc))
             return {
-                "error": "因子计算失败(原因见服务日志)",
+                "error": _failure_detail(exc, tool="check_ic_decay"),
                 "feature_name": feature_name,
                 "status": "failed",
                 "n_bars": int(n_bars),
@@ -1157,10 +1168,8 @@ class ForgeMindMCPServer:
         try:
             decay = compute_ic_decay(with_returns, feature_name, cols)
         except Exception as exc:
-            logger.error("mcp_ic_decay_compute_failed", error_type=type(exc).__name__)
-            logger.debug("mcp_ic_decay_compute_failed_detail", error=str(exc))
             return {
-                "error": "IC 衰减计算失败(原因见服务日志)",
+                "error": _failure_detail(exc, tool="check_ic_decay"),
                 "feature_name": feature_name,
                 "status": "failed",
                 "n_bars": int(n_bars),
@@ -1176,17 +1185,33 @@ class ForgeMindMCPServer:
                 "n_bars": int(n_bars),
                 "hint": "样本期太短或因子全为常数。",
             }
-        ic_mean = sum(real) / len(real)
-        icir = (
-            ic_mean / (sum((v - ic_mean) ** 2 for v in real) / len(real)) ** 0.5
-            if len(real) > 1 and (sum((v - ic_mean) ** 2 for v in real) / len(real)) ** 0.5 > 0
-            else 0.0
-        )
+
+        # IC 均值与 ICIR 都取**逐期横截面 IC 的时间序列**的统计量,
+        # 与 ic_monitor 同一口径。各 horizon 的 IC 之间求均值与标准差
+        # 不是 ICIR:它们不是同一分布的重复样本 —— horizon 越长 IC 越低
+        # 越平滑,离散度反映的是 horizon 的差异,不是因子表现的稳定性。
+        # 桌面端的因子卡片显示的就是这个值,口径不对,界面上就在显示
+        # 一个名不副实的指标。
+        ic_mean = 0.0
+        ic_std = 0.0
+        icir = 0.0
+        try:
+            ic_result = compute_ic(with_returns, feature_name, cols[0])
+            ic_mean = float(ic_result.ic_mean)
+            ic_std = float(ic_result.ic_std)
+            icir = float(ic_result.icir)
+        except Exception as exc:
+            # 统计量算不出来不该让整次调用失败:衰减曲线已经算出来了,
+            # 那部分仍然有用。缺的字段如实报 0,原因留在日志。
+            logger.error("mcp_ic_stat_failed", error_type=type(exc).__name__)
+            logger.debug("mcp_ic_stat_failed_detail", error=str(exc))
+
         return {
             "feature_name": feature_name,
             "window_days": window_days,
             "ic_by_horizon": series,
             "ic_mean": ic_mean,
+            "ic_std": ic_std,
             "icir": icir,
             "decay_trend": "decaying" if len(real) > 1 and real[-1] < real[0] else "stable",
             "n_bars": int(n_bars),
@@ -1278,10 +1303,8 @@ class ForgeMindMCPServer:
                     "status": "store_unavailable",
                     "hint": "本地库暂时用不了;上面说清了该怎么办。",
                 }
-            logger.error("mcp_get_kline_failed", error_type=type(exc).__name__)
-            logger.debug("mcp_get_kline_failed_detail", error=str(exc))
             return {
-                "error": "读取行情失败(原因见服务日志)",
+                "error": _failure_detail(exc, tool="get_kline"),
                 "symbol": symbol,
                 "status": "failed",
                 "hint": "确认已运行 `forgemind etl` 拉取数据,且 data/duckdb/main.db 可读。",

@@ -144,3 +144,125 @@ class TestTestsDoNotDependOnCwd:
         assert (ROOT / "forgemind/mcp/server.py").exists()
         src = (ROOT / "forgemind/mcp/server.py").read_text(encoding="utf-8")
         assert "_tool_check_ic_decay" in src
+
+
+class TestIcStatisticsUseTheSameDefinition:
+    """IC 均值与 ICIR 必须是同一个口径。
+
+    仓里有两处能算出 IC 统计量:`ic_monitor.compute_ic`(逐期横截面 IC
+    的时间序列)与 MCP 的 `check_ic_decay`。以前 MCP 自己拿"各 horizon
+    的 IC"求均值与标准差,得出的 `icir` **不是 ICIR** —— 那些 IC 不是同一
+    分布的重复样本,horizon 越长越低越平滑,离散度反映的是 horizon 的
+    差异,不是因子表现的稳定性。
+
+    桌面端的因子卡片显示的就是 MCP 这个值,口径不对,界面上就在显示
+    一个名不副实的指标。所以这里做三方对拍:MCP 报的数必须与
+    `ic_monitor` 算出来的一致。
+    """
+
+    @staticmethod
+    def _seed(db_path, symbols=("600519", "000001"), days=90):
+        import datetime as dt
+
+        from forgemind.core.data.storage import DuckDBStorage
+
+        with DuckDBStorage() as db:
+            db.execute(
+                "CREATE TABLE IF NOT EXISTS kline_daily ("
+                "date DATE, symbol VARCHAR, open DOUBLE, high DOUBLE, low DOUBLE, "
+                "close DOUBLE, volume BIGINT, provider VARCHAR, "
+                "PRIMARY KEY (date, symbol))"
+            )
+            rows = []
+            for si, sym in enumerate(symbols):
+                for i in range(days):
+                    d = dt.date(2024, 1, 1) + dt.timedelta(days=i)
+                    if d.weekday() >= 5:
+                        continue
+                    # 走一个能算出非平凡 IC 的价格路径:趋势 + 周期
+                    close = 100.0 * (1 + 0.001 * (si + 1)) ** i
+                    close *= 1.0 + 0.01 * ((-1) ** (i % 5))
+                    rows.append(
+                        (
+                            d,
+                            sym,
+                            close * 0.998,
+                            close * 1.005,
+                            close * 0.995,
+                            round(close, 4),
+                            1_000_000,
+                            "test",
+                        )
+                    )
+            for row in rows:
+                db.execute(
+                    "INSERT INTO kline_daily (date, symbol, open, high, low, close, "
+                    "volume, provider) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                    list(row),
+                )
+
+    def test_mcp_icir_matches_ic_monitor(self, tmp_path, monkeypatch):
+        import json
+
+        import forgemind.core.config.settings as settings_mod
+
+        db_path = tmp_path / "main.db"
+        monkeypatch.setenv("FORGEMIND_DUCKDB_PATH", str(db_path))
+        settings_mod.get_settings.cache_clear()
+        settings_mod.get_settings().duckdb_path = str(db_path)
+
+        self._seed(db_path)
+
+        server = ForgeMindMCPServer()
+
+        # 因子名要经解析拿到真名 —— 工具内部也是这么做的,这里必须用
+        # 同一个名字,否则两边算的根本不是同一个因子。
+        from forgemind.core.factors import get_all_factors
+
+        resolved = server._resolve_factor_name("kmid", get_all_factors())
+        assert resolved, "kmid 应能解析到一个真因子"
+
+        result = asyncio.run(
+            server.handle_request(
+                {
+                    "jsonrpc": "2.0",
+                    "id": 1,
+                    "method": "tools/call",
+                    "params": {
+                        "name": "check_ic_decay",
+                        "arguments": {"feature_name": "kmid", "window_days": 30},
+                    },
+                }
+            )
+        )
+        text = result["result"]["content"][0]["text"]
+        payload = json.loads(text)
+        assert payload.get("status") == "computed", payload
+
+        # 独立算一遍:同样的数据、同样的因子与前瞻收益,走 ic_monitor。
+        import polars as pl
+
+        from forgemind.core.factors import compute_forward_returns
+        from forgemind.core.factors.alpha158 import compute_alpha158
+        from forgemind.core.factors.ic_monitor import compute_ic
+        from forgemind.core.data.storage import DuckDBStorage
+
+        with DuckDBStorage() as db:
+            pdf = db.query_df(
+                "SELECT symbol, date, open, high, low, close, volume "
+                "FROM kline_daily ORDER BY symbol, date"
+            )
+        lf = pl.from_pandas(pdf).lazy()
+        with_factors = compute_alpha158(lf)
+        horizons = sorted({1, 5, 10, 20} | {30})
+        with_returns = compute_forward_returns(with_factors, horizons)
+        expected = compute_ic(with_returns, resolved, "fwd_return_1")
+
+        assert payload["icir"] == pytest.approx(float(expected.icir), abs=1e-9), (
+            f"MCP 报的 ICIR({payload['icir']})与 ic_monitor 算的"
+            f"({expected.icir})不是同一个口径"
+        )
+        assert payload["ic_mean"] == pytest.approx(float(expected.ic_mean), abs=1e-9), (
+            f"MCP 报的 IC 均值({payload['ic_mean']})与 ic_monitor 算的"
+            f"({expected.ic_mean})不是同一个口径"
+        )
