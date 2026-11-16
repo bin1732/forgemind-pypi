@@ -184,3 +184,55 @@ class TestEndpointSweep:
         covered |= {DECIDE_ENDPOINT}
         missing = _routes() - covered
         assert not missing, f"这些端点没有带合法参数真调过: {sorted(missing)}"
+
+
+class TestResourceFailuresAreNotReportedAsMissingData:
+    """库被占着时,接口不能说"还没拉数据",更不能给一组假数字。
+
+    命令行那条通道有 `scripts/check_command_states.py` 守着;接口这一侧
+    在这里守。两边说的是同一件事,判据不该只护一边。
+    """
+
+    def test_backtest_reports_store_unavailable(self, client, monkeypatch):
+        import forgemind.core.data.storage as storage
+
+        def _boom(*args, **kwargs):
+            raise storage.LocalStoreLockedError("/tmp/main.db")
+
+        monkeypatch.setattr(storage, "DuckDBStorage", _boom)
+        resp = client.post(
+            "/api/v1/backtest/run",
+            json={
+                "symbol": "600519.SH",
+                "start_date": "2024-01-01",
+                "end_date": "2024-06-30",
+            },
+        )
+        assert resp.status_code == 503, resp.text
+        detail = str(resp.json().get("detail", ""))
+        assert "占用" in detail or "读不到" in detail, detail
+        # 不能说"先跑 etl 拉数据" —— 拉数据同样连不上那个库
+        assert "etl" not in detail.lower(), detail
+        # 更不能给数字:调用方会拿着那组数字当真
+        assert "total_return" not in resp.text, resp.text
+
+    def test_write_failure_is_also_reported_as_resource(self, client, monkeypatch):
+        """存储写不进去也是资源类,不是"还没拉数据"。"""
+        import forgemind.core.data.storage as storage
+
+        def _boom(*args, **kwargs):
+            raise storage.LocalStoreWriteError("/tmp/main.db")
+
+        monkeypatch.setattr(storage, "DuckDBStorage", _boom)
+        resp = client.post(
+            "/api/v1/backtest/run",
+            json={
+                "symbol": "600519.SH",
+                "start_date": "2024-01-01",
+                "end_date": "2024-06-30",
+            },
+        )
+        assert resp.status_code == 503, resp.text
+        detail = str(resp.json().get("detail", ""))
+        assert "写不进去" in detail or "读不到" in detail, detail
+        assert "total_return" not in resp.text, resp.text

@@ -212,8 +212,10 @@ def _load_backtest_prices(symbol: str, start: str, end: str):
     from forgemind.core.data.storage import (
         DuckDBStorage,
         bare_symbol,
+        is_resource_error,
         market_data_unavailable_reason,
         market_data_unreadable_reason,
+        resource_unavailable_reason,
     )
 
     try:
@@ -224,7 +226,12 @@ def _load_backtest_prices(symbol: str, start: str, end: str):
                 "AND date BETWEEN ? AND ? ORDER BY date ASC",
                 [bare_symbol(symbol), start, end],
             )
-    except Exception:
+    except Exception as exc:
+        if is_resource_error(exc):
+            # 库被占着 / 写不进去:这不是"还没拉数据"。说成后者会把用户
+            # 引到一条同样跑不通的路上 —— 拉数据同样连不上那个库。
+            # data_source 也标出来,调用方能据此判断该不该重试。
+            return None, "store_unavailable", 0, resource_unavailable_reason(exc)
         # 表还没建(没跑过 forgemind etl)或 schema 异常 —— 走降级路径。
         # 异常类型名不进响应:它是内部实现,写出去读的人只会以为程序坏了。
         return None, "synthetic_random_walk", 0, market_data_unreadable_reason()
@@ -256,6 +263,11 @@ async def run_backtest(req: BacktestRequest):
             req.start_date,
             req.end_date,
         )
+        if data_source == "store_unavailable":
+            # 本地库暂时用不了。返回一组随机游走当回测结果,比报错更糟 ——
+            # 调用方会拿着那组数字当真。503 是"服务暂时不可用",客户端
+            # 可以等一会儿重试。
+            raise HTTPException(status_code=503, detail=fallback_reason)
         if price_df is None:
             dates = pd.date_range(req.start_date, req.end_date, freq="D")
             n = len(dates)
@@ -297,7 +309,19 @@ async def run_backtest(req: BacktestRequest):
             n_bars=n_bars,
             warning=warning,
         )
+    except HTTPException:
+        # 自己抛的 HTTPException 原样抛出。HTTPException 是 Exception 的
+        # 子类,不接住它,端点自己给出的 503 会被下面的兜底改写成 500 ——
+        # 客户端于是以为服务端坏了,而实际只是本地库暂时用不了。
+        raise
     except Exception as e:
+        from forgemind.core.data.storage import is_resource_error
+
+        if is_resource_error(e):
+            # 资源类故障:库被占着或写不进去。503 是"服务暂时不可用",
+            # 客户端可以等一会儿重试。
+            logger.warning("backtest_store_unavailable", symbol=req.symbol)
+            raise HTTPException(status_code=503, detail=str(e)) from e
         logger.exception("backtest_failed", symbol=req.symbol)
         # 异常类型名留在日志里;响应里只说人话 —— 读者看到
         # "ValueError" 只以为程序坏了,而程序没坏。
