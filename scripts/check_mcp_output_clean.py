@@ -39,6 +39,28 @@ sys.path.insert(0, str(REPO / "scripts"))
 import check_cli_output_clean as leak  # noqa: E402
 import mcp_tool_probes as probes  # noqa: E402
 
+#: MCP 除了工具,还有两类原语也直接回灌给模型:prompts 与 resources。
+#: 它们以前没人扫 —— 往提示词模板里写一句内部表名,或者让某个
+#: resource 返回一段 SQL,都没人发现。
+#:
+#: prompts 要带**真实参数**:模板里的占位符没被替换的话,渲染出来的
+#: 提示词会让模型拿着 "{symbol}" 去调工具。
+PROMPT_PROBES: list[tuple[str, dict[str, str]]] = [
+    ("stock_analysis", {"symbol": "600519.SH"}),
+    ("risk_check", {"symbol": "600519.SH"}),
+    ("factor_research", {"feature_name": "KMID"}),
+]
+
+#: resources 逐个读一遍。
+RESOURCE_URIS: tuple[str, ...] = (
+    "forgemind://features",
+    "forgemind://strategies",
+    "forgemind://symbols",
+    "forgemind://signals",
+    "forgemind://brokers",
+    "forgemind://portfolio",
+)
+
 #: "读不到"该有的说法。库被占着时,输出里至少要有一个。
 UNREADABLE_MARKERS = ("读不到", "占用", "暂时用不了")
 
@@ -206,6 +228,68 @@ def _lock_holder(db_path: Path):
     return proc
 
 
+def _scan_problems(label: str, text: str, readme: str) -> list[str]:
+    """一段正文里有没有内部实现。返回问题清单(空 = 干净)。"""
+    problems: list[str] = []
+    for kind, segment in leak._scan(text, leak.COMPILED_LEAKS):
+        problems.append(f"{label}: 输出里有{kind}: ...{segment}...")
+    # 内部表名:说了就要在 README 里有交代
+    for item in leak.check_table_names(text, readme):
+        problems.append(f"{label}: 输出里{item}")
+    return problems
+
+
+def check_prompts_and_resources(send, read, readme: str) -> list[str]:
+    """prompts 与 resources 也直接回灌给模型,一样要扫。"""
+    problems: list[str] = []
+    for name, args in PROMPT_PROBES:
+        send(
+            {
+                "jsonrpc": "2.0",
+                "id": f"prompt-{name}",
+                "method": "prompts/get",
+                "params": {"name": name, "arguments": args},
+            }
+        )
+        response = read()
+        if response is None:
+            problems.append(f"[prompts] {name}: 没有返回内容")
+            continue
+        if "error" in response:
+            problems.append(f"[prompts] {name}: 调用报错 —— {response['error'].get('message')}")
+            continue
+        messages = (response.get("result") or {}).get("messages") or []
+        text = " ".join(str(m.get("content", {}).get("text", "")) for m in messages)
+        if not text:
+            problems.append(f"[prompts] {name}: 渲染出来的提示词是空的")
+            continue
+        problems.extend(_scan_problems(f"prompts/{name}", text, readme))
+
+    for uri in RESOURCE_URIS:
+        send(
+            {
+                "jsonrpc": "2.0",
+                "id": f"res-{uri}",
+                "method": "resources/read",
+                "params": {"uri": uri},
+            }
+        )
+        response = read()
+        if response is None:
+            problems.append(f"[resources] {uri}: 没有返回内容")
+            continue
+        if "error" in response:
+            problems.append(f"[resources] {uri}: 读取报错 —— {response['error'].get('message')}")
+            continue
+        contents = (response.get("result") or {}).get("contents") or []
+        text = " ".join(str(c.get("text", "")) for c in contents)
+        if not text:
+            problems.append(f"[resources] {uri}: 没有内容")
+            continue
+        problems.extend(_scan_problems(f"resources/{uri}", text, readme))
+    return problems
+
+
 def check_tool_outputs(send, read, label: str) -> list[str]:
     """逐个工具带合法参数真调一遍,扫输出里的内部实现。"""
     problems: list[str] = []
@@ -282,9 +366,11 @@ def main() -> int:
         db.parent.mkdir(parents=True, exist_ok=True)
         _seed_klines(db)
 
+        readme = (REPO / "README.md").read_text(encoding="utf-8")
         send, read, proc = _mcp_client(db)
         try:
             problems.extend(check_tool_outputs(send, read, "[逐个工具]"))
+            problems.extend(check_prompts_and_resources(send, read, readme))
         finally:
             _close(proc)
 
@@ -297,8 +383,9 @@ def main() -> int:
             print(" -", item)
         return 1
     print(
-        f"MCP 工具输出干净({len(probes.TOOL_CALLS)} 个工具逐个真调过,"
-        f"外加库被占着时 {len(probes.TOOLS_TOUCHING_STORE)} 个读库工具的状态核对)"
+        f"MCP 输出干净({len(probes.TOOL_CALLS)} 个工具逐个真调过,"
+        f"外加库被占着时 {len(probes.TOOLS_TOUCHING_STORE)} 个读库工具的状态核对,"
+        f"以及 {len(PROMPT_PROBES)} 个提示词与 {len(RESOURCE_URIS)} 个资源)"
     )
     return 0
 
