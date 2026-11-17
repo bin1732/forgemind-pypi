@@ -40,6 +40,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The research example has tests of its own. It had none, and the option
   that makes it useful for a program was broken.
 
+- A checker runs every MCP tool with legal arguments and scans what
+  comes back for exception class names, SQL fragments, stack traces and
+  local paths. The prompts and the resources are scanned the same way: their
+  text reaches the model just as directly as a tool result does.
+- A checker runs the commands in several states and compares what they say
+  with what they should say. It covers the state where the local store
+  cannot be written to, and it covers `etl` while the store is locked.
+
 ### Fixed
 - The full-scale concurrency tier runs again. A refactor had removed the
   step that executes it, so the workflow checked out the source, read the
@@ -500,6 +508,53 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the parser read the envelope instead of the file, so every field came
   back empty.
 
+- The desktop UI workflow no longer fails at parse time. `hashFiles` is
+  only usable in a step condition; at job level it made the workflow fail
+  before it could run anything.
+- The code quality workflow no longer imports project modules that need
+  the runtime dependencies it does not install. The import check moved to
+  the test workflow, where those dependencies are present.
+- The release workflow parses again. A block of embedded Python was
+  written flush against the left margin, which ended the YAML block
+  scalar and broke the file.
+- The dependency vulnerability scan audits the project dependencies that
+  were just installed instead of the packages that come with the runner
+  image. The action referenced by name was not published under that name.
+- The test pipeline installs the dependencies listed in
+  `requirements-ci.txt`, whose versions match the combination verified
+  locally. Resolving by range installed releases above the project's own
+  upper bounds, so the code was running against a different API than it
+  was written for.
+- The pipeline keeps a record of the dependency installation and of any
+  test failure in the repository, so a cause does not have to be dug out
+  of the workflow logs.
+
+- A command that cannot read the local store no longer reports
+  success. It used to fall back to synthetic prices, print a Sharpe ratio
+  that looked like a result and exit with 0; it now exits with 4 and says
+  the store is unavailable. A store that cannot be written to is recognized
+  as well - the failure happens while connecting, before any query runs.
+- The interface tells "not computed" apart from "no data". The backend
+  computes a limited number of factors per call, and the factors it
+  skipped used to show up as "no data".
+- Switching the symbol in the interface no longer leaves the previous
+  symbol's IC on the factors that were not computed for the new one.
+- The IC and the ICIR the interface shows come from the same definition
+  as the factor monitor: the time series of the cross-sectional IC per
+  period. The tool used to average the IC across horizons and call the
+  spread of those numbers an ICIR, which is a different quantity.
+- The heavy test tier samples across the whole file instead of the first
+  few cases in it. The cases at the end of a file used to run only in the
+  full-scale job, which happens twice a day.
+- The release body and the checkers read the published manifest with a
+  retry, and they tell a missing manifest apart from a manifest that could
+  not be read. A manifest that could not be read used to be taken for
+  "there was no previous release", which made the next release compute an
+  older version number than the one already online.
+- The command that resumes a failed release accepts a run whose commit is
+  an ancestor of the main branch. It used to insist on the head of the
+  branch, which the release itself moves, so the normal case was refused.
+
 ### Changed
 - Dependencies are now checked against what the code actually imports, in
   both directions. Thirteen packages that nothing in the source imported
@@ -535,28 +590,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (security scan, Python tests, desktop UI, code quality). Each one's
   outcome can be queried and re-run on its own, and one failing workflow
   no longer hides the state of the others.
-
-### Fixed
-- The desktop UI workflow no longer fails at parse time. `hashFiles` is
-  only usable in a step condition; at job level it made the workflow fail
-  before it could run anything.
-- The code quality workflow no longer imports project modules that need
-  the runtime dependencies it does not install. The import check moved to
-  the test workflow, where those dependencies are present.
-- The release workflow parses again. A block of embedded Python was
-  written flush against the left margin, which ended the YAML block
-  scalar and broke the file.
-- The dependency vulnerability scan audits the project dependencies that
-  were just installed instead of the packages that come with the runner
-  image. The action referenced by name was not published under that name.
-- The test pipeline installs the dependencies listed in
-  `requirements-ci.txt`, whose versions match the combination verified
-  locally. Resolving by range installed releases above the project's own
-  upper bounds, so the code was running against a different API than it
-  was written for.
-- The pipeline keeps a record of the dependency installation and of any
-  test failure in the repository, so a cause does not have to be dug out
-  of the workflow logs.
 
 ### Removed
 - Build outputs and the internal trigger file are no longer tracked in the
