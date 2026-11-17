@@ -781,9 +781,14 @@ def cmd_etl(args):
             elif "store_write_failed" in reasons:
                 print("   存储写不进去(磁盘满、配额用完或没有写权限)。")
                 print("   清出空间或改好权限后重试,或用 FORGEMIND_DATA_DIR 换个目录。")
+            elif "data_inconsistent" in reasons:
+                print("   上游给的行情自相矛盾(最高价低于收盘价之类),已跳过这些行。")
+                print("   换个数据源或稍后重试;落库的行本身是自洽的,不会污染指标。")
             elif "akshare_not_installed" in reasons:
                 print("   安装带 A 股数据源的 extra 后重试:")
                 print("     pip install 'forgemind[cn]'")
+            elif "empty_result" in reasons:
+                print("   这批标的没取到数据 —— 确认代码是 6 位纯数字,且日期区间里有交易日。")
             raise SystemExit(rc)
         else:
             try:
