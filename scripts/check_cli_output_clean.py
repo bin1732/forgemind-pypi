@@ -23,6 +23,7 @@
 
 from __future__ import annotations
 
+import json
 import re
 import subprocess
 import sys
@@ -101,15 +102,74 @@ COMPILED_LOOSE = [(re.compile(p), label) for p, label in LOOSE_PATTERNS]
 COMPILED_LEAKS = [(re.compile(p), label) for p, label in LEAK_PATTERNS]
 
 
-def _run(args: list[str], repo_root: Path, timeout: int = 240) -> tuple[int, str, str]:
-    """在全新的数据目录里跑一条命令,返回 (退出码, stdout, stderr)。"""
+#: 额外要扫的命令:etl。
+#:
+#: etl 会真去拉数据 —— 装了 akshare 的机器上它会联网,结果取决于网络,
+#: 判据不能有这种不确定性。所以给它注入一个"import 就抛错"的假上游模块,
+#: 让上游故障能被确定地造出来,输出再逐行扫。
+#:
+#: 它以前根本没人扫:这道判据与状态核对都只跑那七条命令,唯独漏了最会
+#: 说错的 etl —— 它把异常类名打给了用户,没人发现。
+#: 额外要扫的命令:etl。
+#:
+#: etl 会真去拉数据 —— 装了 akshare 的机器上它会联网,结果取决于网络,
+#: 判据不能有这种不确定性。所以给它注入一个"假上游模块",让上游故障能
+#: 被确定地造出来,输出再逐行扫。
+#:
+#: 它以前根本没人扫:这道判据与状态核对都只跑那七条命令,唯独漏了最会
+#: 说错的 etl —— 它把异常类名打给了用户,没人发现。
+ETL_PROBES: list[tuple[str, str, list[str]]] = [
+    (
+        "上游没装",
+        "raise ImportError('No module named akshare')\n",
+        ["etl", "--symbols", "600519", "--start", "2024-01-01", "--end", "2024-01-31"],
+    ),
+    (
+        "上游超时",
+        "raise TimeoutError('上游行情源无响应')\n",
+        ["etl", "--symbols", "600519", "--start", "2024-01-01", "--end", "2024-01-31"],
+    ),
+    (
+        # 这一条专门走**兜底**分类:前面两种都被认得出具体原因,碰不到
+        # "没分类出来"那条路 —— 而那条路正是异常类名最容易漏出去的地方。
+        #
+        # 假模块用模块级 __getattr__:任何上游接口一被调用就抛错,这样
+        # 不必知道上游到底有哪些函数名。import 本身要成功 —— import 就
+        # 抛的话,失败发生在数据源构造阶段,压根走不到分类器。
+        "上游返回了看不懂的东西",
+        "def __getattr__(name):\n"
+        "    def _boom(*args, **kwargs):\n"
+        "        raise RuntimeError('上游给了一坨看不懂的东西')\n"
+        "    return _boom\n",
+        ["etl", "--symbols", "600519", "--start", "2024-01-01", "--end", "2024-01-31"],
+    ),
+]
+
+
+def _run(
+    args: list[str],
+    repo_root: Path,
+    timeout: int = 240,
+    fake_upstream: str | None = None,
+) -> tuple[int, str, str]:
+    """在全新的数据目录里跑一条命令,返回 (退出码, stdout, stderr)。
+
+    fake_upstream 给定时,先造一个 import 就抛错的假上游模块,让命令走
+    确定的上游故障路径,而不是真去联网。
+    """
     import os
 
     workdir = tempfile.mkdtemp(prefix="forgemind_clean_")
     env = dict(os.environ)
     env["FORGEMIND_DATA_DIR"] = str(Path(workdir) / "data")
     env["FORGEMIND_DUCKDB_PATH"] = str(Path(workdir) / "data" / "duckdb" / "main.db")
-    env["PYTHONPATH"] = str(repo_root)
+    if fake_upstream is not None:
+        pkg = Path(workdir) / "fake_upstream"
+        pkg.mkdir(parents=True, exist_ok=True)
+        (pkg / "akshare.py").write_text(fake_upstream, encoding="utf-8")
+        env["PYTHONPATH"] = os.pathsep.join([str(pkg), str(repo_root)])
+    else:
+        env["PYTHONPATH"] = str(repo_root)
     env["PYTHONSAFEPATH"] = "1"
     # 不设 FORGEMIND_LOG_LEVEL —— 走真实用户路径(CLI 自己会把级别设成 WARNING)
     try:
@@ -124,6 +184,30 @@ def _run(args: list[str], repo_root: Path, timeout: int = 240) -> tuple[int, str
     except subprocess.TimeoutExpired:
         return 124, "", f"(超时 {timeout}s)"
     return proc.returncode, proc.stdout or "", proc.stderr or ""
+
+
+def _strip_log_records(text: str) -> str:
+    """把结构化日志记录从文本里摘掉。
+
+    运维通道里打完整异常原文是对的 —— JSON 日志的 exception 字段就是给
+    排查用的。要禁的是**裸的**栈回溯:异常直接摔在终端上,没有结构化
+    包裹,读的人只会觉得程序崩了,查不出是哪一步。
+
+    这两条混在一起判,会让"失败时要留原文"的做法被判成泄露 ——
+    实测过一次:命令失败时日志里的 traceback 让整档判据红了。
+    """
+    kept: list[str] = []
+    for line in text.splitlines():
+        stripped = line.strip()
+        if stripped.startswith("{") and stripped.endswith("}"):
+            try:
+                payload = json.loads(stripped)
+            except ValueError:
+                payload = None
+            if isinstance(payload, dict) and find_log_records(payload):
+                continue
+        kept.append(line)
+    return "\n".join(kept)
 
 
 def _scan(text: str, patterns: list[tuple[re.Pattern, str]]) -> list[tuple[str, str]]:
@@ -178,11 +262,22 @@ def check_outputs(repo_root: Path, readme: str) -> list[str]:
         rc, out, err = _run(args, repo_root)
         for stream, text, patterns in (
             ("stdout", out, COMPILED_STRICT),
-            ("stderr", err, COMPILED_LOOSE),
+            ("stderr", _strip_log_records(err), COMPILED_LOOSE),
         ):
             for kind, segment in _scan(text, patterns):
                 problems.append(f"{label} 的 {stream} 里有{kind}:…{segment}…")
         # 表名:说了就要在 README 里有交代
+        for item in check_table_names(out, readme):
+            problems.append(f"{label} 的输出里{item}")
+    for scenario, upstream, args in ETL_PROBES:
+        label = f"forgemind {' '.join(args)} [{scenario}]"
+        rc, out, err = _run(args, repo_root, fake_upstream=upstream)
+        for stream, text, patterns in (
+            ("stdout", out, COMPILED_STRICT),
+            ("stderr", _strip_log_records(err), COMPILED_LOOSE),
+        ):
+            for kind, segment in _scan(text, patterns):
+                problems.append(f"{label} 的 {stream} 里有{kind}:…{segment}…")
         for item in check_table_names(out, readme):
             problems.append(f"{label} 的输出里{item}")
     return problems
@@ -198,7 +293,10 @@ def main(repo_root: Path | None = None) -> int:
         for item in problems:
             print(" -", item)
         return 1
-    print(f"命令行输出干净({len(COMMANDS)} 条命令在全新数据目录里实跑过)")
+    print(
+        f"命令行输出干净({len(COMMANDS)} 条命令在全新数据目录里实跑过,"
+        f"外加 etl 的 {len(ETL_PROBES)} 种上游故障场景)"
+    )
     return 0
 
 
