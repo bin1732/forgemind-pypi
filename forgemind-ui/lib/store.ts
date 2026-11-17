@@ -31,6 +31,14 @@ export interface FactorMeta {
   category: string;
   /** IC 由 check_ic_decay 现算,目录里没有 —— 缺失时面板显示 "—" 而不是 0 */
   ic?: number;
+  /**
+   * 这次**算过**没有。
+   *
+   * 缺 IC 有两种完全不同的原因:后端一次只算一部分因子(限流),剩下的那些
+   * 是"**没算**";算过了但这批样本上算不出来,是"**算不出**"。
+   * 两者都显示成"无数据"的话,用户会以为那些因子真没有 IC。
+   */
+  icComputed?: boolean;
 }
 
 export interface PortfolioPosition {
@@ -133,6 +141,11 @@ interface AppState {
   factorIcState: "idle" | "loading" | "ready" | "failed";
   setFactorIcState: (state: "idle" | "loading" | "ready" | "failed") => void;
 
+  // 本次 IC 计算的覆盖度 —— 后端一次只算一部分因子(限流),
+  // 没算到的那部分要说清是"没算",不是"没有"。
+  factorIcCoverage: { total: number; computed: number } | null;
+  setFactorIcCoverage: (c: { total: number; computed: number } | null) => void;
+
   // 策略清单 —— 由 forgemind://strategies 派生
   //
   // cli_runnable 与 unusable_reason 来自后端:命令行喂不了某些策略
@@ -218,6 +231,8 @@ export const useAppStore = create<AppState>()(
 
       factorIcState: "idle",
       setFactorIcState: (factorIcState) => set({ factorIcState }),
+      factorIcCoverage: null,
+      setFactorIcCoverage: (factorIcCoverage) => set({ factorIcCoverage }),
 
       strategies: [],
       setStrategies: (strategies) => set({ strategies, strategiesLoaded: true }),

@@ -67,6 +67,8 @@ export function FactorGrid() {
   const factorsLoaded = useAppStore((s) => s.factorsLoaded);
   // IC 是现算的,算之前不能显示成"无数据" —— 那是"还没算出来"
   const icState = useAppStore((s) => s.factorIcState);
+  // 本次算了一部分因子还是全部 —— 决定了没 IC 的那些因子该怎么显示
+  const coverage = useAppStore((s) => s.factorIcCoverage);
 
   // 选中因子 → 拉 IC 详情
   useEffect(() => {
@@ -182,6 +184,13 @@ export function FactorGrid() {
         </div>
       </div>
 
+      {coverage && coverage.computed < coverage.total && (
+        <div className="text-[10px] text-muted-foreground">
+          本次算了 {coverage.computed}/{coverage.total} 个因子的 IC,其余未计算
+          —— 未计算不是"没有 IC"。
+        </div>
+      )}
+
       <div className="flex flex-wrap gap-1">
         <button
           onClick={() => setFilter("all")}
@@ -242,7 +251,14 @@ export function FactorGrid() {
               )}>
                 {f.ic === undefined
                   ? (icState === "ready"
-                      ? "无数据"
+                      ? // 三种"没有 IC"要分开:算不出(算过了,这批样本
+                        // 上没有有效样本)、未计算(后端这次只算了一部分)、
+                        // 无数据(真没有)。混成"无数据"就是骗人。
+                        f.icComputed
+                        ? "算不出"
+                        : coverage
+                          ? "未计算"
+                          : "无数据"
                       : icState === "failed"
                         ? "取不到"
                         : icState === "loading"

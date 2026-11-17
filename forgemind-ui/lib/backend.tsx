@@ -240,6 +240,10 @@ export async function loadFactorIC(symbol: string): Promise<void> {
                   ?.result?.content?.[0]?.text;
   let r: {
     status: string;
+    /** 因子总数 —— 后端一次只算一部分,这个数字让界面能说清"没算" */
+    n_factors_total?: number;
+    /** 这次返回了多少个因子 */
+    n_factors_returned?: number;
     factors?: Array<{
       name: string;
       ic: number | null;
@@ -268,6 +272,13 @@ export async function loadFactorIC(symbol: string): Promise<void> {
     useAppStore.getState().setFactorIcState("failed");
     return;
   }
+  // 覆盖度:后端一次只算一部分因子(限流),没算到的那部分界面要说
+  // "没算",不能显示成"无数据" —— 用户会以为那些因子真没有 IC。
+  const total = typeof r?.n_factors_total === "number" ? r.n_factors_total : null;
+  const returned = typeof r?.n_factors_returned === "number" ? r.n_factors_returned : null;
+  useAppStore.getState().setFactorIcCoverage(
+    total !== null && returned !== null ? { total, computed: returned } : null,
+  );
   if (!r?.factors?.length) {
     useAppStore.getState().setFactorIcState("ready");
     return;
@@ -286,8 +297,17 @@ function mergeFactorICIntoStore(byName: Record<string, { ic: number | null; icir
   useAppStore.setState((state) => ({
     factors: state.factors.map((f) => {
       const found = byName[f.name];
-      if (!found) return f;
-      return { ...f, ic: found.ic ?? undefined, icir: found.icir ?? undefined };
+      // 这次没算到的因子:**清掉上一个标的的 IC**。留着的话,切了标的
+      // 界面还会显示上一个标的的数字 —— 那是把一个标的的结论挂到另一个
+      // 标的上。它是"没算",不是"没有"。
+      if (!found) return { ...f, ic: undefined, icir: undefined, icComputed: false };
+      // 算过了,但这批样本上算不出 IC(样本太短、因子是常数)。
+      return {
+        ...f,
+        ic: found.ic ?? undefined,
+        icir: found.icir ?? undefined,
+        icComputed: true,
+      };
     }),
   }));
 }
