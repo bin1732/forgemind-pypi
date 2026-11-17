@@ -384,6 +384,50 @@ class AKShareDataSource:
         return df
 
 
+def _drop_inconsistent_rows(df: "pd.DataFrame") -> tuple["pd.DataFrame", int]:
+    """去掉自相矛盾的行,返回 (剩下的, 去掉的条数)。
+
+    上游偶尔会给出这样的行:最高价比收盘价还低、最低价比开盘价还高。
+    这种行进库之后,回撤、Sharpe 之类全都跟着算错,而库里只躺着"看起来
+    正常"的数字 —— 没人知道错在哪一行。所以直接挡在门外。
+
+    判据:
+    - high 不小于 open 与 close 的较大者
+    - low 不大于 open 与 close 的较小者
+    - 收盘价为正
+    - 成交量不小于 0
+
+    **缺值的行不判**:某个源本来就不给 high/low,那是"缺"不是"矛盾",
+    照样落库(别的列还有用)。
+    """
+    import pandas as pd
+
+    for col in ("open", "high", "low", "close", "volume"):
+        if col not in df.columns:
+            return df, 0
+    o = pd.to_numeric(df["open"], errors="coerce")
+    h = pd.to_numeric(df["high"], errors="coerce")
+    lo = pd.to_numeric(df["low"], errors="coerce")
+    c = pd.to_numeric(df["close"], errors="coerce")
+    v = pd.to_numeric(df["volume"], errors="coerce")
+    # 容差:上游的浮点数有末位误差,差一点点不该算成矛盾。
+    eps = 1e-9
+    ok = (
+        (h.isna() | ((h + eps >= o) & (h + eps >= c)))
+        & (lo.isna() | ((lo - eps <= o) & (lo - eps <= c)))
+        & (c.isna() | (c > 0))
+        & (v.isna() | (v >= 0))
+    )
+    bad = df[~ok]
+    if bad.empty:
+        return df, 0
+    kept = df[ok].copy()
+    # attrs 里带着数据来源(provider) —— 过滤之后要留着,不然落库时
+    # provider 会变成 unknown,溯源就断了。
+    kept.attrs.update(df.attrs)
+    return kept, int(len(bad))
+
+
 class AKShareETL:
     """
     AKShare ETL — 把数据落到 DuckDB
@@ -476,6 +520,20 @@ class AKShareETL:
                         # 记录该标的失败数与原因,不再静默跳过
                         reason = ds._last_error or "empty_result(可能是代码无数据或日期区间为空)"
                         failures[reason] = failures.get(reason, 0) + 1
+                        continue
+                    # 自相矛盾的行(最高价低于收盘价之类)不进库:它们会
+                    # 让下游所有指标算错,而错在哪一行看不出来。挡掉并
+                    # 按原因计数,用户就能知道是上游给了坏数据。
+                    df, n_inconsistent = _drop_inconsistent_rows(df)
+                    if n_inconsistent:
+                        reason = "data_inconsistent(高低收不自洽)"
+                        failures[reason] = failures.get(reason, 0) + n_inconsistent
+                        logger.warning(
+                            "akshare_etl_dropped_inconsistent_rows",
+                            symbol=symbol,
+                            dropped=n_inconsistent,
+                        )
+                    if df.empty:
                         continue
                     report[symbol] = len(df)
 
