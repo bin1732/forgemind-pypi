@@ -502,17 +502,44 @@ class TestEtlFailureIsDiagnosable:
 
         assert expected in AKShareDataSource._classify_fetch_error(exc)
 
-    def test_run_returns_failure_breakdown(self):
-        """run() 必须把每个标的的成功/失败统计带出来,而不是只有 klines 计数"""
-        import inspect
+    def test_run_returns_failure_breakdown(self, tmp_path, monkeypatch):
+        """run() 必须把每个标的的成功/失败统计带出来,而不是只有 klines 计数
 
-        from forgemind.core.data.akshare_etl import AKShareETL
+        真跑一次:让取数失败,看返回的 failures 里有没有说清原因。
 
-        src = inspect.getsource(AKShareETL.run)
-        assert '"failures"' in src or "'failures'" in src, "run() 未返回失败分类"
-        assert "failures" in src, "run() 未统计失败标的"
-        assert "continue" not in src.split("if df.empty")[-1][:200], \
-            "取数失败仍在静默 continue"
+        这条原来盯的是源码里某个字面量(某处之后不许出现 continue)——
+        换个写法就红,行为没变也红,那是脆的判据:它挡不住"静默跳过",
+        只挡得住某一种写法。现在盯行为:失败必须进 failures。
+        """
+        import asyncio
+
+        import pandas as pd
+
+        import forgemind.core.data.akshare_etl as mod
+
+        class FakeDS:
+            _last_error = "network_unreachable"
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *a):
+                return False
+
+            async def get_stock_list(self):
+                return pd.DataFrame()
+
+            async def get_history(self, symbol, *a, **k):
+                return pd.DataFrame()
+
+        monkeypatch.setattr(mod, "AKShareDataSource", FakeDS)
+        etl = mod.AKShareETL()
+        result = asyncio.run(
+            etl.run(symbols=["600519"], start="2024-01-01", end="2024-01-31")
+        )
+        failures = result.get("failures") or {}
+        assert failures, f"取数失败了却没进失败分类: {result}"
+        assert any("network" in reason for reason in failures), failures
 
     def test_data_source_initialises_error_state(self):
         from forgemind.core.data.akshare_etl import AKShareDataSource
