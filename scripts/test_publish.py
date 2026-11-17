@@ -12,6 +12,7 @@ import base64
 import hashlib
 import json
 import sys
+import tempfile
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -180,6 +181,65 @@ class TestIndexHtml:
             "a" * 64, "forgemind-2026.9.3.post54-py3-none-any.whl", "42"
         ).decode()
         assert "post54" in html, html
+
+
+class TestOldIndexStillInstalls:
+    """旧索引上的那一版,资产不能被删光。
+
+    pip 会缓存 simple 索引(默认十几分钟)。缓存里的旧索引可能还指着上
+    一个版本 —— 那个版本的资产被删了,那台机器上的 pip install 就是
+    404,报"找不到分发文件",看着像索引坏了。实测过:常规档里那条
+    "README 的安装命令真跑 pip download"就是这么红的。
+    """
+
+    def test_index_lists_the_previous_version_too(self):
+        html = publish.index_html(
+            "b" * 64,
+            "forgemind-2026.9.3.post12-py3-none-any.whl",
+            "43",
+            older=(("forgemind-2026.9.3.post11-py3-none-any.whl", "a" * 64),),
+        ).decode()
+        assert "post12-py3-none-any.whl" in html, html
+        assert "post11-py3-none-any.whl" in html, html
+        assert "#sha256=" + "a" * 64 in html, html
+
+    def test_old_index_entries_are_parsed(self):
+        html = (
+            '<a href="https://github.com/o/r/releases/download/continuous/'
+            'forgemind-2026.9.3.post11-py3-none-any.whl#sha256=' + "a" * 64 + '">'
+            "forgemind-2026.9.3.post11-py3-none-any.whl</a>"
+        )
+        entries = publish.parse_index_entries(html)
+        assert entries == [("forgemind-2026.9.3.post11-py3-none-any.whl", "a" * 64)], entries
+
+    def test_asset_still_listed_in_the_index_is_not_deleted(self):
+        """索引上还列着的那一版,资产要留着"""
+        old = {"name": "forgemind-2026.9.3.post10-linux", "url": "https://api/assets/1"}
+        f = Path(tempfile.mkdtemp()) / "forgemind-2026.9.3.post11-linux"
+        f.write_bytes(b"x" * 10)
+        seq = []
+
+        def call(method, url, data=None, headers=None, retries=4):
+            if method == "POST":
+                return 201, {}
+            if method == "DELETE":
+                seq.append(url.rsplit("/", 1)[-1])
+                return 204, None
+            raise AssertionError(f"未预期的请求: {method} {url}")
+
+        rel = {
+            "id": 7,
+            "upload_url": "https://uploads.github.com/assets{?name,label}",
+            "assets": [old],
+        }
+        publish.sync_release_assets(
+            rel,
+            [f],
+            "2026.9.3.post11",
+            call,
+            keep_extra=("forgemind-2026.9.3.post10-linux",),
+        )
+        assert seq == [], f"索引上还列着的资产不该被删,实际删了: {seq}"
 
 
 class TestGitWrite:

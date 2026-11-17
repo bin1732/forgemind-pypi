@@ -151,7 +151,13 @@ def git_write(api: str, branch: str, entries, message: str):
     return 0, None
 
 
-def index_html(sha256: str, filename: str, build_id: str, repo: str = DEFAULT_REPO) -> bytes:
+def index_html(
+    sha256: str,
+    filename: str,
+    build_id: str,
+    repo: str = DEFAULT_REPO,
+    older: tuple[tuple[str, str], ...] = (),
+) -> bytes:
     """索引页。声明的校验值必须与文件内容一致。
 
     链接指向 **Release 资产**(github.com 上的那个 continuous 发布),
@@ -164,13 +170,57 @@ def index_html(sha256: str, filename: str, build_id: str, repo: str = DEFAULT_RE
     - 资产名带着版本号,CDN 不会把旧副本发给以为自己在装新版的人。
 
     校验值与资产内容一致 —— 上线前那一步会核对过(见 asset_downloadable)。
+
+    **列出最近两个版本**:pip 会缓存 simple 索引(默认十几分钟),缓存里的
+    旧索引可能还指着上一个版本。那个版本的资产要是已经被删掉,那台机器
+    上的 pip install 就是 404 —— 报"找不到分发文件",看着像索引坏了。
+    索引里留着它,缓存的用户至少能装上一版;新索引则让 pip 挑到最新的。
+
+    older 是 [(文件名, sha256), ...],按新到旧排。
     """
+    links = []
+    for name, sha in [(filename, sha256), *older]:
+        links.append(
+            f'    <a href="https://github.com/{repo}/releases/download/continuous/'
+            f'{quote(name)}#sha256={sha}">{name}</a><br/>\n'
+        )
     return (
-        "<!DOCTYPE html>\n<html>\n  <body>\n    <a href=\"https://github.com/"
-        f"{repo}/releases/download/continuous/{quote(filename)}"
-        f"#sha256={sha256}\">"
-        f"{filename}</a><br/>\n  </body>\n</html>\n"
+        "<!DOCTYPE html>\n<html>\n  <body>\n" + "".join(links) + "  </body>\n</html>\n"
     ).encode()
+
+
+def parse_index_entries(html: str) -> list[tuple[str, str]]:
+    """从索引页里取出 (文件名, sha256),按页面上的顺序。
+
+    取不到 sha 的条目照样返回 —— 名字有用,校验值没有就说明这一版
+    没法被 pip 严格校验,发布时会跳过它。
+    """
+    out: list[tuple[str, str]] = []
+    # href 里的路径段要**贪婪**匹配到最后一个斜杠,否则非贪婪会在
+    # 第一个斜杠就停下,#sha256= 那一段根本轮不到匹配,校验值就成了空的。
+    for m in re.finditer(
+        r'<a\s+href="[^"]*/([^/"#]+)(?:#sha256=([0-9a-f]{64}))?"[^>]*>([^<]+)</a>', html
+    ):
+        name = (m.group(3) or m.group(1)).strip()
+        out.append((name, m.group(2) or ""))
+    return out
+
+
+def read_index_entries(api: str, path: str, call) -> list[tuple[str, str]]:
+    """读仓里现有的索引页,取出它列着的版本。读不到就返回空。"""
+    try:
+        st, body = call(
+            "GET",
+            f"{api}/contents/{path}",
+            headers={"Accept": "application/vnd.github.raw"},
+        )
+    except Exception:
+        return []
+    if st != 200 or not isinstance(body, (str, bytes)):
+        return []
+    if isinstance(body, bytes):
+        body = body.decode("utf-8", "ignore")
+    return parse_index_entries(body)
 
 
 def live_index_filename(timeout: int = 30, index_url: str | None = None) -> str:
@@ -327,7 +377,9 @@ def asset_name(path: pathlib.Path, publish_version: str) -> str:
     return name
 
 
-def sync_release_assets(rel: dict, files, publish_version: str, call) -> tuple[list[str], dict]:
+def sync_release_assets(
+    rel: dict, files, publish_version: str, call, keep_extra: tuple[str, ...] = ()
+) -> tuple[list[str], dict]:
     """把这次的构件传上去,并把上一版的资产换掉。
 
     **先传新的,再删旧的。**
@@ -367,8 +419,13 @@ def sync_release_assets(rel: dict, files, publish_version: str, call) -> tuple[l
             asset_sizes[name] = size
 
     # 新的都到位了,再删掉上一版的资产。线上任何时刻都至少有一版可下。
+    #
+    # **索引上还列着的那一版要留着**:pip 会缓存 simple 索引,用户手里
+    # 的旧索引可能还指着它。资产被删了,那台机器上的 pip install 就是
+    # 404 —— 报"找不到分发文件",看着像索引坏了,其实是清理删过头了。
+    keep = set(uploaded) | set(keep_extra)
     for a in rel.get("assets", []):
-        if a["name"] in uploaded:
+        if a["name"] in keep:
             continue
         code, _ = call("DELETE", a["url"])
         print(f"  [del {code}] {a['name']}")
@@ -437,7 +494,21 @@ def main() -> int:
     print(f"release id={rel.get('id')}")
 
     files = [f for f in sorted(art_dir.rglob("*")) if f.is_file() and f.name != "manifest.json"]
-    uploaded, asset_sizes = sync_release_assets(rel, files, args.publish_version, call)
+    # 旧索引上还列着的版本:它的资产要留着,并且要写进新索引。
+    #
+    # pip 会缓存 simple 索引(默认十几分钟)。缓存里的旧索引可能还指着上
+    # 一个版本 —— 那个版本的资产被删了,那台机器上的 pip install 就是
+    # 404,报"找不到分发文件",看着像索引坏了。实测过:常规档里那条
+    # "README 的安装命令真跑 pip download"就是这么红的。
+    prev_entries = read_index_entries(api, f"pypi/simple/{PACKAGE}/index.html", call)
+    keep_extra = tuple(name for name, _sha in prev_entries)
+    older = tuple((name, sha) for name, sha in prev_entries if sha)[:1]
+    if keep_extra:
+        print(f"  保留旧索引上的资产: {', '.join(keep_extra)}")
+
+    uploaded, asset_sizes = sync_release_assets(
+        rel, files, args.publish_version, call, keep_extra=keep_extra
+    )
 
     # 正文在构件传完之后重写一遍。
     #
@@ -483,7 +554,7 @@ def main() -> int:
     entries.append(
         (
             f"pypi/simple/{PACKAGE}/index.html",
-            index_html(wheel_sha, wheel_name, build_id, repo=repo),
+            index_html(wheel_sha, wheel_name, build_id, repo=repo, older=older),
         )
     )
 
