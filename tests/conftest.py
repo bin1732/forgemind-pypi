@@ -59,9 +59,13 @@ def pytest_collection_modifyitems(config, items):
 
     重并发档的用例在流水线上跑不完一个作业的时长。这些用例的规模就是
     设计意图,把它们改小就等于换了测试。流水线上的做法是按比例抽样:
-    抽样按文件分组,每个文件都保留代表,代码路径全覆盖,规模本身由本地
-    与专用环境验证。同一份代码与同一份环境变量总是抽到同一批用例,
-    结果稳定可复现。
+    抽样按文件分组,每个文件铺开取若干条,规模本身由本地与专用环境验证。
+    同一份代码与同一份环境变量总是抽到同一批用例,结果稳定可复现。
+
+    **铺开取,不能只取每个文件的前几条**:只取头部的话,一个文件里靠后
+    的用例在抽样档永远不会被执行 —— 实测过某个文件 38 条 heavy 用例只
+    跑前 3 条,跑到的偏偏是 info/signal/router-demo,而 backtest、agent、
+    mcp、pick、etl 的"跑两遍"路径一条都没进过抽样档。
 
     分片机制保留备用:设置片号与总片数时,只跑属于本片的那一份。
     """
@@ -110,7 +114,9 @@ def _sample_heavy_items(items, ratio: int):
     """按比例抽取重并发用例,每个文件都保留代表。
 
     流水线上的机器跑不完全部重并发用例,改成按比例抽样:按文件分组,
-    每组按比例取用,并至少保留一个,这样每个文件的代码路径都会被执行。
+    每组按比例取用,并至少保留一个 —— 每个文件都有用例被执行到。
+    取的是**铺开在整个文件上**的若干条,不是文件开头的若干条。
+
     规模本身由本地与专用环境验证。
     """
     heavy = [item for item in items
@@ -128,7 +134,12 @@ def _sample_heavy_items(items, ratio: int):
     keep = []
     for group in by_file.values():
         take = max(1, len(group) // ratio)
-        keep.extend(group[:take])
+        if take >= len(group):
+            keep.extend(group)
+            continue
+        # 铺开在整个文件上取,不是只取前 take 条 —— 理由见文件头的说明。
+        step = len(group) / take
+        keep.extend(group[int(i * step)] for i in range(take))
     if not keep:
         keep = heavy[:1]
     keep_ids = {id(item) for item in keep}

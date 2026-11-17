@@ -771,8 +771,17 @@ def cmd_etl(args):
             # 退出码 4: 资源类 (init 失败是 db 文件路径/权限)
             rc = EXIT_RESOURCE if init_failed else EXIT_DATA
             print(f"\n   exit code: {rc} (3=数据, 4=资源)")
-            # 依赖类建议(在 exit 之前给)
-            if "akshare_not_installed" in " ".join(failures):
+            # 每类原因只给**它自己的**建议(在 exit 之前给)。资源类尤其
+            # 要说清:库被占着时去查网络、去看代码格式,都是白忙 ——
+            # 该做的是关掉占着库的进程。
+            reasons = " ".join(failures)
+            if "store_locked" in reasons:
+                print("   本地库正被另一个进程占用(桌面端开着时它就占着同一个库)。")
+                print("   关掉那个进程再试,或用 FORGEMIND_DATA_DIR 换个目录。")
+            elif "store_write_failed" in reasons:
+                print("   存储写不进去(磁盘满、配额用完或没有写权限)。")
+                print("   清出空间或改好权限后重试,或用 FORGEMIND_DATA_DIR 换个目录。")
+            elif "akshare_not_installed" in reasons:
                 print("   安装带 A 股数据源的 extra 后重试:")
                 print("     pip install 'forgemind[cn]'")
             raise SystemExit(rc)

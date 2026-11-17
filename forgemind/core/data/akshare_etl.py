@@ -9,6 +9,8 @@ import pandas as pd
 from forgemind.core.data.fetch_guard import call_with_timeout
 from forgemind.core.data.storage import (
     DuckDBStorage,
+    LocalStoreLockedError,
+    LocalStoreWriteError,
     create_market_tables,
     is_write_failure,
 )
@@ -26,6 +28,12 @@ def _classify_fetch_error(exc: Exception) -> str:
     """
     msg = str(exc).lower()
     etype = type(exc).__name__
+    # 资源类:库被占着 / 存储写不进去。这两类有专门的下一步(关掉占着库
+    # 的进程、清出空间),不能混进"未分类"。
+    if isinstance(exc, LocalStoreLockedError):
+        return "store_locked(库被另一个进程占着)"
+    if isinstance(exc, LocalStoreWriteError):
+        return "store_write_failed(存储写不进去)"
     # 类型比消息可靠:ConnectionError("reset") 的消息里根本没有
     # "connection" 字样,只看文本会把它误判成 unclassified
     if isinstance(exc, (ConnectionError, TimeoutError)):
@@ -92,7 +100,9 @@ def _classify_fetch_error(exc: Exception) -> str:
         return "invalid_symbol_format"
     if any(k in msg for k in ("too many", "rate", "频繁")):
         return "rate_limited"
-    return f"unclassified:{type(exc).__name__}"
+    # 兜底:**不带异常类名**。分类名会原样打给用户,而类名是内部实现 ——
+    # 用户看到 "IOException" 只会以为程序坏了。完整原因留在日志里。
+    return "unknown_error(详情见日志)"
 
 
 class AKShareDataSource:

@@ -53,6 +53,8 @@ sys.path.insert(0, str(REPO / "scripts"))
 import check_cli_output_clean as leak  # noqa: E402
 
 #: 要核的命令。每一行都要在每种状态下跑一遍。
+#:
+#: etl 不在这里 —— 它会真去拉数据,见 RESOURCE_ONLY_COMMANDS 的说明。
 COMMANDS: list[list[str]] = [
     ["backtest", "--symbol", "600519", "--start", "2024-01-01", "--end", "2024-06-30"],
     ["pick", "--symbol", "600519"],
@@ -61,6 +63,26 @@ COMMANDS: list[list[str]] = [
     ["demo"],
     ["info"],
     ["router-demo"],
+]
+
+#: 只在"库被占着"这个状态下核的命令。
+#:
+#: etl 归在这里而不是 COMMANDS:它会真去拉数据,装了 akshare 的机器上
+#: 结果取决于网络 —— 判据不能有这种不确定性。而"库被占着"这一步它连库
+#: 都连不上,根本到不了取数,所以是确定的。
+#:
+#: 它以前根本没人管:状态判据覆盖了七条命令,唯独漏了最会说错的那条 ——
+#: 库被占着时它把原因报成"未分类的异常",还把异常类名打给了用户。
+RESOURCE_ONLY_COMMANDS: list[list[str]] = [
+    [
+        "etl",
+        "--symbols",
+        "600519",
+        "--start",
+        "2024-01-01",
+        "--end",
+        "2024-01-31",
+    ],
 ]
 
 #: 状态:名字 → 造这个状态要做什么
@@ -271,14 +293,19 @@ def main() -> int:
     for state in STATES:
         for command in COMMANDS:
             problems.extend(_check_one(command, state))
+        if state == "locked":
+            for command in RESOURCE_ONLY_COMMANDS:
+                problems.extend(_check_one(command, state))
     if problems:
         print(f"命令在各种状态下没有说真话({len(problems)} 处):")
         for item in problems:
             print(" -", item)
         return 1
+    combos = len(COMMANDS) * len(STATES) + len(RESOURCE_ONLY_COMMANDS)
     print(
         f"命令状态核对通过({len(COMMANDS)} 条命令 × {len(STATES)} 种状态 = "
-        f"{len(COMMANDS) * len(STATES)} 种组合)"
+        f"{len(COMMANDS) * len(STATES)} 种组合,外加库被占着时 "
+        f"{len(RESOURCE_ONLY_COMMANDS)} 条只核这一档的命令,共 {combos} 种组合)"
     )
     return 0
 

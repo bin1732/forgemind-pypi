@@ -495,7 +495,7 @@ class TestEtlFailureIsDiagnosable:
         (ModuleNotFoundError("No module named 'akshare'"), "akshare_not_installed"),
         (ValueError("invalid symbol format 600519.SH"), "invalid_symbol_format"),
         (RuntimeError("请求过于频繁"), "rate_limited"),
-        (ValueError("随便什么错"), "unclassified"),
+        (ValueError("随便什么错"), "unknown_error"),
     ])
     def test_classify_fetch_error(self, exc, expected):
         from forgemind.core.data.akshare_etl import AKShareDataSource

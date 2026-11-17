@@ -36,10 +36,15 @@ class TestClassificationCoversTypesNotJustMessages:
     def test_maps_to_actionable_reason(self, exc, expected):
         assert expected in _classify_fetch_error(exc)
 
-    def test_unknown_still_reports_type(self):
+    def test_unknown_does_not_leak_the_exception_class_name(self):
+        """兜底分类里不许带异常类名。
+
+        分类名会原样打给用户("失败原因分类: 1× xxx")。类名是内部实现 ——
+        用户看到 "ValueError" 只会以为程序坏了。完整原因留在日志里。
+        """
         out = _classify_fetch_error(ValueError("某个没见过的错"))
-        assert out.startswith("unclassified:")
-        assert "ValueError" in out
+        assert out.startswith("unknown_error")
+        assert "ValueError" not in out
 
 
 class TestInitFailureIsContained:
@@ -136,7 +141,7 @@ class TestStorageLockConflict:
     这是真实用户路径才暴露的组合。之前的输出是:
 
         ⚠️  ETL 拉到 0 条数据,没有写入任何 K 线。
-           失败原因分类: 1× init:unclassified:IOException
+           失败原因分类: 1× init:unclassified(未分类的异常)
            代码格式应为 6 位(如 600519),而非 600519.SH
 
     三处都错:取数压根没开始("0 条"是假的)、分类无信息、
