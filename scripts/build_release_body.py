@@ -30,7 +30,7 @@ pip install --extra-index-url https://bin1732.github.io/forgemind-pypi/pypi/simp
 ## Downloads
 
 {assets}
-
+{retained}
 ## Verify
 
 ```bash
@@ -69,21 +69,56 @@ def describe_asset(name: str) -> str:
     return "Build artifact"
 
 
-def build_body(version: str, assets: list[str]) -> str:
-    """正文。构件清单按传上去的顺序列,一个不落。"""
+#: 页面上为什么还留着上一版的构件。
+#:
+#: pip 会缓存包索引,缓存里那份可能还指着上一版。那个版本的构件被删了,
+#: 缓存过的机器 pip install 就是"找不到分发文件"。留着它,那次安装就还
+#: 能成 —— 装到上一版,而不是装不上。
+RETAINED_NOTE = (
+    "The previous release's package file is still listed here on purpose. "
+    "pip caches the package index, so a machine that installed an earlier "
+    "version may still be reading that cached index. Keeping the file means "
+    "that install still succeeds instead of failing with \"No matching "
+    "distribution found\"."
+)
+
+
+def build_body(version: str, assets: list[str], retained: list[str] | None = None) -> str:
+    """正文。构件清单按传上去的顺序列,一个不落。
+
+    retained 是**这次没传、但特意留在页面上的**构件(上一版的)。它们也要
+    列出来:页面上看得见的东西,说明里没提,读者就不知道那是什么、能不能
+    用。
+    """
     if assets:
         lines = [f"- `{name}` — {describe_asset(name)}" for name in assets]
     else:
         lines = ["(no artifact uploaded)"]
-    return TEMPLATE.format(version=version, assets="\n".join(lines))
+    if retained:
+        kept = "\n".join(f"- `{name}` — {describe_asset(name)}" for name in retained)
+        retained_block = f"\n### Also still available\n\n{kept}\n\n{RETAINED_NOTE}\n"
+    else:
+        retained_block = ""
+    return TEMPLATE.format(version=version, assets="\n".join(lines), retained=retained_block)
 
 
 def main(argv: list[str]) -> int:
-    """把正文写到标准输出。"""
-    if len(argv) < 2:
-        print("用法: build_release_body.py <版本号> [构件名...]", file=sys.stderr)
+    """把正文写到标准输出。
+
+    用法: build_release_body.py <版本号> [构件名...] [--retained 保留的构件名...]
+    """
+    args = list(argv[1:])
+    retained: list[str] = []
+    if "--retained" in args:
+        cut = args.index("--retained")
+        args, retained = args[:cut], args[cut + 1 :]
+    if not args:
+        print(
+            "用法: build_release_body.py <版本号> [构件名...] [--retained 保留的构件名...]",
+            file=sys.stderr,
+        )
         return 2
-    sys.stdout.write(build_body(argv[1], list(argv[2:])))
+    sys.stdout.write(build_body(args[0], args[1:], retained=retained))
     return 0
 
 

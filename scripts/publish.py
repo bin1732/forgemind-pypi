@@ -434,14 +434,23 @@ def sync_release_assets(
     return uploaded, asset_sizes
 
 
-def _release_body(publish_version: str, assets: list[str]) -> str:
-    """发布说明。正文与版本号、构件清单一起生成,措辞单独放在一处便于检查。"""
+def _release_body(
+    publish_version: str, assets: list[str], retained: list[str] | None = None
+) -> str:
+    """发布说明。正文与版本号、构件清单一起生成,措辞单独放在一处便于检查。
+
+    retained 是**这次没传、但特意留在页面上的**构件(上一版的)。说明里
+    也要列出来:页面上看得见的东西,说明里没提,读者就不知道那是什么。
+    """
     import subprocess
     import sys
 
     script = pathlib.Path(__file__).resolve().parent / "build_release_body.py"
+    cmd = [sys.executable, str(script), publish_version, *assets]
+    if retained:
+        cmd += ["--retained", *retained]
     proc = subprocess.run(
-        [sys.executable, str(script), publish_version, *assets],
+        cmd,
         capture_output=True,
         text=True,
     )
@@ -517,7 +526,7 @@ def main() -> int:
     # 用户在页面上看到的说明与页面上挂着的构件不是同一件事。
     #
     # 正文里的构件清单取的是这次真传上去的那些,不是固定的一份。
-    body = _release_body(args.publish_version, uploaded)
+    body = _release_body(args.publish_version, uploaded, retained=list(keep_extra))
     code, _ = call("PATCH", f"{api}/releases/{rel['id']}", {"body": body})
     print(f"  [body {code}] 发布说明已更新({len(uploaded)} 个构件)")
     if code != 200:

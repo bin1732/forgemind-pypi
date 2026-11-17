@@ -242,6 +242,31 @@ class TestOldIndexStillInstalls:
         assert seq == [], f"索引上还列着的资产不该被删,实际删了: {seq}"
 
 
+class TestReleaseBodyListsRetainedAssets:
+    """页面上还留着的上一版,说明里也要列出来。
+
+    页面上看得见的东西,说明里没提,读者就不知道那是什么、能不能用 ——
+    而且对账那档会比"说明里列的"与"页面上的"两个集合,对不上就报红。
+    """
+
+    def test_retained_asset_is_listed_and_explained(self):
+        body = publish._release_body(
+            "2026.9.3.post83",
+            ["forgemind-2026.9.3.post83-py3-none-any.whl"],
+            retained=["forgemind-2026.9.3.post82-py3-none-any.whl"],
+        )
+        assert "forgemind-2026.9.3.post83-py3-none-any.whl" in body, body
+        assert "forgemind-2026.9.3.post82-py3-none-any.whl" in body, body
+        # 还要说清为什么留着 —— 读者看到旧版会问"这是不是装错了"
+        assert "pip caches" in body, body
+
+    def test_no_retained_section_when_nothing_is_retained(self):
+        body = publish._release_body(
+            "2026.9.3.post83", ["forgemind-2026.9.3.post83-py3-none-any.whl"]
+        )
+        assert "Also still available" not in body, body
+
+
 class TestGitWrite:
     """一次提交写多个路径。"""
 
