@@ -50,6 +50,8 @@ describe("因子 IC 的三种'没有'", () => {
     // 说明要说清:算了多少、总共多少
     expect(text).toContain("100");
     expect(text).toContain("169");
+    // 还要说清**为什么**只算了一部分,以及用户能怎么办
+    expect(text).toContain("点开单个因子");
   });
 
   it("算过了但这批样本上算不出,显示'算不出'而不是'未计算'", () => {

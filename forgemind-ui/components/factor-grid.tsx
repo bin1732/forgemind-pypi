@@ -187,7 +187,8 @@ export function FactorGrid() {
       {coverage && coverage.computed < coverage.total && (
         <div className="text-[10px] text-muted-foreground">
           本次算了 {coverage.computed}/{coverage.total} 个因子的 IC,其余未计算
-          —— 未计算不是"没有 IC"。
+          —— 一次算太多会把调用拖很久,点开单个因子可以单独算。
+          未计算不是"没有 IC"。
         </div>
       )}
 
