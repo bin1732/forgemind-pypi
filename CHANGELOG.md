@@ -15,6 +15,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   reason (the credentials). The cross-origin handling now sits outermost,
   and a refusal says what is wrong.
 
+### Fixed
+- The total equity now has one basis. Equity can be read two ways: cash
+  plus the cost of the holdings, and cash plus what they are worth. The
+  interface used the second, the decision used the first — so as soon as
+  a position moved away from its cost, the same "total equity" was two
+  different numbers, and the size the agent worked out did not match
+  what the user could see. The difference was the whole unrealized
+  gain or loss. With the position back at its cost the two agreed,
+  which is why no test ever saw it.
+  The decision, the HTTP endpoint and the MCP tool now all use the
+  market value, taken from the real prices in the library. Where a
+  price is missing they stay on the cost basis as a whole — half at
+  market value and half at cost is harder to read than either — and the
+  report says which basis was used.
+
 ### Added
 - The Release page is rewritten on every publish. It names the version
   that was just published, lists the artifacts that are actually

@@ -890,6 +890,49 @@ def load_latest_backtest_run(symbol: str | None = None) -> dict | None:
     }
 
 
+def load_latest_close(symbols: list[str]) -> dict[str, float]:
+    """每个标的的最新收盘价 —— 给组合按市值算权益用。
+
+    库里的 K 线是 ETL 落的真实行情,这是本机唯一的市价来源。取不到的
+    标的(没拉过行情)就不给 —— 调用方据此决定用哪个口径,不能用别的数
+    冒充市价。
+
+    返回的键是**传进来的那个 symbol 原样**(调用方直接用),查询时
+    内部才归一化成库里存的 6 位代码。
+    """
+    wanted = {bare_symbol(s): s for s in symbols if str(s).strip()}
+    if not wanted:
+        return {}
+    init_duckdb()
+    with DuckDBStorage() as db:
+        exists = db.query_scalar(
+            "SELECT COUNT(*) FROM information_schema.tables WHERE table_name='kline_daily'"
+        )
+        if not exists:
+            return {}
+        rows = db.query_df(
+            "SELECT symbol, close FROM ("
+            "  SELECT symbol, close,"
+            "         ROW_NUMBER() OVER (PARTITION BY symbol ORDER BY date DESC) AS rn"
+            "  FROM kline_daily WHERE symbol IN (SELECT UNNEST(?))"
+            ") WHERE rn = 1",
+            [list(wanted)],
+        )
+    out: dict[str, float] = {}
+    for _, row in rows.iterrows():
+        code = str(row["symbol"])
+        original = wanted.get(code)
+        if original is None:
+            continue
+        try:
+            price = float(row["close"])
+        except (TypeError, ValueError):
+            continue
+        if price > 0:
+            out[original] = price
+    return out
+
+
 def load_latest_portfolio() -> dict | None:
     """读回最新一次组合快照;没有任何快照时返回 None(绝不编造)"""
     init_duckdb()

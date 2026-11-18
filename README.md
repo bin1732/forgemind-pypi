@@ -88,7 +88,7 @@ python -m forgemind.api.main --port 8000
 
 `forgemind backtest` 跑的是事件驱动回测。完整研究流水线(**Walk-Forward Optimization · Monte Carlo 稳健性 · 多因子 IC 评估 · LightGBM 训练**)在 `POST /api/v1/pipeline/run`(Tauri 桌面端专用)与 `forgemind.core.pipeline.EndToEndPipeline` Python SDK 中提供;CLI 子命令未单独暴露。
 
-决策要按真实账户算仓位,而账户只有一个可信来源:库里真落过的组合。`GET /api/v1/portfolio` 返回最近一次落盘的组合(现金、权益、持仓);还没有落过时如实返回 `status=empty` 并给出下一步,不会替调用方编一个账户。
+决策要按真实账户算仓位,而账户只有一个可信来源:库里真落过的组合。`GET /api/v1/portfolio` 返回最近一次落盘的组合(现金、权益、持仓),权益按**最新收盘价重估**过 —— 与桌面上显示的总权益是同一个数;还没有落过时如实返回 `status=empty` 并给出下一步,不会替调用方编一个账户。
 
 装好之后可以直接跑一次研究流程,结果来自真实数据:
 
@@ -442,11 +442,11 @@ $ forgemind agent --symbol 600519.SH --cash 100000
 
 ```bash
 pytest tests/ -v
-# 687 test files · 10504 tests
+# 688 test files · 10515 tests
 
 # 常规档位:真实业务用例,起真实子进程与真实数据库
 pytest tests/ -m "not heavy"
-# 8664 cases
+# 8675 cases
 
 # 重并发档位:百万级真实运算,单独用更宽的超时执行
 pytest tests/ -m heavy

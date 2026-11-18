@@ -21,8 +21,9 @@ from pydantic import (  # noqa: E402
 )
 
 from forgemind.core.agents.portfolio_context import (  # noqa: E402
-    PortfolioContext,
     PortfolioPosition,
+    account_with_market_values,
+    portfolio_snapshot_marked_to_market,
     resume_decision,
     run_decision,
 )
@@ -451,10 +452,16 @@ async def agent_decide(req: AgentRequest):
       1. /decide           → 返回 thread_id + status=PENDING_HUMAN_REVIEW
       2. /approve 或 /reject → 用同一 thread_id 拍板
     """
-    portfolio = PortfolioContext(
+    # 权益按市值算(现金加持仓现价)—— 用户在界面上看到的是这个数,
+    # 决策该按同一个数算权重与下单量。取不到现价就留在成本口径。
+    from forgemind.core.data.storage import load_latest_close
+
+    _positions = [PortfolioPosition(**p) for p in req.positions]
+    portfolio = account_with_market_values(
         cash=req.cash,
-        total_equity=req.total_equity or 0.0,
-        positions=[PortfolioPosition(**p) for p in req.positions],
+        positions=_positions,
+        prices=load_latest_close([p.symbol for p in _positions]),
+        declared_equity=req.total_equity,
     )
 
     state = await run_decision(
@@ -593,6 +600,9 @@ async def portfolio_state():
 
     try:
         snapshot = load_latest_portfolio()
+        # 快照是落盘那一刻的市值,价格后来又变了 —— 读出来的数按现价
+        # 重估一次,才与界面上看到的是同一个。
+        snapshot = portfolio_snapshot_marked_to_market(snapshot)
     except Exception as exc:
         # 库读不到与库里没有,是两回事:读不到要说"暂时用不了",
         # 不能说成"没有组合"。
@@ -616,6 +626,8 @@ async def portfolio_state():
         "status": "ok",
         "cash": snapshot["cash"],
         "total_equity": snapshot["total_equity"],
+        # 口径要标明:同一个"总权益"有两个算法,不标明就核不了。
+        "equity_basis": snapshot.get("equity_basis", "cost"),
         "currency": snapshot["currency"],
         "positions": snapshot["positions"],
         "snapshot_id": snapshot["snapshot_id"],

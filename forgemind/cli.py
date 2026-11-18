@@ -518,9 +518,10 @@ def _resolve_agent_portfolio(args):
     报告里要说清楚依据的是哪份账户状态。
     """
     from forgemind.core.agents.portfolio_context import (
-        PortfolioContext,
         PortfolioPosition,
+        account_with_market_values,
     )
+    from forgemind.core.data.storage import load_latest_close
 
     if args.cash is not None:
         positions = []
@@ -532,11 +533,14 @@ def _resolve_agent_portfolio(args):
                     avg_price=float(args.position_price or 0.0),
                 )
             )
+        # 权益按市值算(现金加持仓现价)—— 界面上显示的是这个数,决策该
+        # 按同一个数算权重与下单量。取不到现价就留在成本口径。
         return (
-            PortfolioContext(
+            account_with_market_values(
                 cash=float(args.cash),
-                total_equity=float(args.equity or 0.0),
                 positions=positions,
+                prices=load_latest_close([p.symbol for p in positions]),
+                declared_equity=float(args.equity or 0.0) or None,
             ),
             None,
             "arguments",
@@ -555,18 +559,20 @@ def _resolve_agent_portfolio(args):
             ),
             None,
         )
+    held = [
+        PortfolioPosition(
+            symbol=p["symbol"],
+            quantity=float(p["quantity"]),
+            avg_price=float(p["avg_price"]),
+        )
+        for p in latest["positions"]
+    ]
     return (
-        PortfolioContext(
+        account_with_market_values(
             cash=float(latest["cash"]),
-            total_equity=float(latest["total_equity"]),
-            positions=[
-                PortfolioPosition(
-                    symbol=p["symbol"],
-                    quantity=float(p["quantity"]),
-                    avg_price=float(p["avg_price"]),
-                )
-                for p in latest["positions"]
-            ],
+            positions=held,
+            # 现价重新取:快照是上次决策时的,价格已经变了。
+            prices=load_latest_close([p.symbol for p in held]),
         ),
         None,
         "stored_snapshot",

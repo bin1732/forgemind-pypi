@@ -1358,6 +1358,13 @@ class ForgeMindMCPServer:
         risk_metrics = await asyncio.to_thread(load_latest_backtest_run)
 
         snapshot = await asyncio.to_thread(load_latest_portfolio)
+        # 快照是落盘那一刻的市值,价格后来又变了 —— 读出来的数按现价
+        # 重估一次,才与界面上看到的是同一个。
+        from forgemind.core.agents.portfolio_context import (
+            portfolio_snapshot_marked_to_market,
+        )
+
+        snapshot = await asyncio.to_thread(portfolio_snapshot_marked_to_market, snapshot)
         if snapshot is None:
             return {
                 "status": "empty",
@@ -1387,6 +1394,7 @@ class ForgeMindMCPServer:
             "cash": snapshot["cash"],
             "currency": snapshot["currency"],
             "total_equity": snapshot["total_equity"],
+            "equity_basis": snapshot.get("equity_basis", "cost"),
             "positions": snapshot["positions"],
             "decisions": decisions,
             "risk_metrics": risk_metrics,
@@ -1407,8 +1415,8 @@ class ForgeMindMCPServer:
         from datetime import datetime
 
         from forgemind.core.agents.portfolio_context import (
-            PortfolioContext,
             PortfolioPosition,
+            account_with_market_values,
             run_decision,
         )
 
@@ -1445,12 +1453,16 @@ class ForgeMindMCPServer:
                     avg_price=avg_price,
                 )
             )
-        # 权益没给就由 PortfolioContext 按现金加持仓成本算 —— 算法
-        # 在那一处,接口与 MCP 不会算出两个不同的权益。
-        account = PortfolioContext(
+        # 权益按市值算(现金加持仓现价)—— 用户在界面上看到的是这个数,
+        # 决策该按同一个数算权重与下单量。现价从库里的真实行情取;取不
+        # 到就留在成本口径,并由 equity_basis 标明是哪个口径。
+        from forgemind.core.data.storage import load_latest_close
+
+        account = account_with_market_values(
             cash=float(cash),
-            total_equity=float(total_equity or 0.0),
             positions=held,
+            prices=load_latest_close([p.symbol for p in held]),
+            declared_equity=float(total_equity or 0.0) or None,
         )
         state = await run_decision(
             symbol=symbol,

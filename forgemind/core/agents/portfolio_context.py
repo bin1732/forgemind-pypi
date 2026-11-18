@@ -44,6 +44,10 @@ class PortfolioContext(BaseModel):
     currency: Literal["CNY", "USD", "HKD", "EUR"] = "CNY"
     positions: list[PortfolioPosition] = Field(default_factory=list)
     total_equity: float = 0.0
+    #: 权益口径:cost = 现金加持仓成本(账面),market = 现金加持仓市值(实际),
+    #: declared = 调用方自己声明的权益(它还持有本仓看不到的资产时用)。
+    #: 报告里要带着它 —— 同一个"总权益"有两个算法,不标明就核不了。
+    equity_basis: Literal["cost", "market", "declared"] = "cost"
 
     # 约束
     max_position_pct: float = 0.20  # 单标的最大 20%
@@ -65,6 +69,36 @@ class PortfolioContext(BaseModel):
             self.total_equity = self.cash + sum(p.quantity * p.avg_price for p in self.positions)
         return self
 
+    def marked_to_market(self, prices: dict[str, float]) -> PortfolioContext:
+        """按现价重估权益与未实现盈亏 —— 市值口径。
+
+        权益有两个口径:现金加持仓成本(账面)与现金加持仓市值(实际)。
+        决策的权重与下单量该按后者算 —— 用户在界面上看到的是那个数。
+        按成本算的话,持仓一有浮盈浮亏,决策算出的仓位就与界面显示的
+        对不上,差的是整段浮盈浮亏。
+
+        **缺任何一个持仓的现价就整体留在成本口径**:一半市值、一半成本
+        的混合口径比纯成本更难解释。留下的那个口径由 equity_basis 标明。
+        """
+        if not self.positions:
+            return self.model_copy(update={"equity_basis": "market"})
+        priced = []
+        for p in self.positions:
+            price = prices.get(p.symbol)
+            if price is None or price <= 0:
+                return self.model_copy(update={"equity_basis": "cost"})
+            priced.append(
+                p.model_copy(update={"unrealized_pnl": (price - p.avg_price) * p.quantity})
+            )
+        market_value = sum(p.quantity * prices[p.symbol] for p in priced)
+        return self.model_copy(
+            update={
+                "positions": priced,
+                "total_equity": self.cash + market_value,
+                "equity_basis": "market",
+            }
+        )
+
     def describe(self) -> dict:
         """这个账户是什么 —— 报告里要说清楚,依据才可核。
 
@@ -74,11 +108,13 @@ class PortfolioContext(BaseModel):
         return {
             "cash": self.cash,
             "total_equity": self.total_equity,
+            "equity_basis": self.equity_basis,
             "positions": [
                 {
                     "symbol": p.symbol,
                     "quantity": p.quantity,
                     "avg_price": p.avg_price,
+                    "unrealized_pnl": p.unrealized_pnl,
                 }
                 for p in self.positions
             ],
@@ -92,6 +128,61 @@ class PortfolioContext(BaseModel):
 
     def has_position(self, symbol: str) -> bool:
         return self.get_position(symbol) is not None
+
+
+def account_with_market_values(
+    cash: float,
+    positions: list[PortfolioPosition],
+    prices: dict[str, float],
+    declared_equity: float | None = None,
+) -> PortfolioContext:
+    """构造账户并按现价重估 —— 权益口径在这里定,各通道共用。
+
+    调用方只管给现金、持仓与现价(现价从库里的真实行情取),"用哪个
+    口径"的判断在这一处。口径分裂过一次:界面按市值算总权益,决策按
+    成本算,持仓一有浮盈浮亏,两边就对不上。
+
+    `declared_equity` 是调用方自己声明的权益(它还持有本仓看不到的
+    资产时用)。给了就用它的,并把口径标成 declared —— 调用方自己的
+    声明优先,但要标明是声明值,别与算出来的混为一谈。
+    """
+    ctx = PortfolioContext(cash=cash, positions=positions)
+    if declared_equity:
+        return ctx.model_copy(
+            update={"total_equity": float(declared_equity), "equity_basis": "declared"}
+        )
+    return ctx.marked_to_market(prices)
+
+
+def portfolio_snapshot_marked_to_market(snapshot: dict | None) -> dict | None:
+    """快照里的组合按现价重估 —— 读出来的账户也得是市值口径。
+
+    快照是落盘那一刻的市值,价格后来又变了。读出来就重估一次,读到的
+    那个数才与界面上看到的是同一个 —— 接口与 MCP 都用它,免得两处
+    给出两个"总权益"。
+    """
+    if snapshot is None:
+        return None
+    from forgemind.core.data.storage import load_latest_close
+
+    positions = [
+        PortfolioPosition(
+            symbol=str(p.get("symbol", "")),
+            quantity=float(p.get("quantity", 0) or 0),
+            avg_price=float(p.get("avg_price", 0) or 0),
+        )
+        for p in (snapshot.get("positions") or [])
+    ]
+    ctx = account_with_market_values(
+        cash=float(snapshot.get("cash", 0.0) or 0.0),
+        positions=positions,
+        prices=load_latest_close([p.symbol for p in positions]),
+    )
+    out = dict(snapshot)
+    described = ctx.describe()
+    out.update(described)
+    out["positions"] = described["positions"]
+    return out
 
 
 # ===== Agent State(共享给 LangGraph)=====
