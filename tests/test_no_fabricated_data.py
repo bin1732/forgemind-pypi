@@ -24,12 +24,17 @@ from forgemind.mcp.server import ForgeMindMCPServer
 def _call(server, name, args):
     async def _run():
         return await asyncio.wait_for(
-            server.handle_request({
-                "jsonrpc": "2.0", "id": 1, "method": "tools/call",
-                "params": {"name": name, "arguments": args},
-            }),
+            server.handle_request(
+                {
+                    "jsonrpc": "2.0",
+                    "id": 1,
+                    "method": "tools/call",
+                    "params": {"name": name, "arguments": args},
+                }
+            ),
             timeout=60,
         )
+
     return asyncio.run(_run())
 
 
@@ -81,7 +86,11 @@ class TestNoFabricatedPortfolio:
         out = _payload(_call(server, "query_portfolio", {}))
         assert out["status"] == "ok"
         assert out["cash"] == pytest.approx(123456.0)
-        assert out["total_equity"] == pytest.approx(654321.0)
+        # 落库时手写的 total_equity(654321)没有任何依据 —— 库里没有这个
+        # 标的的行情,读出来就按"现金 + 持仓成本"算,而不是把那个数原样
+        # 端出来。编的数不该被读回去。
+        assert out["total_equity"] == pytest.approx(123456.0 + 77 * 12.5)
+        assert out.get("equity_basis") == "cost", out
         assert len(out["positions"]) == 1
         assert out["positions"][0]["symbol"] == "000001.SZ"
         assert out["positions"][0]["quantity"] == pytest.approx(77)
@@ -93,7 +102,9 @@ class TestNoFabricatedUsage:
         # 硬编码值清单
         assert out["models"] != ["LightGBMModel", "XGBoostModel"]
         assert out["strategies"] != [
-            "StockPickerAgent", "MomentumStrategy", "MeanReversionStrategy"
+            "StockPickerAgent",
+            "MomentumStrategy",
+            "MeanReversionStrategy",
         ]
         assert "note" in out
 
@@ -142,10 +153,14 @@ class TestFactorNameResolution:
 class TestErrorMessagesDoNotLeakInternals:
     def test_missing_args_hide_method_names(self, server):
         resp = asyncio.run(
-            server.handle_request({
-                "jsonrpc": "2.0", "id": 1, "method": "tools/call",
-                "params": {"name": "get_feature", "arguments": {}},
-            })
+            server.handle_request(
+                {
+                    "jsonrpc": "2.0",
+                    "id": 1,
+                    "method": "tools/call",
+                    "params": {"name": "get_feature", "arguments": {}},
+                }
+            )
         )
         msg = resp["error"]["message"]
         assert "_tool_get_feature" not in msg
@@ -170,11 +185,13 @@ class TestExtendedStrategiesAreComplete:
 
         rng = np.random.default_rng(0)
         dates = pd.date_range("2024-01-01", periods=300)
-        df = pd.DataFrame({
-            "date": np.repeat(dates, 3),
-            "symbol": ["A", "B", "C"] * 300,
-            "close": 100 + np.cumsum(rng.normal(0, 1, 900)),
-        })
+        df = pd.DataFrame(
+            {
+                "date": np.repeat(dates, 3),
+                "symbol": ["A", "B", "C"] * 300,
+                "close": 100 + np.cumsum(rng.normal(0, 1, 900)),
+            }
+        )
         w = MaxSharpe(lookback=60).compute_weights(df)
         sums = w.sum(axis=1).dropna()
         active = sums[sums > 1e-9]
@@ -193,11 +210,17 @@ class TestStrategyAdapter:
         idx = pd.date_range("2024-01-01", periods=200)
         rng = np.random.default_rng(1)
         close = 100 + np.cumsum(rng.normal(0, 1, 200))
-        df = pd.DataFrame({
-            "date": idx, "symbol": "X", "close": close,
-            "open": close, "high": close + 1, "low": close - 1,
-            "volume": 1_000_000.0,
-        })
+        df = pd.DataFrame(
+            {
+                "date": idx,
+                "symbol": "X",
+                "close": close,
+                "open": close,
+                "high": close + 1,
+                "low": close - 1,
+                "volume": 1_000_000.0,
+            }
+        )
         sig = strat.generate_signals(df)
         assert "entries" in sig.columns
         assert "exits" in sig.columns
@@ -224,10 +247,17 @@ class TestPortfolioStrategiesOnMultiSymbolData:
             drift = rng.normal(0.0004, 0.001)
             close = 100 * np.exp(np.cumsum(rng.normal(drift, 0.015, n_days)))
             for d, c in zip(pd.date_range("2024-01-01", periods=n_days), close):
-                rows.append({
-                    "date": d, "symbol": f"S{i:03d}", "close": c,
-                    "open": c, "high": c * 1.01, "low": c * 0.99, "volume": 1e6,
-                })
+                rows.append(
+                    {
+                        "date": d,
+                        "symbol": f"S{i:03d}",
+                        "close": c,
+                        "open": c,
+                        "high": c * 1.01,
+                        "low": c * 0.99,
+                        "volume": 1e6,
+                    }
+                )
         return pd.DataFrame(rows)
 
     @pytest.mark.parametrize("name", ["MaxSharpe", "RiskParity"])
@@ -322,20 +352,31 @@ class TestMCPStdioTransport:
         payload = "".join(json.dumps(r, ensure_ascii=False) + "\n" for r in reqs)
         proc = subprocess.run(
             [sys.executable, "-m", "forgemind.mcp.server"],
-            input=payload, capture_output=True, text=True, timeout=90, env=env,
+            input=payload,
+            capture_output=True,
+            text=True,
+            timeout=90,
+            env=env,
         )
         return proc
 
     def test_stdio_responds_and_survives_multiple_calls(self):
-        proc = self._rpc([
-            {"jsonrpc": "2.0", "id": 1, "method": "tools/list"},
-            {"jsonrpc": "2.0", "id": 2, "method": "resources/list"},
-            {"jsonrpc": "2.0", "id": 3, "method": "tools/call",
-             "params": {"name": "search_features", "arguments": {"query": "momentum"}}},
-        ])
+        proc = self._rpc(
+            [
+                {"jsonrpc": "2.0", "id": 1, "method": "tools/list"},
+                {"jsonrpc": "2.0", "id": 2, "method": "resources/list"},
+                {
+                    "jsonrpc": "2.0",
+                    "id": 3,
+                    "method": "tools/call",
+                    "params": {"name": "search_features", "arguments": {"query": "momentum"}},
+                },
+            ]
+        )
         lines = [ln for ln in proc.stdout.splitlines() if ln.strip()]
         assert len(lines) == 3, f"期望 3 条 JSON-RPC 响应,得到 {len(lines)}: {lines[:2]}"
         import json
+
         r1 = json.loads(lines[0])
         # 不硬编码数量:与注册表比对,新增工具(get_kline)后仍成立
         from forgemind.mcp.server import ForgeMindMCPServer
@@ -373,7 +414,11 @@ class TestMCPStdioTransport:
         env = child_env()
         proc = subprocess.run(
             [sys.executable, "-m", "forgemind.mcp.server"],
-            input="{not json}\n", capture_output=True, text=True, timeout=60, env=env,
+            input="{not json}\n",
+            capture_output=True,
+            text=True,
+            timeout=60,
+            env=env,
         )
         resp = json.loads(proc.stdout.strip().splitlines()[0])
         assert resp["error"]["code"] == -32700
@@ -381,10 +426,12 @@ class TestMCPStdioTransport:
     def test_notification_gets_no_response(self):
         import json
 
-        proc = self._rpc([
-            {"jsonrpc": "2.0", "method": "notifications/initialized"},
-            {"jsonrpc": "2.0", "id": 9, "method": "tools/list"},
-        ])
+        proc = self._rpc(
+            [
+                {"jsonrpc": "2.0", "method": "notifications/initialized"},
+                {"jsonrpc": "2.0", "id": 9, "method": "tools/list"},
+            ]
+        )
         lines = [ln for ln in proc.stdout.splitlines() if ln.strip()]
         assert len(lines) == 1, f"notification 不应产生响应,实际 {len(lines)} 条"
         assert json.loads(lines[0])["id"] == 9
