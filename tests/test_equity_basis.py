@@ -195,3 +195,50 @@ class TestReadBackIsMarkedToMarket:
         assert revalued["total_equity"] == 200_000.0, revalued
         assert revalued["snapshot_id"] == snapshot["snapshot_id"], revalued
         assert revalued["currency"] == snapshot["currency"], revalued
+
+
+class TestCurrentWeightUsesMarketValue:
+    """当前权重的分子与分母要用同一个口径。
+
+    权益改成市值口径之后,权重还用成本价当分子,就变成两个口径混着算:
+    持仓浮亏时算出来的当前权重比实际高一大截,"该卖多少"跟着偏,
+    下单量就偏。
+    """
+
+    def _state(self, **over):
+        state = {
+            "symbol": "600519",
+            "portfolio": {
+                "cash": 100_000.0,
+                "total_equity": 200_000.0,
+                "positions": [{"symbol": "600519", "quantity": 100, "avg_price": 1500.0}],
+            },
+            "technical_analysis": {"last_close": 1000.0, "confidence": 0.5},
+            "fundamentals_analysis": {"confidence": 0.5},
+            "news_analysis": {"confidence": 0.5},
+            "bull_case": {"target_weight": 0.2, "thesis": "看涨"},
+            "bear_case": {"max_weight": 0.5, "thesis": "看跌"},
+        }
+        state.update(over)
+        return state
+
+    def test_weight_is_market_value_over_market_value(self):
+        """10 万现金 + 100 股(成本 1500、现价 1000)⇒ 市值权益 20 万,
+        当前权重 100×1000/20万 = 50%,不是成本口径的 75%。"""
+        from forgemind.core.agents.portfolio_context import portfolio_manager_node
+
+        out = portfolio_manager_node(self._state())
+        pm = out["pm_decision"]
+        assert abs(pm["current_weight"] - 0.5) < 1e-9, pm
+        assert abs(pm["delta_weight"] - (0.2 - 0.5)) < 1e-9, pm
+
+    def test_the_quantity_follows_the_same_basis(self):
+        """按 50% 的当前权重与 20% 的目标权重,卖出量按市值权益与现价算。"""
+        from forgemind.core.agents.portfolio_context import portfolio_manager_node
+
+        out = portfolio_manager_node(self._state())
+        pm = out["pm_decision"]
+        # 目标金额 = 0.2 × 20 万 = 4 万;当前市值 = 10 万 ⇒ 卖 6 万 ÷ 1000 = 60 股
+        assert pm["direction"] == "sell", pm
+        assert pm["quantity"] == 60, pm
+        assert pm["price"] == 1000.0, pm

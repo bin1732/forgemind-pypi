@@ -30,6 +30,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   market value and half at cost is harder to read than either — and the
   report says which basis was used.
 
+- The current weight is now read at market value as well. The equity
+  moved to the market value, but the weight still took the cost of the
+  holdings as its numerator: two bases in one fraction, so a position
+  that moved away from its cost pushed the weight up and the size of the
+  order with it. The size now follows the identity that holds under
+  either base — the order is the difference between the target value
+  and the current value, divided by the price.
+
 ### Added
 - The Release page is rewritten on every publish. It names the version
   that was just published, lists the artifacts that are actually

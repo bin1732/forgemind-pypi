@@ -41,11 +41,18 @@ def _state(**over) -> dict:
 
 class TestOrderQuantityFollowsPrice:
     def test_sell_quantity_uses_the_real_price(self):
-        """目标权重 5%、当前 75%、权益 20 万、股价 1444.42 → 卖 96 股"""
+        """目标权重 5%、权益 20 万、股价 1444.42 → 卖 93 股
+
+        当前权重按**市值**算:100 股 × 1444.42 / 20 万 = 72.22%,于是要
+        减掉 72.22% - 5% = 67.22% 的权益,除以股价得 93 股。
+
+        (原先用成本价当分子,算出的是 96 股 —— 那个式子把"目标市值"
+        与"成本市值"混在一起除以现价,分子分母两个口径。)
+        """
         decision = portfolio_manager_node(_state())["pm_decision"]
         assert decision["direction"] == "sell"
-        assert decision["quantity"] == int(0.70 * 200_000 / 1444.42)
-        assert decision["quantity"] == 96
+        assert decision["quantity"] == int(0.67221 * 200_000 / 1444.42)
+        assert decision["quantity"] == 93
 
     def test_quantity_is_not_the_pe_ratio_away(self):
         """PE 比率(缺省 10)除出来是 14000 股 —— 那是错的"""
@@ -57,13 +64,25 @@ class TestOrderQuantityFollowsPrice:
         decision = portfolio_manager_node(_state())["pm_decision"]
         assert decision["price"] == 1444.42
 
-    def test_quantity_scales_with_the_price(self):
-        """股价减半,同一目标金额的股数翻倍(int 截断,差个位)"""
-        low = portfolio_manager_node(_state())["pm_decision"]["quantity"]
-        high = portfolio_manager_node(
-            _state(technical_analysis={"status": "ok", "last_close": 722.21, "confidence": 0.6})
-        )["pm_decision"]["quantity"]
-        assert abs(high - low * 2) <= 1
+    def test_quantity_follows_target_minus_current_market_value(self):
+        """恒等式:下单金额 = 目标市值 - 当前市值,股数 = 下单金额 / 现价
+
+        这才是不依赖口径的那条关系。原先那条"股价减半、股数翻倍"其实
+        是成本口径下的巧合:当前权重也跟着价格变,于是股数并不与价格
+        成反比。改成市值口径后,分子分母同一口径,这条恒等式才立得住。
+        """
+        for last_close in (1444.42, 722.21):
+            decision = portfolio_manager_node(
+                _state(
+                    technical_analysis={"status": "ok", "last_close": last_close, "confidence": 0.6}
+                )
+            )["pm_decision"]
+            target_value = decision["final_weight"] * 200_000
+            current_value = 100 * last_close
+            assert decision["quantity"] == int(abs(target_value - current_value) / last_close), (
+                last_close,
+                decision,
+            )
 
     def test_buy_quantity_uses_the_real_price(self):
         """空仓时买:最终权重 5%(bear 的 max_weight 压住)、权益 20 万、股价 1000 → 买 10 股"""
@@ -94,9 +113,9 @@ class TestNoPriceNoOrder:
 
     def test_position_average_price_is_used_as_fallback(self):
         """没有技术面时退回持仓均价"""
-        decision = portfolio_manager_node(
-            _state(technical_analysis={"status": "unavailable"})
-        )["pm_decision"]
+        decision = portfolio_manager_node(_state(technical_analysis={"status": "unavailable"}))[
+            "pm_decision"
+        ]
         assert decision["price"] == 1500.0
         assert decision["quantity"] == int(0.70 * 200_000 / 1500.0)
 

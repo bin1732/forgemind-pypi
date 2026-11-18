@@ -758,13 +758,19 @@ def portfolio_manager_node(state: AgentState) -> dict:
     positions = portfolio_dict.get("positions", [])
     current_position = next((p for p in positions if p.get("symbol") == symbol), None)
     total_equity = portfolio_dict.get("total_equity", 0)
+
+    # 当前权重:市值口径 —— 分子与分母都用现价。
+    #
+    # 分子拿成本价、分母拿市值,是两个口径混着算:持仓浮亏时算出来的
+    # 当前权重比实际高一大截(10 万现金 + 100 股成本 1500、现价 1000,
+    # 市值权益 20 万:成本分子给 75%,市值分子才是 50%),"该卖多少"
+    # 跟着偏,下单量就偏。
+    price = _decision_price(state, current_position)
     current_weight = 0
     if current_position and total_equity > 0:
-        current_weight = (
-            current_position.get("quantity", 0)
-            * current_position.get("avg_price", 0)
-            / total_equity
-        )
+        quantity = float(current_position.get("quantity", 0) or 0)
+        position_price = price if price > 0 else float(current_position.get("avg_price", 0) or 0)
+        current_weight = quantity * position_price / total_equity
 
     delta_weight = final_weight - current_weight
 
@@ -775,8 +781,6 @@ def portfolio_manager_node(state: AgentState) -> dict:
     # 倍。界面上只看到一个数字,单子却离谱,所以没有任何测试盯过它。
     #
     # 没有真价格就不给数量:宁可报"没有价格",也不拿别的东西冒充股价。
-    price = _decision_price(state, current_position)
-
     if abs(delta_weight) < 0.005:
         direction = "hold"
         quantity = 0
