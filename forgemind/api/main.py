@@ -12,7 +12,13 @@ from datetime import datetime  # noqa: E402
 from fastapi import FastAPI  # noqa: E402
 from fastapi.middleware.cors import CORSMiddleware  # noqa: E402
 from fastapi.responses import JSONResponse  # noqa: E402
-from pydantic import BaseModel, ConfigDict, Field, field_validator  # noqa: E402
+from pydantic import (  # noqa: E402
+    BaseModel,
+    ConfigDict,
+    Field,
+    field_validator,
+    model_validator,
+)
 
 from forgemind.core.agents.portfolio_context import (  # noqa: E402
     PortfolioContext,
@@ -373,6 +379,22 @@ class AgentRequest(BaseModel):
     total_equity: float | None = Field(default=None, gt=0)
     positions: list[dict] = Field(default_factory=list, max_length=100)
 
+    @model_validator(mode="before")
+    @classmethod
+    def _explain_missing_cash(cls, data):
+        """缺账户状态时要说清去哪儿取,而不是只丢一个字段名。
+
+        决策的仓位按账户算,而账户只有一个可信来源:库里真落过的组合。
+        校验错误里带上取法,调用方才知道下一步做什么。
+        """
+        if isinstance(data, dict) and "cash" not in data:
+            raise ValueError(
+                "cash 是必填的:决策要按真实账户算仓位。"
+                "先取 GET /api/v1/portfolio 拿最近一次落盘的组合,"
+                "或直接给出 cash 与持仓。"
+            )
+        return data
+
 
 class AgentResponse(BaseModel):
     decision: dict
@@ -391,6 +413,9 @@ class AgentPrepareResponse(BaseModel):
     confidence: float
     requires_human_review: bool = True
     reasoning: str
+    #: 决策依据的是哪份账户状态。仓位按它算,而它平时看不见 ——
+    #: 不报出来,读的人只能信结论,没法判断依据的是哪份状态。
+    portfolio_used: dict = Field(default_factory=dict)
 
 
 class AgentApprovalRequest(BaseModel):
@@ -442,6 +467,7 @@ async def agent_decide(req: AgentRequest):
         bull_thesis=bull.get("thesis", ""),
         bear_thesis=bear.get("thesis", ""),
         confidence=state.get("confidence", 0.0),
+        portfolio_used={**portfolio.describe(), "source": "arguments"},
         reasoning=(
             "PM 节点被 interrupt_before 拦住 — 任何交易动作(下单/调仓)"
             "必须先 POST /api/v1/agent/{thread_id}/approve 或 /reject"
@@ -543,6 +569,53 @@ def _classify_error(e: Exception) -> str:
     if "No module" in msg:
         return "driver_missing"
     return "error"
+
+
+@app.get("/api/v1/portfolio")
+async def portfolio_state():
+    """最近一次落盘的组合状态 —— 决策要用的账户从这里取。
+
+    决策的仓位按账户状态算,而账户状态只有一个来源是可信的:库里真落过
+    的组合。所以这个端点是给调用方取账户用的,不是给调用方看装饰的。
+
+    从没落过组合时如实说没有(status=empty),并给出下一步。
+    """
+    from forgemind.core.data.storage import (
+        is_resource_error,
+        load_latest_portfolio,
+        resource_unavailable_reason,
+    )
+
+    try:
+        snapshot = load_latest_portfolio()
+    except Exception as exc:
+        # 库读不到与库里没有,是两回事:读不到要说"暂时用不了",
+        # 不能说成"没有组合"。
+        if is_resource_error(exc):
+            raise HTTPException(status_code=503, detail=resource_unavailable_reason(exc)) from exc
+        raise
+    if snapshot is None:
+        return {
+            "status": "empty",
+            "cash": None,
+            "total_equity": None,
+            "currency": None,
+            "positions": [],
+            "snapshot_id": None,
+            "message": (
+                "还没有组合快照:库里没有落过组合。"
+                "先跑一次决策并审批落库,或在调用决策时显式给出账户状态。"
+            ),
+        }
+    return {
+        "status": "ok",
+        "cash": snapshot["cash"],
+        "total_equity": snapshot["total_equity"],
+        "currency": snapshot["currency"],
+        "positions": snapshot["positions"],
+        "snapshot_id": snapshot["snapshot_id"],
+        "message": None,
+    }
 
 
 @app.get("/api/v1/health/services")

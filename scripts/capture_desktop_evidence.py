@@ -336,9 +336,24 @@ def wait_http(url: str, timeout: float = 90.0) -> bool:
     return False
 
 
-def start_backend(python_exe: str, port: int, log_path: pathlib.Path) -> subprocess.Popen:
+def start_backend(
+    python_exe: str,
+    port: int,
+    log_path: pathlib.Path,
+    extra_origins: list[str] | None = None,
+) -> subprocess.Popen:
     env = dict(**__import__("os").environ)
     env["PYTHONPATH"] = str(REPO) + (":" + env["PYTHONPATH"] if env.get("PYTHONPATH") else "")
+    # 页面是从本地 http 伺服打开的,来源与后端不同 —— 跨源请求要写进
+    # 允许来源。产品的默认只放开桌面端 webview 与本地开发端口,这里
+    # 显式声明本页需要的那个来源,不去改那个默认。
+    origins = [
+        "tauri://localhost",
+        "http://tauri.localhost",
+        "http://localhost:1420",
+        *(extra_origins or []),
+    ]
+    env["FORGEMIND_API_CORS_ORIGINS"] = ",".join(origins)
     log = log_path.open("w", encoding="utf-8")
     return subprocess.Popen(
         [
@@ -431,8 +446,14 @@ def capture(args: argparse.Namespace) -> int:
 
     python_exe = pick_backend_python(args.backend_python)
     backend_log = out_dir / "backend.log"
-    backend = start_backend(python_exe, port, backend_log)
+    # 静态页的端口要先定下来:后端要按它声明允许来源(见 start_backend)。
     static_port = free_port()
+    backend = start_backend(
+        python_exe,
+        port,
+        backend_log,
+        extra_origins=[f"http://127.0.0.1:{static_port}"],
+    )
     static = start_static_server(STATIC_OUT, static_port)
 
     problems: list[str] = []

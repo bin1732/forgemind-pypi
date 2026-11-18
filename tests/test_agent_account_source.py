@@ -49,7 +49,7 @@ class TestAgentAccountSource:
     def test_explicit_cash_is_used(self, isolated_store):
         from forgemind.cli import _resolve_agent_portfolio
 
-        portfolio, problem = _resolve_agent_portfolio(_args(cash=12345.0))
+        portfolio, problem, source = _resolve_agent_portfolio(_args(cash=12345.0))
         assert problem is None
         assert portfolio.cash == 12345.0
         assert portfolio.positions == []
@@ -57,7 +57,7 @@ class TestAgentAccountSource:
     def test_explicit_position_is_used(self, isolated_store):
         from forgemind.cli import _resolve_agent_portfolio
 
-        portfolio, problem = _resolve_agent_portfolio(
+        portfolio, problem, source = _resolve_agent_portfolio(
             _args(cash=100000.0, position_qty=30, position_price=1498.5)
         )
         assert problem is None
@@ -80,7 +80,7 @@ class TestAgentAccountSource:
                 positions=[PortfolioPosition(symbol="000001", quantity=100, avg_price=12.5)],
             )
         )
-        portfolio, problem = _resolve_agent_portfolio(_args())
+        portfolio, problem, source = _resolve_agent_portfolio(_args())
         assert problem is None, problem
         assert portfolio.cash == 55555.0
         assert len(portfolio.positions) == 1
@@ -90,7 +90,7 @@ class TestAgentAccountSource:
         """两边都没有就说明还没有,顺带说清怎么办。"""
         from forgemind.cli import _resolve_agent_portfolio
 
-        portfolio, problem = _resolve_agent_portfolio(_args())
+        portfolio, problem, source = _resolve_agent_portfolio(_args())
         assert portfolio is None
         assert problem, "没有账户状态时必须给出说明"
         assert "组合" in problem, problem

@@ -65,6 +65,25 @@ class PortfolioContext(BaseModel):
             self.total_equity = self.cash + sum(p.quantity * p.avg_price for p in self.positions)
         return self
 
+    def describe(self) -> dict:
+        """这个账户是什么 —— 报告里要说清楚,依据才可核。
+
+        决策的仓位按账户算,而账户是看不见的中间量:不说清楚,读的人
+        只能信结论,没法判断结论依据的是哪份状态。
+        """
+        return {
+            "cash": self.cash,
+            "total_equity": self.total_equity,
+            "positions": [
+                {
+                    "symbol": p.symbol,
+                    "quantity": p.quantity,
+                    "avg_price": p.avg_price,
+                }
+                for p in self.positions
+            ],
+        }
+
     def get_position(self, symbol: str) -> PortfolioPosition | None:
         for p in self.positions:
             if p.symbol == symbol:

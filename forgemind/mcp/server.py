@@ -395,12 +395,13 @@ class ForgeMindMCPServer:
         )
         self._tool(
             "agent_approve",
-            "人工审批 — 按决策准备阶段返回的 thread id 拍板;approved=True 让 PM 节点跑完并落库",
+            "人工审批 — 按决策准备阶段返回的 thread id 拍板;approved=True 让 PM 节点跑完并落库。"
+            "不传 approved 就是不批 —— 人工审批的默认是不批",
             {
                 "type": "object",
                 "properties": {
                     "thread_id": {"type": "string"},
-                    "approved": {"type": "boolean", "default": True},
+                    "approved": {"type": "boolean", "default": False},
                     "reviewer": {"type": "string"},
                 },
                 "required": ["thread_id"],
@@ -1444,16 +1445,17 @@ class ForgeMindMCPServer:
                     avg_price=avg_price,
                 )
             )
+        # 权益没给就由 PortfolioContext 按现金加持仓成本算 —— 算法
+        # 在那一处,接口与 MCP 不会算出两个不同的权益。
+        account = PortfolioContext(
+            cash=float(cash),
+            total_equity=float(total_equity or 0.0),
+            positions=held,
+        )
         state = await run_decision(
             symbol=symbol,
             as_of=datetime.now(),
-            # 权益没给就由 PortfolioContext 按现金加持仓成本算 —— 算法
-            # 在那一处,接口与 MCP 不会算出两个不同的权益。
-            portfolio=PortfolioContext(
-                cash=float(cash),
-                total_equity=float(total_equity or 0.0),
-                positions=held,
-            ),
+            portfolio=account,
         )
         bull = state.get("bull_case", {}) or {}
         bear = state.get("bear_case", {}) or {}
@@ -1465,13 +1467,15 @@ class ForgeMindMCPServer:
             "bear_thesis": bear.get("thesis", ""),
             "confidence": state.get("confidence", 0),
             "requires_human_review": True,
+            # 决策依据的是哪份账户状态 —— 报告里要带着,依据才可核。
+            "portfolio_used": {**account.describe(), "source": "arguments"},
             "next_step": "用 agent_approve 带 thread_id 拍板",
         }
 
     async def _tool_agent_approve(
         self,
         thread_id: str,
-        approved: bool = True,
+        approved: bool = False,
         reviewer: str | None = None,
     ) -> dict:
         """人工审批 —— approved=True 让 PM 节点跑完并落库。

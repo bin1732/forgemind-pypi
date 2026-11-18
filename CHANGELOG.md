@@ -580,6 +580,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   really holds, or from the arguments; when neither is there, the command
   says so and exits with a usage error.
 
+### Added
+- `GET /api/v1/portfolio` returns the portfolio the library really holds —
+  cash, equity and positions. It is where a caller gets the account state
+  that a decision is computed from. When nothing has been stored yet it
+  says so, with the next step, instead of handing out an account nobody
+  had.
+
+### Fixed
+- The decision now reports the account it was computed from. The
+  positions are worked out from the cash, the equity and the holdings,
+  and those are normally invisible: without the report, the reader can
+  only take the conclusion on trust and cannot tell which state it came
+  from. The command line, the HTTP endpoint and the MCP tool all say it.
+- The approval defaults to not approving. `agent_approve` treated a
+  missing `approved` as approval, so a caller that forgot the argument
+  had the gate open — while the command line refuses to approve without
+  an explicit yes. The tool now says so in its description as well.
+- The API validation error for a missing cash now says where to get the
+  account, instead of naming a field and stopping there.
+- The verification script now walks the two decision tools — they were
+  listed in the tool set but never actually called — and takes its list
+  of runnable strategies from the registry instead of a hand-written
+  exclusion list, which had been dropping strategies that the command
+  cannot feed.
+- The desktop evidence script declares the origin it needs. The default
+  set of allowed origins is deliberately narrow, and the page the script
+  serves comes from its own address; it now asks for that address
+  explicitly rather than the product opening itself up.
+
 ### Security
 - The local endpoints that can write to the database or run a decision now
   refuse a caller that does not carry the desktop client's marker header.

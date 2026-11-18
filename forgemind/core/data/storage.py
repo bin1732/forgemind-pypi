@@ -900,8 +900,8 @@ def load_latest_portfolio() -> dict | None:
         if not exists:
             return None
         latest = db.query_df(
-            "SELECT snapshot_id, cash, currency, total_equity FROM portfolio_snapshot "
-            "ORDER BY taken_at DESC LIMIT 1"
+            "SELECT snapshot_id, cash, currency, total_equity, taken_at "
+            "FROM portfolio_snapshot ORDER BY taken_at DESC LIMIT 1"
         )
         if latest.empty:
             return None
@@ -925,6 +925,7 @@ def load_latest_portfolio() -> dict | None:
         "cash": float(row["cash"]),
         "currency": row["currency"],
         "total_equity": float(row["total_equity"]),
+        "taken_at": str(row["taken_at"]) if row["taken_at"] is not None else None,
         "positions": positions,
     }
 

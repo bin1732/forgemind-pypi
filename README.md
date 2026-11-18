@@ -88,6 +88,8 @@ python -m forgemind.api.main --port 8000
 
 `forgemind backtest` 跑的是事件驱动回测。完整研究流水线(**Walk-Forward Optimization · Monte Carlo 稳健性 · 多因子 IC 评估 · LightGBM 训练**)在 `POST /api/v1/pipeline/run`(Tauri 桌面端专用)与 `forgemind.core.pipeline.EndToEndPipeline` Python SDK 中提供;CLI 子命令未单独暴露。
 
+决策要按真实账户算仓位,而账户只有一个可信来源:库里真落过的组合。`GET /api/v1/portfolio` 返回最近一次落盘的组合(现金、权益、持仓);还没有落过时如实返回 `status=empty` 并给出下一步,不会替调用方编一个账户。
+
 装好之后可以直接跑一次研究流程,结果来自真实数据:
 
 ```bash
@@ -166,7 +168,7 @@ forgemind demo
 ```bash
 forgemind --help
 forgemind backtest --list-strategies   # 有哪些策略
-forgemind info                         # 版本、配置与数据源状态
+forgemind info                         # 版本、配置、数据源与组合状态
 ```
 
 也可以写成 Python:
@@ -200,6 +202,7 @@ forgemind backtest --strategy ma_cross --symbol 600519
 # AI 决策(需要配一个模型服务的密钥)
 # 账户状态取自库里最近一次落盘的组合;库里还没有组合时,显式给出账户:
 forgemind agent --symbol 600519.SH --cash 100000
+# 决策的报告里会写明用的是哪份账户(现金、权益、持仓)—— 仓位按它算
 
 # 以 MCP 服务的方式启动,给 Claude Desktop / Cursor 用
 forgemind mcp
@@ -439,11 +442,11 @@ $ forgemind agent --symbol 600519.SH --cash 100000
 
 ```bash
 pytest tests/ -v
-# 686 test files · 10494 tests
+# 687 test files · 10504 tests
 
 # 常规档位:真实业务用例,起真实子进程与真实数据库
 pytest tests/ -m "not heavy"
-# 8654 cases
+# 8664 cases
 
 # 重并发档位:百万级真实运算,单独用更宽的超时执行
 pytest tests/ -m heavy

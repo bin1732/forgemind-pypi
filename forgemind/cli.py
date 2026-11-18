@@ -513,6 +513,9 @@ def _resolve_agent_portfolio(args):
 
     读库失败(库被占着、存储写不进去)不在这里吞:那种异常往上抛,
     由命令行入口统一按资源类处理。
+
+    返回 (账户, 说明, 来源)。来源是 "arguments" 或 "stored_snapshot" ——
+    报告里要说清楚依据的是哪份账户状态。
     """
     from forgemind.core.agents.portfolio_context import (
         PortfolioContext,
@@ -536,16 +539,21 @@ def _resolve_agent_portfolio(args):
                 positions=positions,
             ),
             None,
+            "arguments",
         )
 
     from forgemind.core.data.storage import load_latest_portfolio
 
     latest = load_latest_portfolio()
     if latest is None:
-        return None, (
-            "还没有组合状态:库里没有落过组合快照。\n"
-            "  先跑一次决策并审批落库,或者用 --cash/--equity/--position-qty/"
-            "--position-price 显式给出账户状态。"
+        return (
+            None,
+            (
+                "还没有组合状态:库里没有落过组合快照。\n"
+                "  先跑一次决策并审批落库,或者用 --cash/--equity/--position-qty/"
+                "--position-price 显式给出账户状态。"
+            ),
+            None,
         )
     return (
         PortfolioContext(
@@ -561,6 +569,7 @@ def _resolve_agent_portfolio(args):
             ],
         ),
         None,
+        "stored_snapshot",
     )
 
 
@@ -582,10 +591,17 @@ def cmd_agent(args):
 
     print(f"Running AI decision: {args.symbol}")
 
-    portfolio, problem = _resolve_agent_portfolio(args)
+    portfolio, problem, source = _resolve_agent_portfolio(args)
     if portfolio is None:
         print(f"⚠️  {problem}", file=sys.stderr)
         return EXIT_USAGE
+    # 决策依据的是哪份账户状态 —— 要说清楚。仓位按它算,而它平时看不见:
+    # 不报出来,读的人只能信结论,没法判断依据的是哪份状态。
+    where = "命令行给的" if source == "arguments" else "库里最近一次落盘的组合"
+    print(
+        f"  账户({where}): 现金 {portfolio.cash:,.2f} / "
+        f"权益 {portfolio.total_equity:,.2f} / 持仓 {len(portfolio.positions)} 个"
+    )
 
     state = asyncio.run(
         run_decision(
@@ -948,6 +964,29 @@ def cmd_info(args):
         print("  CN source: akshare (已安装)")
     else:
         print("  CN source: akshare 未安装 —— 拉 A 股数据要先装它: pip install 'forgemind[cn]'")
+
+    # 组合状态:决策要按真实账户算仓位,而账户状态落在库里。诊断命令该
+    # 说清有没有 —— 没有的话 `forgemind agent` 会让你先落一次。
+    try:
+        from forgemind.core.data.storage import load_latest_portfolio
+
+        _snap = load_latest_portfolio()
+        if _snap is None:
+            print("  Portfolio: 还没有组合快照(跑一次决策并审批后落库)")
+        else:
+            print(
+                f"  Portfolio: 现金 {_snap['cash']:,.2f} / "
+                f"权益 {_snap['total_equity']:,.2f} / "
+                f"持仓 {len(_snap['positions'])} 个 "
+                f"(落于 {_snap.get('taken_at') or '时间未知'})"
+            )
+    except Exception as exc:  # noqa: BLE001 —— 诊断命令不该自己崩
+        from forgemind.core.data.storage import is_resource_error
+
+        if is_resource_error(exc):
+            print("  Portfolio: 暂时读不到(本地库被占着或存储写不进去)")
+        else:
+            print("  Portfolio: 状态未知")
 
 
 def build_parser() -> argparse.ArgumentParser:

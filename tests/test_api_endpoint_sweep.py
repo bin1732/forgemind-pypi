@@ -33,6 +33,7 @@ ENDPOINTS = [
     ("GET", "/api/v1/info", None, None),
     ("GET", "/api/v1/features", None, None),
     ("GET", "/api/v1/features/search", {"query": "momentum"}, None),
+    ("GET", "/api/v1/portfolio", None, None),
     ("GET", "/api/v1/health/services", None, None),
     ("GET", "/mcp", None, None),
     ("GET", "/mcp/tools/list", None, None),

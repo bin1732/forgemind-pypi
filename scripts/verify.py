@@ -362,9 +362,12 @@ check("cli:backtest", _bt)
 
 # 策略名拼错过一次(RSIRevision),所以这里从真实注册表取名而不是硬编码,
 # 避免验证脚本自己写错名字却报成产品缺陷。
-from forgemind.core.strategies.library import STRATEGY_REGISTRY
-from forgemind.core.strategies.extended_library import list_strategies as _lst
-_STRATS = list(STRATEGY_REGISTRY) + list(_lst())
+# 用"这条命令真跑得起来"的那份清单 —— 判据在策略库里,不在这里。
+# 之前这里拿的是全部注册表再手写一个排除名单,于是多标的策略与需要
+# 额外数据列的策略每次都要在这里被单独剔一遍,漏一个就报成产品缺陷。
+from forgemind.core.strategies.library import cli_runnable_strategies
+
+_STRATS = sorted(cli_runnable_strategies())
 # 这三个必须靠外部模型/双标的,CLI 无法直接跑,单独在下面断言它们会给出明确指引
 _NEED_PARAMS = {"PairsTrading", "LightGBMStrategy", "OnlineLearningStrategy"}
 for s in _STRATS:
@@ -400,7 +403,13 @@ def _mcp():
         ("get_kline", {"symbol": "600519", "limit": 5}),
         ("query_portfolio", {}),
         ("stock_pick", {"universe": ["600519", "000001"], "top_n": 2}),
+        # 决策要账户状态:不给就调不动(那是故意的 —— 不拿编出来的账户
+        # 去算仓位)。
+        ("agent_decide", {"symbol": "600519.SH", "cash": 100000.0}),
     ]
+    # 审批要真 thread_id —— 那要等 agent_decide 跑完才有。所以它的名字
+    # 单独进名单,调用放在后面。
+    extra_tool_names = {"agent_approve"}
     resource_uris = [
         "forgemind://features", "forgemind://strategies", "forgemind://symbols",
         "forgemind://signals", "forgemind://brokers", "forgemind://portfolio",
@@ -414,9 +423,10 @@ def _mcp():
         listed = await srv.handle_request({
             "jsonrpc": "2.0", "id": 1, "method": "tools/list", "params": {}})
         names = {t["name"] for t in listed["result"]["tools"]}
-        assert names == {n for n, _ in tool_calls}, (
+        assert names == {n for n, _ in tool_calls} | extra_tool_names, (
             f"工具清单与验证覆盖不一致: {sorted(names)}")
 
+        results: dict = {}
         for n, a in tool_calls:
             r = await srv.handle_request({"jsonrpc": "2.0", "id": 2,
                                           "method": "tools/call",
@@ -427,6 +437,7 @@ def _mcp():
             for bad in fabrications:
                 assert bad.lower() not in t.lower(), f"{n} 返回里有编造标记 {bad}"
             d = json.loads(t)
+            results[n] = d
             if n == "query_portfolio":
                 assert d.get("status") in ("ok", "empty"), d
                 # 持仓数量与市值只可能来自编造
@@ -437,6 +448,27 @@ def _mcp():
                 assert d.get("data_source"), d
                 if not d.get("is_real_data"):
                     assert d.get("warning"), "降级到合成行情却没有声明"
+
+        # 审批:拿 agent_decide 给的真 thread_id。拿不到就没有能批准的
+        # 决策 —— 那一档如实记一句,不用假的 id 去撞。
+        thread_id = (results.get("agent_decide") or {}).get("thread_id") or ""
+        if thread_id:
+            r = await srv.handle_request({"jsonrpc": "2.0", "id": 6,
+                                          "method": "tools/call",
+                                          "params": {"name": "agent_approve",
+                                                     "arguments": {"thread_id": thread_id,
+                                                                    "approved": True}}})
+            assert "error" not in r, f"agent_approve: {r.get('error')}"
+            text = r["result"]["content"][0]["text"]
+            assert text.strip(), "agent_approve 返回空内容"
+        # 不存在的 thread_id 也得给一句人话,而不是崩。
+        r = await srv.handle_request({"jsonrpc": "2.0", "id": 7,
+                                      "method": "tools/call",
+                                      "params": {"name": "agent_approve",
+                                                 "arguments": {"thread_id": "thread-does-not-exist"}}})
+        assert "error" not in r, f"agent_approve: {r.get('error')}"
+        text = r["result"]["content"][0]["text"]
+        assert text.strip(), "agent_approve 对不存在的决策也返回空内容"
 
         for uri in resource_uris:
             r = await srv.handle_request({"jsonrpc": "2.0", "id": 3,
