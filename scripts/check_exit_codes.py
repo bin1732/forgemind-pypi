@@ -55,6 +55,12 @@ PROBES: tuple[tuple[str, tuple[str, ...], int, str | None], ...] = (
         "timeout_upstream",
     ),
     (
+        "决策没有账户状态",
+        ("agent", "--symbol", "600519.SH"),
+        2,
+        None,
+    ),
+    (
         "非交互模式未审批",
         (
             "agent",

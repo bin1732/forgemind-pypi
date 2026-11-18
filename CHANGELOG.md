@@ -571,6 +571,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   when it is not given, and the desktop application passes the snapshot
   the portfolio really has — and says plainly when there is none.
 
+- The command line no longer makes up an account for the decision. The
+  cash, the equity and the held position all carried default values, so
+  `forgemind agent --symbol 600519.SH` ran on an account of eighty
+  thousand cash holding a hundred shares — and after the approval that
+  account went into the portfolio snapshot, turning a made-up state into
+  a stored one. The account now comes from the portfolio the library
+  really holds, or from the arguments; when neither is there, the command
+  says so and exits with a usage error.
+
 ### Security
 - The local endpoints that can write to the database or run a decision now
   refuse a caller that does not carry the desktop client's marker header.

@@ -501,6 +501,69 @@ def cmd_backtest(args):
         print("\n  ⚠️  回测结果落盘失败")
 
 
+def _resolve_agent_portfolio(args):
+    """决定这次决策用哪个账户。
+
+    顺序:命令行显式给的 → 库里最近一次落盘的组合 → 都没有就说明还没
+    有组合状态。
+
+    编一个账户(默认现金、默认持仓)不算选项:编出来的账户算出来的
+    仓位,输出看着正常,依据是假的,而审批之后它还会落进组合快照 ——
+    假状态被存成了真的。
+
+    读库失败(库被占着、存储写不进去)不在这里吞:那种异常往上抛,
+    由命令行入口统一按资源类处理。
+    """
+    from forgemind.core.agents.portfolio_context import (
+        PortfolioContext,
+        PortfolioPosition,
+    )
+
+    if args.cash is not None:
+        positions = []
+        if args.position_qty:
+            positions.append(
+                PortfolioPosition(
+                    symbol=args.symbol,
+                    quantity=float(args.position_qty),
+                    avg_price=float(args.position_price or 0.0),
+                )
+            )
+        return (
+            PortfolioContext(
+                cash=float(args.cash),
+                total_equity=float(args.equity or 0.0),
+                positions=positions,
+            ),
+            None,
+        )
+
+    from forgemind.core.data.storage import load_latest_portfolio
+
+    latest = load_latest_portfolio()
+    if latest is None:
+        return None, (
+            "还没有组合状态:库里没有落过组合快照。\n"
+            "  先跑一次决策并审批落库,或者用 --cash/--equity/--position-qty/"
+            "--position-price 显式给出账户状态。"
+        )
+    return (
+        PortfolioContext(
+            cash=float(latest["cash"]),
+            total_equity=float(latest["total_equity"]),
+            positions=[
+                PortfolioPosition(
+                    symbol=p["symbol"],
+                    quantity=float(p["quantity"]),
+                    avg_price=float(p["avg_price"]),
+                )
+                for p in latest["positions"]
+            ],
+        ),
+        None,
+    )
+
+
 def cmd_agent(args):
     """跑一个 AI 决策 — 真的人工审批 gating
 
@@ -513,27 +576,16 @@ def cmd_agent(args):
     from datetime import datetime
 
     from forgemind.core.agents.portfolio_context import (
-        PortfolioContext,
-        PortfolioPosition,
         resume_decision,
         run_decision,
     )
 
     print(f"Running AI decision: {args.symbol}")
 
-    portfolio = PortfolioContext(
-        cash=args.cash,
-        total_equity=args.equity,
-        positions=[
-            PortfolioPosition(
-                symbol=args.symbol,
-                quantity=args.position_qty,
-                avg_price=args.position_price,
-            )
-        ]
-        if args.position_qty > 0
-        else [],
-    )
+    portfolio, problem = _resolve_agent_portfolio(args)
+    if portfolio is None:
+        print(f"⚠️  {problem}", file=sys.stderr)
+        return EXIT_USAGE
 
     state = asyncio.run(
         run_decision(
@@ -965,10 +1017,30 @@ def build_parser() -> argparse.ArgumentParser:
     # agent
     parser_agent = subparsers.add_parser("agent", help="让 AI 做一次决策(带人工审批)")
     parser_agent.add_argument("--symbol", default="600519.SH", help="标的代码(6 位,可带 .SH/.SZ)")
-    parser_agent.add_argument("--cash", type=float, default=80_000, help="可用现金")
-    parser_agent.add_argument("--equity", type=float, default=200_000, help="总权益")
-    parser_agent.add_argument("--position-qty", type=int, default=100, help="持仓数量(股)")
-    parser_agent.add_argument("--position-price", type=float, default=1500, help="持仓成本价")
+    parser_agent.add_argument(
+        "--cash",
+        type=float,
+        default=None,
+        help="可用现金(不给就读库里最近一次落盘的组合)",
+    )
+    parser_agent.add_argument(
+        "--equity",
+        type=float,
+        default=None,
+        help="总权益(不给就按现金加持仓成本算)",
+    )
+    parser_agent.add_argument(
+        "--position-qty",
+        type=int,
+        default=None,
+        help="持仓数量(股,不给就没有这个持仓)",
+    )
+    parser_agent.add_argument(
+        "--position-price",
+        type=float,
+        default=None,
+        help="持仓成本价",
+    )
     parser_agent.add_argument(
         "--yes", action="store_true", help="非交互模式直接批准(默认会真等你按 y)"
     )

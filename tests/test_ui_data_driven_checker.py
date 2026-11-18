@@ -18,6 +18,8 @@ from __future__ import annotations
 import pathlib
 import sys
 
+import pytest
+
 REPO = pathlib.Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO / "scripts"))
 
@@ -70,6 +72,59 @@ class TestHardcodedValues:
         assert files == 1, files
         assert len(problems) == 1, problems
         assert "panel.tsx" in problems[0]
+
+
+class TestInventedAccount:
+    """界面替用户编一个账户 —— 后端照着算,结论看着正常,依据是假的。"""
+
+    def test_integer_cash_is_reported(self, tmp_path):
+        """整数写死的现金躲过了浮点那条规则,这里要抓住它。"""
+        _write(
+            tmp_path / "components" / "palette.tsx",
+            "const args = { symbol, cash: 100000, total_equity: 200000 };\n",
+        )
+        problems, files = checker.check_tree(tmp_path)
+        assert files == 1, files
+        assert problems, "写死的账户没被报出来"
+
+    def test_held_position_is_reported(self, tmp_path):
+        _write(
+            tmp_path / "components" / "palette.tsx",
+            "const args = { positions: [{ symbol, quantity: 100, avg_price: 1500 }] };\n",
+        )
+        problems, _ = checker.check_tree(tmp_path)
+        assert problems, "写死的持仓没被报出来"
+
+    def test_real_value_is_not_reported(self, tmp_path):
+        """值来自状态,不是字面量 —— 不该报。"""
+        _write(
+            tmp_path / "components" / "palette.tsx",
+            "const args = { symbol, cash: state.cash, positions: state.portfolio };\n",
+        )
+        problems, _ = checker.check_tree(tmp_path)
+        assert problems == [], problems
+
+    def test_ordinary_words_do_not_hide_the_line(self, tmp_path):
+        """普通词里的 s / em / ms 不该把整行判成样式行。
+
+        "args"、"positions"、"system" 结尾或中间都有这些字母。之前
+        一行里出现它们,那一行写死什么都不报 —— 检查器还是绿的。
+        """
+        _write(
+            tmp_path / "components" / "palette.tsx",
+            "const args = { system, cash: 100000 };\n",
+        )
+        problems, _ = checker.check_tree(tmp_path)
+        assert problems, "整行被普通词盖住了,写死的数据没被发现"
+
+    def test_threshold_is_not_reported(self, tmp_path):
+        """比较表达式里的常量是界面规则,不是显示值。"""
+        _write(
+            tmp_path / "components" / "grid.tsx",
+            "const cls = Math.abs(ic) >= 0.02 ? 'strong' : 'weak';\n",
+        )
+        problems, _ = checker.check_tree(tmp_path)
+        assert problems == [], problems
 
 
 class TestRealUiIsClean:

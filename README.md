@@ -198,7 +198,8 @@ forgemind pick --symbol 600519.SH --top-n 5
 forgemind backtest --strategy ma_cross --symbol 600519
 
 # AI 决策(需要配一个模型服务的密钥)
-forgemind agent --symbol 600519.SH
+# 账户状态取自库里最近一次落盘的组合;库里还没有组合时,显式给出账户:
+forgemind agent --symbol 600519.SH --cash 100000
 
 # 以 MCP 服务的方式启动,给 Claude Desktop / Cursor 用
 forgemind mcp
@@ -413,7 +414,7 @@ con.close()
 |---|---|---|---|
 | 0 | 成功 | 正常完成 | - |
 | 1 | 一般错误 | PM 节点已经跑过、仍按审批规则拒绝落盘 | 检查状态再重跑 |
-| 2 | 参数与审批类 | argparse 用法错误、没给子命令、策略名不存在、这个命令喂不了该策略、策略要额外参数、演示数据缺列、非交互模式未传 `--yes`;一次装不下(`MemoryError`)也归这里 | 照提示改参数,或缩小标的范围分批跑 |
+| 2 | 参数与审批类 | argparse 用法错误、没给子命令、策略名不存在、这个命令喂不了该策略、策略要额外参数、演示数据缺列、非交互模式未传 `--yes`、决策没有账户状态;一次装不下(`MemoryError`)也归这里 | 照提示改参数,或缩小标的范围分批跑 |
 | 3 | 数据/上游类 | `TimeoutError`(上游无响应)/ 0 bars(取数失败) | 重试或换源 |
 | 4 | 资源类 | 存储写不进去(磁盘满、配额用完、权限不足)、本地库被另一个进程占着(桌面端开着时) | 清理磁盘或改权限;或关掉占着它的那个进程 |
 | 130 | 用户中断 | 按了 Ctrl+C | 重跑 |
@@ -425,10 +426,10 @@ $ forgemind etl --symbols 600519 --start 2024-01-01 --end 2024-12-31
 # 退出码: 3
 # 重试: forgemind etl --symbols 600519 --start 2024-01-01 --end 2024-12-31
 
-$ forgemind agent --symbol 600519.SH
+$ forgemind agent --symbol 600519.SH --cash 100000
 # 等待人工审批
 # 退出码: 2
-# 重试: forgemind agent --symbol 600519.SH --yes  # 跳过审批,真落 snapshot
+# 重试: forgemind agent --symbol 600519.SH --cash 100000 --yes  # 跳过审批,真落 snapshot
 ```
 
 ---
@@ -438,11 +439,11 @@ $ forgemind agent --symbol 600519.SH
 
 ```bash
 pytest tests/ -v
-# 685 test files · 10483 tests
+# 686 test files · 10494 tests
 
 # 常规档位:真实业务用例,起真实子进程与真实数据库
 pytest tests/ -m "not heavy"
-# 8643 cases
+# 8654 cases
 
 # 重并发档位:百万级真实运算,单独用更宽的超时执行
 pytest tests/ -m heavy

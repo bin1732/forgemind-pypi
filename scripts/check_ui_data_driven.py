@@ -9,6 +9,10 @@
 
 判定刻意保守,宁可漏报也不误报:只挑明显是指标值的浮点字面量,
 样式相关的数值(字号、间距、透明度、百分比)一律放过。
+
+另外盯一类新的:对象字面量里,账户类字段跟着数值字面量。界面替用户
+编一个账户(现金十万、持仓一百股),后端照着算,结论看着正常,依据是
+假的 —— 而整数写死的金额躲过了浮点那条规则。
 """
 
 from __future__ import annotations
@@ -21,10 +25,15 @@ from pathlib import Path
 # 两位以上小数的浮点字面量,像指标值
 METRIC_VALUE = re.compile(r"(?<![\w.])[-+]?\d+\.\d{2,}(?![\w.])")
 # 样式相关的数值,不是指标
+#
+# 单位一律要求**前面是数字**(0.5s、12px、2rem)。不要求的话,"args"、
+# "positions"、"system"、"params" 这些普通词里的 s / em / ms 会把
+# 整行判成样式行 —— 于是那一行不管写了什么写死的数据都看不见。
+# 漏判比误判更难发现:检查器还是绿的。
 STYLE_CONTEXT = re.compile(
     r"(z-index|opacity|font-?size|line-?height|margin|padding|gap|"
     r"width|height|top|left|right|bottom|transform|transition|"
-    r"rem|em|px|vh|vw|%|deg|ms|s\b)",
+    r"(?<=\d)(?:rem|em|px|vh|vw|deg|ms|s\b)|%)",
     re.I,
 )
 # 组件里常见的常量名,命中即视为写死的数据
@@ -32,6 +41,35 @@ FIXTURE_NAMES = re.compile(
     r"\b(?:MOCK|FAKE|DUMMY|SAMPLE|STATIC|PLACEHOLDER|DEMO)_\w+",
     re.I,
 )
+# 对象字面量里,账户类字段跟着数值字面量 —— 界面替用户编了状态。
+#
+# 上面那条只挑两位以上小数的浮点,整数写死的账户(现金十万、持仓一百
+# 股)从它眼前走过去了,而那正是界面编账户最常见的写法。账户类字段
+# 跟着字面量,一律报出来。
+ACCOUNT_LITERAL = re.compile(
+    r"\b(?:cash|total_equity|equity|balance|capital|amount|quantity|"
+    r"avg_price|market_value|position_value|shares)\s*:\s*[-+]?\d+(?:\.\d+)?",
+    re.I,
+)
+
+
+#: 比较表达式里的常量是阈值,不是显示值。
+#:
+#: "IC 大于 0.02 就标绿"是界面规则,规则就该写死在代码里;要盯的是
+#: **显示给用户看**的那个数 —— 那种数一改,后端早就不返回它了,界面
+#: 却还摆着一个像模像样的值。
+THRESHOLD_BEFORE = re.compile(r"(?:[<>]=?|==|!=)\s*$")
+
+
+def _metric_values(line: str) -> list[re.Match[str]]:
+    """这一行里像指标值的浮点字面量(阈值不算)。"""
+    out = []
+    for match in METRIC_VALUE.finditer(line):
+        before = line[: match.start()]
+        if THRESHOLD_BEFORE.search(before):
+            continue
+        out.append(match)
+    return out
 
 
 def check_file(path: Path) -> list[tuple[int, str]]:
@@ -40,7 +78,10 @@ def check_file(path: Path) -> list[tuple[int, str]]:
     for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
         if STYLE_CONTEXT.search(line):
             continue
-        if METRIC_VALUE.search(line):
+        if ACCOUNT_LITERAL.search(line):
+            problems.append((number, line.strip()[:110]))
+            continue
+        if _metric_values(line):
             problems.append((number, line.strip()[:110]))
             continue
         if FIXTURE_NAMES.search(line):
