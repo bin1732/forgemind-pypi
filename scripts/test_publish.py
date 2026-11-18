@@ -267,6 +267,44 @@ class TestReleaseBodyListsRetainedAssets:
         assert "Also still available" not in body, body
 
 
+class TestIndexListsEveryDistributionFormat:
+    """索引页要列这一版的**所有**分发格式。
+
+    PEP 503 的索引页列的是该包可用的分发文件。只列 wheel 的话,
+    `pip install --no-binary` 的用户根本装不上 —— 索引里没有那个文件,
+    pip 直接说找不到。
+    """
+
+    def test_sdist_is_listed_with_its_checksum(self):
+        html = publish.index_html(
+            "a" * 64,
+            "forgemind-2026.9.3.post12-py3-none-any.whl",
+            "43",
+            sdist=("forgemind-2026.9.3.post12.tar.gz", "b" * 64),
+        ).decode()
+        assert "forgemind-2026.9.3.post12-py3-none-any.whl" in html, html
+        assert "forgemind-2026.9.3.post12.tar.gz" in html, html
+        assert "#sha256=" + "b" * 64 in html, html
+
+    def test_index_name_is_the_release_asset_name(self):
+        """索引里写的名字必须与 Release 上的资产名逐字相同。
+
+        名字对不上,pip 按索引去下载就是 404 —— 而页面上那个构件明明在。
+        """
+        import pathlib as _pathlib
+
+        f = _pathlib.Path("/tmp/forgemind-2026.9.3.post12.tar.gz")
+        name = publish.asset_name(f, "2026.9.3.post12")
+        html = publish.index_html(
+            "a" * 64,
+            "forgemind-2026.9.3.post12-py3-none-any.whl",
+            "43",
+            sdist=(name, "b" * 64),
+        ).decode()
+        assert name in html, html
+        assert "#sha256=" in html
+
+
 class TestGitWrite:
     """一次提交写多个路径。"""
 

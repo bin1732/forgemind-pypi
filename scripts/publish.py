@@ -157,6 +157,7 @@ def index_html(
     build_id: str,
     repo: str = DEFAULT_REPO,
     older: tuple[tuple[str, str], ...] = (),
+    sdist: tuple[str, str] | None = None,
 ) -> bytes:
     """索引页。声明的校验值必须与文件内容一致。
 
@@ -176,10 +177,17 @@ def index_html(
     上的 pip install 就是 404 —— 报"找不到分发文件",看着像索引坏了。
     索引里留着它,缓存的用户至少能装上一版;新索引则让 pip 挑到最新的。
 
+    **sdist 也要列**:PEP 503 的索引页列的是这一版的**所有**分发格式。
+    只列 wheel 的话,`pip install --no-binary` 的用户根本装不上 ——
+    索引里没有那个文件,pip 直接说找不到。
+
     older 是 [(文件名, sha256), ...],按新到旧排。
     """
     links = []
-    for name, sha in [(filename, sha256), *older]:
+    current = [(filename, sha256)]
+    if sdist:
+        current.append(sdist)
+    for name, sha in [*current, *older]:
         links.append(
             f'    <a href="https://github.com/{repo}/releases/download/continuous/'
             f'{quote(name)}#sha256={sha}">{name}</a><br/>\n'
@@ -549,21 +557,36 @@ def main() -> int:
     entries: list[tuple[str, bytes | None]] = []
     wheel_sha = ""
     wheel_name = ""
+    sdist_sha = ""
+    sdist_name = ""
     for f in sorted(art_dir.rglob("*")):
         if not f.is_file() or f.suffix not in (".whl", ".gz"):
             continue
         blob = f.read_bytes()
+        # 索引里写的名字必须与 Release 上的资产名**逐字相同**,否则
+        # pip 按索引去下载会 404。asset_name 是发布时用的那个,用它。
+        name = asset_name(f, args.publish_version)
         entries.append((f"releases/builds/{build_id}/{f.name}", blob))
         if f.suffix == ".whl":
             wheel_sha = hashlib.sha256(blob).hexdigest()
-            wheel_name = f.name
+            wheel_name = name
+        elif f.suffix == ".gz" and not sdist_name:
+            sdist_sha = hashlib.sha256(blob).hexdigest()
+            sdist_name = name
     if not wheel_sha:
         print("没有找到 wheel,索引无从指向", file=sys.stderr)
         return 1
     entries.append(
         (
             f"pypi/simple/{PACKAGE}/index.html",
-            index_html(wheel_sha, wheel_name, build_id, repo=repo, older=older),
+            index_html(
+                wheel_sha,
+                wheel_name,
+                build_id,
+                repo=repo,
+                older=older,
+                sdist=(sdist_name, sdist_sha) if sdist_name else None,
+            ),
         )
     )
 
