@@ -555,6 +555,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   an ancestor of the main branch. It used to insist on the head of the
   branch, which the release itself moves, so the normal case was refused.
 
+### Fixed
+- The failure response of the API no longer carries the name of the
+  exception class, and the diagnostic context is cleaned before it goes
+  out. The text we wrote ourselves is kept — that is what lets a caller
+  correct the request — while the original message of a third-party
+  library is replaced with a pointer to the service log. The wording and
+  the cleaning rules live in one place, shared with the command line and
+  MCP.
+- A decision no longer runs on an account that was made up. The cash
+  carried a default value of a hundred thousand, so a caller who knew
+  nothing about the account still got a decision that looked normal,
+  with the positions computed from an account that did not exist. Cash is
+  required now, the equity is computed from the cash and the positions
+  when it is not given, and the desktop application passes the snapshot
+  the portfolio really has — and says plainly when there is none.
+
 ### Security
 - The local endpoints that can write to the database or run a decision now
   refuse a caller that does not carry the desktop client's marker header.

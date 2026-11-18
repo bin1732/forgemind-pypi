@@ -52,6 +52,12 @@ beforeEach(() => {
     commandPaletteOpen: true,
     pendingAgentDecision: null,
     currentSymbol: "600519.SH",
+    // 真实组合快照。现金取一个不常见的数:写死的十万会让这条测试
+    // 也绿,于是"AI 决策其实拿着编出来的账户"这种事就藏住了。
+    cash: 88771.25,
+    portfolio: [
+      { symbol: "600519.SH", quantity: 30, avg_price: 1498.5, current_price: 1520 },
+    ],
   });
 });
 
@@ -78,9 +84,29 @@ describe("命令面板的 AI 决策链路", () => {
     expect(mcpTool).toHaveBeenCalledWith("agent_decide", expect.objectContaining({
       symbol: "600519.SH",
     }));
+    // 账户状态得是真组合快照里的那一份
+    const [, args] = mcpTool.mock.calls[0];
+    expect(args.cash).toBe(88771.25);
+    expect(args.positions).toEqual([
+      { symbol: "600519.SH", quantity: 30, avg_price: 1498.5 },
+    ]);
     const pending = useAppStore.getState().pendingAgentDecision;
     expect(pending?.threadId).toBe("thread-abc");
     expect(pending?.bullThesis).toBe("上穿 MA20");
+  });
+
+  it("没有真实组合快照就不决策 —— 账户状态不能编", async () => {
+    useAppStore.setState({ cash: null, portfolio: [] });
+    mcpTool.mockResolvedValue(toolResponse({ thread_id: "thread-abc" }));
+    render(<CommandPalette />);
+    await act(async () => {
+      clickCommand("AI 决策准备(停在人工审批前)");
+    });
+    expect(mcpTool).not.toHaveBeenCalled();
+    expect(alertSpy).toHaveBeenCalled();
+    const said = String(alertSpy.mock.calls[0][0]);
+    expect(said).toContain("组合");
+    expect(useAppStore.getState().pendingAgentDecision).toBeNull();
   });
 
   it("拍板用的是决策准备留下的 thread_id", async () => {

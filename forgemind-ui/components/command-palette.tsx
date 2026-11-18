@@ -178,12 +178,27 @@ export function CommandPalette() {
       // 拍板要用下一步的"批准"命令 —— 人工审批是 gating,不是走过场。
       action: async () => {
         try {
-          const symbol = useAppStore.getState().currentSymbol;
+          const st = useAppStore.getState();
+          const symbol = st.currentSymbol;
+          // 账户状态用真组合快照,不用写死的数字。写死的账户等于编给
+          // AI 一个假账户:决策照做,仓位按编出来的算,结论看着正常。
+          const cash = st.cash;
+          if (cash == null) {
+            alert(
+              "还没有组合快照 —— AI 决策要按真实账户算仓位。\n" +
+                "等后端就绪并读到组合后再决策,或先用组合面板确认账户状态。",
+            );
+            return;
+          }
+          const positions = st.portfolio.map((p) => ({
+            symbol: p.symbol,
+            quantity: p.quantity,
+            avg_price: p.avg_price,
+          }));
           const raw = await mcpTool<Record<string, unknown>>("agent_decide", {
             symbol,
-            cash: 100000,
-            total_equity: 200000,
-            positions: [{ symbol, quantity: 100, avg_price: 1500 }],
+            cash,
+            positions,
           });
           // mcpTool 返的是 JSON-RPC wrapper {result:{content:[{text}]}},
           // 真正的载荷在那段文本里 —— 不解包就读不到 thread_id。

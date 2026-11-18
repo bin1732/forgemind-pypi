@@ -172,41 +172,20 @@ def _template_arguments(template: str) -> list[dict]:
     ]
 
 
-def _is_our_own_error(exc: BaseException) -> bool:
-    """这个异常是我们自己抛的,还是第三方库抛的。
-
-    自己抛的异常文本是写给人听的("symbol 不能为空"),放进给模型的正文
-    里有用 —— 模型据此改参数。第三方库的原始报错里有本机路径、内部表名
-    与整条 SQL,那些是内部实现。
-
-    内置异常(builtins)算我们自己的:参数校验抛的就是它们,而第三方拿
-    它们装内部信息的做法少见。
-    """
-    module = type(exc).__module__ or ""
-    return module.startswith("forgemind") or module == "builtins"
-
-
 def _failure_detail(exc: BaseException, tool: str = "") -> str:
-    """这个异常该对模型说成什么 —— 一处判断,各处引用。
+    """这个异常该对模型说成什么。
 
-    三种,各有各的说法:
-
-    - 资源类(库被占着 / 存储写不进去):那是"环境暂时用不了",模型该
-      告诉用户去处理环境,而不是换个参数重试。
-    - 我们自己抛的人话(如"symbol 不能为空"):原文留着 —— 模型据此改
-      参数,只说"失败了"对它没有任何用。
-    - 第三方库抛的:只说"原因见服务日志"。原始报错里有本机路径、内部
-      表名与整条 SQL,那些是内部实现,不该出现在给模型的正文里。
+    措辞与清洗规则在 `forgemind.core.error_text` —— 命令行、接口与 MCP
+    三条通道共用那一处,免得改了一处漏了另一处。这里只补上通道名字,
+    好让日志能分清是谁报的。
     """
-    from forgemind.core.data.storage import is_resource_error, resource_unavailable_reason
+    from forgemind.core.error_text import failure_detail
 
-    if is_resource_error(exc):
-        return resource_unavailable_reason(exc)
-    if _is_our_own_error(exc):
-        return str(exc).strip() or "没有更多细节"
-    logger.error("mcp_tool_failed", tool=tool, error_type=type(exc).__name__)
-    logger.debug("mcp_tool_failed_detail", tool=tool, error=str(exc))
-    return "原因见服务日志"
+    detail = failure_detail(exc, source="mcp")
+    if detail == "原因见服务日志":
+        logger.error("mcp_tool_failed", tool=tool, error_type=type(exc).__name__)
+        logger.debug("mcp_tool_failed_detail", tool=tool, error=str(exc))
+    return detail
 
 
 def _tool_execution_failed(req_id: Any, tool_name: str, exc: BaseException) -> dict[str, Any]:
@@ -402,7 +381,7 @@ class ForgeMindMCPServer:
                 "type": "object",
                 "properties": {
                     "symbol": {"type": "string", "description": "标的代码,如 600519.SH"},
-                    "cash": {"type": "number", "default": 100000},
+                    "cash": {"type": "number"},
                     "total_equity": {"type": "number", "default": 0},
                     "positions": {
                         "type": "array",
@@ -1415,7 +1394,7 @@ class ForgeMindMCPServer:
     async def _tool_agent_decide(
         self,
         symbol: str,
-        cash: float = 100000.0,
+        cash: float | None = None,
         total_equity: float = 0.0,
         positions: list | None = None,
     ) -> dict:
@@ -1437,6 +1416,13 @@ class ForgeMindMCPServer:
         # 而界面看上去还像个正常决策。
         if not str(symbol).strip():
             raise ValueError("symbol 不能为空")
+        if cash is None:
+            # 不给默认值:默认值就是替用户编一个账户。账户状态未知时
+            # 说不知道,并指出去哪儿取真实状态。
+            raise ValueError(
+                "cash 不能为空:决策需要真实账户状态。"
+                "先用 query_portfolio 资源读组合,再把现金与持仓传进来"
+            )
         if float(cash) <= 0:
             raise ValueError(f"cash 必须大于 0,收到 {cash}")
         if float(total_equity) < 0:
@@ -1458,17 +1444,14 @@ class ForgeMindMCPServer:
                     avg_price=avg_price,
                 )
             )
-        equity = (
-            float(total_equity)
-            if total_equity
-            else float(cash) + sum(p.quantity * p.avg_price for p in held)
-        )
         state = await run_decision(
             symbol=symbol,
             as_of=datetime.now(),
+            # 权益没给就由 PortfolioContext 按现金加持仓成本算 —— 算法
+            # 在那一处,接口与 MCP 不会算出两个不同的权益。
             portfolio=PortfolioContext(
                 cash=float(cash),
-                total_equity=equity,
+                total_equity=float(total_equity or 0.0),
                 positions=held,
             ),
         )

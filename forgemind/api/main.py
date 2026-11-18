@@ -125,13 +125,23 @@ async def api_key_auth(request: Request, call_next):
 # ===== Exception handler =====
 @app.exception_handler(ForgeMindError)
 async def forgemind_error_handler(request, exc: ForgeMindError):
+    """失败响应体。
+
+    响应体里不放异常类名 —— 那是内部实现的名字,调用方该看的是稳定
+    错误码与能照着做的说明。类名与完整原文留在日志里。
+
+    `details` 是诊断上下文,原样回吐会把本机路径、内部表名与 SQL 带
+    出去,过一遍清洗再给。
+    """
+    from forgemind.core.error_text import failure_detail, safe_details
+
     return JSONResponse(
         status_code=exc.status_code,
         content={
-            "error": exc.__class__.__name__,
+            "error": exc.code,
             "code": exc.code,
-            "message": exc.message,
-            "details": exc.details,
+            "message": failure_detail(exc, source="api"),
+            "details": safe_details(exc.details),
         },
     )
 
@@ -355,8 +365,12 @@ async def run_backtest(req: BacktestRequest):
 
 class AgentRequest(BaseModel):
     symbol: str = Field(min_length=1, max_length=20)
-    cash: float = Field(default=100_000.0, gt=0)
-    total_equity: float = Field(default=100_000.0, gt=0)
+    # cash 与 total_equity 不给默认值。给了默认值等于替用户编了一个
+    # 账户(十万现金、十万权益),决策拿它算仓位,结论看着正常,依据是
+    # 假的。cash 是必填的;权益没给就由 PortfolioContext 按现金加持仓
+    # 成本算出来。
+    cash: float = Field(gt=0)
+    total_equity: float | None = Field(default=None, gt=0)
     positions: list[dict] = Field(default_factory=list, max_length=100)
 
 
@@ -409,7 +423,7 @@ async def agent_decide(req: AgentRequest):
     """
     portfolio = PortfolioContext(
         cash=req.cash,
-        total_equity=req.total_equity,
+        total_equity=req.total_equity or 0.0,
         positions=[PortfolioPosition(**p) for p in req.positions],
     )
 

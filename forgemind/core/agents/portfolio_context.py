@@ -13,7 +13,7 @@ import pandas as pd  # noqa: E402
 from langgraph.checkpoint.memory import MemorySaver  # noqa: E402
 from langgraph.graph import END, START, StateGraph  # noqa: E402
 from langgraph.graph.message import add_messages  # noqa: E402
-from pydantic import BaseModel, Field  # noqa: E402
+from pydantic import BaseModel, Field, model_validator  # noqa: E402
 
 from forgemind.core.config.settings import get_settings  # noqa: E402
 from forgemind.core.events.types import AIDecisionEvent  # noqa: E402
@@ -53,6 +53,17 @@ class PortfolioContext(BaseModel):
     # 用户偏好
     risk_tolerance: Literal["low", "medium", "high"] = "medium"
     investment_horizon: Literal["short", "medium", "long"] = "medium"
+
+    @model_validator(mode="after")
+    def _fill_total_equity(self) -> PortfolioContext:
+        """没给权益时按现金加持仓成本算 —— 一处算,各通道共用。
+
+        给权益留一个默认值(比如十万)等于替用户编了一个账户:AI 拿它
+        做仓位计算,结论看着正常,依据是假的。没给就算,是能算出来的。
+        """
+        if not self.total_equity:
+            self.total_equity = self.cash + sum(p.quantity * p.avg_price for p in self.positions)
+        return self
 
     def get_position(self, symbol: str) -> PortfolioPosition | None:
         for p in self.positions:
