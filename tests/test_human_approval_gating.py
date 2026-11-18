@@ -169,7 +169,9 @@ def test_cli_agent_noninteractive_without_yes_rejects(monkeypatch, capsys):
     from forgemind.cli import build_parser
 
     p = build_parser()
-    args = p.parse_args(["agent", "--symbol", "600519.SH"])
+    # 账户状态要显式给:不给的话命令在解析账户时就退出了,走不到
+    # "非交互模式拒绝自动审批"这一步。
+    args = p.parse_args(["agent", "--symbol", "600519.SH", "--cash", "80000"])
     # monkeypatch 已经把 isatty 改 False;argparse Namespace 必须含 yes=False
     args.yes = False
 

@@ -25,6 +25,7 @@ import urllib.request
 from pathlib import Path
 
 import pytest
+from _local_client import local_headers
 from _path_setup import child_env
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -167,7 +168,11 @@ class TestDesktopSidecarStarts:
             for _ in range(20):
                 req = urllib.request.Request(
                     url, data=payload,
-                    headers={"Content-Type": "application/json"}, method="POST")
+                    headers={
+                        "Content-Type": "application/json",
+                        # /mcp 是本机专用端点,只认桌面端那个头。
+                        **local_headers(url),
+                    }, method="POST")
                 try:
                     with urllib.request.urlopen(req, timeout=8) as r:
                         got = json.loads(r.read())

@@ -39,10 +39,13 @@ class TestExitCodeChecker:
         result = _run(REPO / "README.md")
         assert result.returncode == 0, result.stdout + result.stderr
 
-    def test_it_catches_a_wrong_table(self):
+    def test_it_catches_a_wrong_table(self, tmp_path):
         """表里写错了码,它必须报出来
 
         没有这一条,这个检查器可能一直报绿 —— 那它盯的就不是那张表了。
+
+        样本写在临时目录,不在仓根:测试被中断时留下的东西不该出现在
+        交付物里(仓根多一个文件就是脏)。
         """
         text = (REPO / "README.md").read_text(encoding="utf-8")
         # 把"argparse 用法错误"那一行的码改成 9 —— 实际是 2
@@ -51,16 +54,13 @@ class TestExitCodeChecker:
             "| 9 | 参数与审批类 | argparse 用法错误",
         )
         assert doctored != text, "没改动 README,这条断言就落空了"
-        tmp = REPO / ".exit_codes_doctored.md"
-        try:
-            tmp.write_text(doctored, encoding="utf-8")
-            result = _run(tmp)
-            assert result.returncode != 0, (
-                "表里的码是错的,核对器却报通过 —— 它没在看那张表"
-            )
-            assert "退出码" in (result.stdout + result.stderr)
-        finally:
-            tmp.unlink(missing_ok=True)
+        tmp = tmp_path / "exit_codes_doctored.md"
+        tmp.write_text(doctored, encoding="utf-8")
+        result = _run(tmp)
+        assert result.returncode != 0, (
+            "表里的码是错的,核对器却报通过 —— 它没在看那张表"
+        )
+        assert "退出码" in (result.stdout + result.stderr)
 
     def test_missing_dependency_is_not_reported_as_a_code_mismatch(self):
         """命令没跑起来要说"环境缺依赖",不能说"退出码与表对不上"

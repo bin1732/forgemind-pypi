@@ -17,9 +17,15 @@ LOCAL_ONLY_PREFIXES = ("/mcp", "/api/pipeline")
 
 
 def local_headers(path: str) -> dict[str, str]:
-    """这个路径要带的头。本机专用端点要,其余不要。"""
+    """这个路径要带的头。本机专用端点要,其余不要。
+
+    传完整 URL 也认 —— 只看路径那一段。
+    """
+    from urllib.parse import urlparse
+
     from forgemind.api.main import MCP_CLIENT_HEADER, MCP_CLIENT_VALUE
 
-    if any(path.startswith(p) for p in LOCAL_ONLY_PREFIXES):
+    path_only = urlparse(path).path or path
+    if any(path_only.startswith(p) for p in LOCAL_ONLY_PREFIXES):
         return {MCP_CLIENT_HEADER: MCP_CLIENT_VALUE}
     return {}

@@ -224,10 +224,20 @@ jobs:
             sleep 2
           done
           B=http://127.0.0.1:8095
-          for ep in /health /api/v1/info /api/v1/health/services /mcp/tools/list; do
+          for ep in /health /api/v1/info /api/v1/health/services; do
             code=$(curl -s -o /dev/null -w '%{http_code}' "$B$ep")
             [ "$code" = "200" ] && echo "PASS GET $ep" || { echo "FAIL GET $ep -> $code"; exit 1; }
           done
+          # /mcp 与 /api/pipeline 是本机专用端点:只接受桌面端那个头。
+          # 少了它会被拒(403),而且这正是要验的契约 —— 网页不该能驱动
+          # 本机的库。
+          for ep in /mcp/tools/list; do
+            code=$(curl -s -o /dev/null -w '%{http_code}' -H 'X-ForgeMind-Client: tauri-sidecar' "$B$ep")
+            [ "$code" = "200" ] && echo "PASS GET $ep" || { echo "FAIL GET $ep -> $code"; exit 1; }
+          done
+          code=$(curl -s -o /dev/null -w '%{http_code}' "$B/mcp/tools/list")
+          [ "$code" = "403" ] && echo "PASS 无桌面端头的 /mcp 被拒" \
+            || { echo "FAIL 无桌面端头的 /mcp 应当被拒,实际 $code"; exit 1; }
           for body in '{"start_date":"bad","end_date":"2024-06-01"}' \
                       '{"start_date":"2024-06-01","end_date":"2024-01-01"}' \
                       '{"start_date":"2024-01-01","end_date":"2024-06-01","fast_period":50,"slow_period":10}'; do

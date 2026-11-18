@@ -15,6 +15,7 @@ import time
 import urllib.request
 
 import pytest
+from _local_client import local_headers
 
 
 def _pick_free_port() -> int:
@@ -42,7 +43,12 @@ def _http(method: str, url: str, body: dict | None = None, timeout: float = 10.0
     data = json.dumps(body).encode("utf-8") if body is not None else None
     req = urllib.request.Request(
         url, data=data, method=method,
-        headers={"Content-Type": "application/json", "Accept": "application/json"},
+        headers={
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+            # /mcp 与 /api/pipeline 是本机专用端点,只认桌面端那个头。
+            **local_headers(url),
+        },
     )
     try:
         with urllib.request.urlopen(req, timeout=timeout) as r:

@@ -467,10 +467,16 @@ check("mcp:tools", _mcp)
 
 def _api():
     from fastapi.testclient import TestClient
-    from forgemind.api.main import app
+    from forgemind.api.main import MCP_CLIENT_HEADER, MCP_CLIENT_VALUE, app
     with TestClient(app) as c:
-        for ep in ["/health","/api/v1/info","/api/v1/health/services","/mcp/tools/list"]:
+        for ep in ["/health","/api/v1/info","/api/v1/health/services"]:
             assert c.get(ep).status_code == 200, ep
+        # /mcp 是本机专用端点:只接受桌面端那个头。
+        assert c.get(
+            "/mcp/tools/list", headers={MCP_CLIENT_HEADER: MCP_CLIENT_VALUE}
+        ).status_code == 200, "/mcp/tools/list 带头也进不去"
+        assert c.get("/mcp/tools/list").status_code == 403, (
+            "/mcp/tools/list 没带头也放行了 —— 网页能驱动本机的库")
         r = c.get("/api/v1/health/services").text
         for leak in ["127.0","::1","password","Traceback","site-packages"]:
             assert leak not in r, f"泄露 {leak}"
