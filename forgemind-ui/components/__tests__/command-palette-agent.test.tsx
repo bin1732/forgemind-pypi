@@ -52,7 +52,7 @@ beforeEach(() => {
     commandPaletteOpen: true,
     pendingAgentDecision: null,
     currentSymbol: "600519.SH",
-    // 真实组合快照。现金取一个不常见的数:写死的十万会让这条测试
+    // 真实组合快照。现金取一个不常见的数:固定的十万会让这条测试
     // 也绿,于是"AI 决策其实拿着编出来的账户"这种事就藏住了。
     cash: 88771.25,
     portfolio: [

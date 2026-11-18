@@ -1,7 +1,7 @@
 # Copyright (c) 2026 灵感引擎工坊 (bin1732) | SPDX-License-Identifier: Apache-2.0
 """决策不许拿编出来的账户当依据。
 
-决策的仓位、权重、股数全按账户状态算。账户状态若由一个写死的默认值
+决策的仓位、权重、股数全按账户状态算。账户状态若由一个固定的默认值
 代替(十万现金),AI 拿它做完决策,界面看上去一切正常,依据却是假的 ——
 用户看到的是"AI 建议",看不到的是它其实在跟一个不存在的账户对话。
 
@@ -72,7 +72,7 @@ class TestNoInventedAccount:
         assert "query_portfolio" in text, text
 
     def test_mcp_schema_does_not_invent_cash(self):
-        """协议声明里也不能有写死的现金。"""
+        """协议声明里也不能有固定的现金。"""
         srv = _server()
         resp = asyncio.run(
             srv.handle_request(

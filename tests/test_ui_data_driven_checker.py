@@ -78,14 +78,14 @@ class TestInventedAccount:
     """界面替用户编一个账户 —— 后端照着算,结论看着正常,依据是假的。"""
 
     def test_integer_cash_is_reported(self, tmp_path):
-        """整数写死的现金躲过了浮点那条规则,这里要抓住它。"""
+        """整数金额的现金躲过了浮点那条规则,这里要抓住它。"""
         _write(
             tmp_path / "components" / "palette.tsx",
             "const args = { symbol, cash: 100000, total_equity: 200000 };\n",
         )
         problems, files = checker.check_tree(tmp_path)
         assert files == 1, files
-        assert problems, "写死的账户没被报出来"
+        assert problems, "编出来的账户没被报出来"
 
     def test_held_position_is_reported(self, tmp_path):
         _write(
@@ -93,7 +93,7 @@ class TestInventedAccount:
             "const args = { positions: [{ symbol, quantity: 100, avg_price: 1500 }] };\n",
         )
         problems, _ = checker.check_tree(tmp_path)
-        assert problems, "写死的持仓没被报出来"
+        assert problems, "编出来的持仓没被报出来"
 
     def test_real_value_is_not_reported(self, tmp_path):
         """值来自状态,不是字面量 —— 不该报。"""
@@ -115,7 +115,7 @@ class TestInventedAccount:
             "const args = { system, cash: 100000 };\n",
         )
         problems, _ = checker.check_tree(tmp_path)
-        assert problems, "整行被普通词盖住了,写死的数据没被发现"
+        assert problems, "整行被普通词盖住了,固定的数据没被发现"
 
     def test_threshold_is_not_reported(self, tmp_path):
         """比较表达式里的常量是界面规则,不是显示值。"""

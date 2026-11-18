@@ -180,7 +180,7 @@ export function CommandPalette() {
         try {
           const st = useAppStore.getState();
           const symbol = st.currentSymbol;
-          // 账户状态用真组合快照,不用写死的数字。写死的账户等于编给
+          // 账户状态用真组合快照,不用固定数字。编出来的账户等于编给
           // AI 一个假账户:决策照做,仓位按编出来的算,结论看着正常。
           const cash = st.cash;
           if (cash == null) {
