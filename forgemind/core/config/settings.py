@@ -91,9 +91,16 @@ class Settings(BaseSettings):
 
     api_jwt_alg: str = "HS256"
     api_jwt_expire_hours: int = 24
+    # 允许的跨域来源。**默认只放开桌面端 webview 与本地开发端口** ——
+    # 全开("*")意味着用户浏览器里打开的任意网页都能跨站调这台机器上的
+    # 接口。浏览器直连调试要放开时,设 FORGEMIND_API_CORS_ORIGINS。
     api_cors_origins: str | list[str] = Field(
-        default_factory=lambda: "*"
-    )  # 桌面端 webview 不受 CORS,但允许浏览器调试,默认全开
+        default_factory=lambda: [
+            "tauri://localhost",
+            "http://tauri.localhost",
+            "http://localhost:1420",
+        ]
+    )
 
     @field_validator("api_cors_origins", mode="before")
     @classmethod

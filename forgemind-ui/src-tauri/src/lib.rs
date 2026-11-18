@@ -68,6 +68,14 @@ pub fn validate_tools_payload(body: &serde_json::Value) -> Result<Vec<String>, S
 /// sidecar 的健康检查地址
 pub const SIDECAR_HEALTH_URL: &str = "http://127.0.0.1:8008/health";
 
+/// 本机端点要求的自定义头。
+///
+/// 浏览器里的任意网页发这个头会触发 CORS 预检,而预检被允许来源列表
+/// 挡下 —— 于是网页驱动不了用户本机的库。sidecar 是 Rust HTTP 客户端,
+/// 带头不受 CORS 约束。值是固定的:它不是密钥,是"我不是浏览器"。
+const CLIENT_HEADER: &str = "X-ForgeMind-Client";
+const CLIENT_HEADER_VALUE: &str = "tauri-sidecar";
+
 /// 探一次健康端点,通不通就返回通不通。
 ///
 /// 抽成独立函数有两个原因:
@@ -219,6 +227,7 @@ async fn run_pipeline(symbols: Vec<String>, start: String, end: String) -> Resul
 
     let response = client
         .post(url)
+        .header(CLIENT_HEADER, CLIENT_HEADER_VALUE)
         .json(&body)
         .send()
         .await
@@ -240,6 +249,7 @@ async fn mcp_call_tool(tool_name: String, arguments: serde_json::Value) -> Resul
 
     let response = client
         .post(url)
+        .header(CLIENT_HEADER, CLIENT_HEADER_VALUE)
         .json(&serde_json::json!({
             "name": tool_name,
             "arguments": arguments,
@@ -285,6 +295,7 @@ async fn read_mcp_resource(uri: String) -> Result<serde_json::Value, String> {
 
     let response = client
         .post(url)
+        .header(CLIENT_HEADER, CLIENT_HEADER_VALUE)
         .json(&serde_json::json!({ "uri": uri }))
         .send()
         .await
@@ -334,8 +345,8 @@ async fn get_system_status(state: State<'_, AppState>) -> Result<serde_json::Val
     let live = if python_sidecar_running {
         // 并行拉 tools + resources 两个端
         let (tools_resp, resources_resp) = tokio::join!(
-            client.get(tools_url).send(),
-            client.get(resources_url).send(),
+            client.get(tools_url).header(CLIENT_HEADER, CLIENT_HEADER_VALUE).send(),
+            client.get(resources_url).header(CLIENT_HEADER, CLIENT_HEADER_VALUE).send(),
         );
         // tools/list 协议只返 tools[] 不返 resources[],
         // resources 的数量要另外从 /mcp/resources/list 数。

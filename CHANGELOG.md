@@ -555,6 +555,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   an ancestor of the main branch. It used to insist on the head of the
   branch, which the release itself moves, so the normal case was refused.
 
+### Security
+- The local endpoints that can write to the database or run a decision now
+  refuse a caller that does not carry the desktop client's marker header.
+  They are exempt from the API key check — the sidecar carries no key — and
+  until now nothing else stood between them and the caller: a page open in
+  the user's browser could reach them across origins, because the allowed
+  origins included every origin.
+- The allowed origins no longer include every origin by default. Set
+  `FORGEMIND_API_CORS_ORIGINS` to open the API to a browser on purpose.
+- A missing or wrong API key is now answered with 401 or 403. The check
+  sits in middleware, which runs outside FastAPI's exception handlers, so
+  the refusal used to reach the client as a 500 — the service looked broken
+  instead of asking for credentials.
+
 ### Changed
 - Dependencies are now checked against what the code actually imports, in
   both directions. Thirteen packages that nothing in the source imported

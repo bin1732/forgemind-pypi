@@ -74,15 +74,40 @@ PUBLIC_PATHS = {
     "/docs",
     "/openapi.json",
     "/redoc",
-    "/mcp",  # MCP 协议端点 (桌面端本地调用)
-    "/api/pipeline",  # 数据流水线 (桌面端本地调用)
 }
+
+#: 只给本机桌面端用的端点前缀。
+#:
+#: 它们免 API Key 校验(桌面端 sidecar 不带 key),但**要求一个自定义头**。
+#: 浏览器里任意网页发这个头会触发 CORS 预检,预检被允许来源列表挡下 ⇒
+#: 网页驱动不了用户本机的库(sidecar 是 Rust HTTP 客户端,带头不受 CORS
+#: 约束)。
+#:
+#: 这两个前缀下都是能写库、能跑决策的东西:调得动就等于把用户账户
+#: 交出去了。
+LOCAL_ONLY_PATHS = ("/mcp", "/api/pipeline")
+
+#: 桌面端 sidecar 带的自定义头。值是固定的 —— 它不是密钥,是"我不是浏览器"。
+MCP_CLIENT_HEADER = "X-ForgeMind-Client"
+MCP_CLIENT_VALUE = "tauri-sidecar"
 
 
 @app.middleware("http")
 async def api_key_auth(request: Request, call_next):
     """API Key 校验 — dev 模式跳过，prod 必须传 X-API-Key"""
-    if any(request.url.path.startswith(p) for p in PUBLIC_PATHS):
+    path = request.url.path
+    if any(path.startswith(p) for p in LOCAL_ONLY_PATHS):
+        if request.headers.get(MCP_CLIENT_HEADER) != MCP_CLIENT_VALUE:
+            # **返回响应,不要 raise HTTPException**:中间件在
+            # FastAPI 的异常处理器**外面**,在那里抛 HTTPException 没人
+            # 接 —— 请求会一路冒到最外层,客户端拿到的是 500 而不是 403。
+            # (下面 API Key 的 401/403 也是同一个毛病,一起改了。)
+            return JSONResponse(
+                status_code=403,
+                content={"detail": f"本机端点只接受桌面端调用(缺 {MCP_CLIENT_HEADER} 头)"},
+            )
+        return await call_next(request)
+    if any(path.startswith(p) for p in PUBLIC_PATHS):
         return await call_next(request)
 
     if settings.env == "dev":
@@ -90,9 +115,9 @@ async def api_key_auth(request: Request, call_next):
 
     provided = request.headers.get("X-API-Key", "")
     if not provided:
-        raise HTTPException(status_code=401, detail="Missing X-API-Key header")
+        return JSONResponse(status_code=401, content={"detail": "Missing X-API-Key header"})
     if provided != settings.api_secret_key:
-        raise HTTPException(status_code=403, detail="Invalid API key")
+        return JSONResponse(status_code=403, content={"detail": "Invalid API key"})
 
     return await call_next(request)
 
