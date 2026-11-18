@@ -137,11 +137,20 @@ def parse_rust() -> dict:
     emit = re.search(r'emit\("([^"]+)"', src)
     event = emit.group(1) if emit else "python-sidecar-ready"
 
+    # 本机专用端点要带的那个头。它在 Rust 源码里写着,替身照抄 ——
+    # 手写一份就会跟真实现分家,而分家的后果是截图看着正常、真机却调不动。
+    hdr = re.search(r'const CLIENT_HEADER[^=]*=\s*"([^"]+)"', src)
+    val = re.search(r'const CLIENT_HEADER_VALUE[^=]*=\s*"([^"]+)"', src)
+    if not hdr or not val:
+        raise ContractError("Rust 里抽不到本机端点那个头")
+    client_header = (hdr.group(1), val.group(1))
+
     return {
         "commands": commands,
         "status_keys": status_keys,
         "base": base,
         "event": event,
+        "client_header": client_header,
     }
 
 
@@ -206,7 +215,11 @@ def build_shim(contract: dict, app_version: str, tauri_version: str) -> str:
             f"""  {name}: async (a) => {{
       const res = await fetch({json.dumps(url)}, {{
         method: {json.dumps(method)},
-        headers: {{ "Content-Type": "application/json" }},
+        headers: {{
+          "Content-Type": "application/json",
+          // 本机专用端点只认桌面端那个头 —— 真桌面端带着它,替身也得带。
+          [{json.dumps(contract["client_header"][0])}]: {json.dumps(contract["client_header"][1])},
+        }},
         body: {body_expr},
       }});
       const text = await res.text();
@@ -221,7 +234,9 @@ def build_shim(contract: dict, app_version: str, tauri_version: str) -> str:
 
     status_impl = """  get_system_status: async () => {
     const get = async (url) => {
-      const res = await fetch(url);
+      const res = await fetch(url, {
+        headers: { [CFG.clientHeader[0]]: CFG.clientHeader[1] },
+      });
       if (!res.ok) return null;
       return await res.json();
     };
@@ -258,6 +273,7 @@ def build_shim(contract: dict, app_version: str, tauri_version: str) -> str:
             "resources": contract["commands"]["get_system_status"]["urls"][1],
         },
         "event": contract["event"],
+        "clientHeader": list(contract["client_header"]),
     }
 
     js = f"""

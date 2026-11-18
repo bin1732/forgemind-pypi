@@ -60,17 +60,6 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-# CORS
-app.add_middleware(
-    CORSMiddleware,
-    # 桌面 webview 通过 IPC,无 CORS 限制;但允许浏览器端调试需要 CORS。
-    # 不用 cookie,allow_credentials=False 让 allow_origins="*" 合法
-    allow_origins=settings.api_cors_origins,
-    allow_credentials=False,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
 # ===== API Key Auth Middleware =====
 from fastapi import HTTPException, Request  # noqa: E402
 
@@ -126,6 +115,22 @@ async def api_key_auth(request: Request, call_next):
         return JSONResponse(status_code=403, content={"detail": "Invalid API key"})
 
     return await call_next(request)
+
+
+# CORS 放在**最外层**:后加的中间件在外层,先收到请求。
+#
+# 顺序反了的话,被拒的请求(403)走不到 CORS 中间件 ⇒ 响应里没有
+# Access-Control-Allow-Origin ⇒ 浏览器只报"CORS 错误",把真实原因
+# (被拒了)盖掉。排查的人会跑去查网络,而不是查凭证。
+app.add_middleware(
+    CORSMiddleware,
+    # 桌面 webview 通过 IPC,无 CORS 限制;但允许浏览器端调试需要 CORS。
+    # 不用 cookie,allow_credentials=False 让 allow_origins="*" 合法
+    allow_origins=settings.api_cors_origins,
+    allow_credentials=False,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 
 # ===== Exception handler =====

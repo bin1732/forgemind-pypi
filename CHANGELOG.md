@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- A refused request now carries the cross-origin header. The middleware
+  order had the credential check outside the cross-origin handling, so a
+  refusal never reached it and the response carried no allowed-origin
+  header — the browser reported a cross-origin error and hid the real
+  reason (the credentials). The cross-origin handling now sits outermost,
+  and a refusal says what is wrong.
+
 ### Added
 - The Release page is rewritten on every publish. It names the version
   that was just published, lists the artifacts that are actually
