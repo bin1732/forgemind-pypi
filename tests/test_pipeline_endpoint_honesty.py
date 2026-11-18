@@ -16,6 +16,7 @@ signal_id/side/rationale/timestamp 毫无关系;response_model 遇到缺失字�
 """
 
 import pytest
+from _local_client import local_headers
 
 
 @pytest.fixture(scope="module")
@@ -29,7 +30,7 @@ def client():
 
 @pytest.fixture(scope="module")
 def run_result(client):
-    r = client.post("/api/pipeline/run", json={
+    r = client.post("/api/pipeline/run", headers=local_headers("/api/pipeline/run"), json={
         "symbols": ["600519.SH"], "start": "2024-01-01", "end": "2024-03-01",
     })
     assert r.status_code == 200, r.text

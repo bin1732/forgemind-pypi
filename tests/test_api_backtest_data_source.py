@@ -17,6 +17,7 @@ import math
 from datetime import date, timedelta
 
 import pytest
+from _local_client import local_headers
 from _path_setup import child_env, inline_path_setup
 from fastapi.testclient import TestClient
 
@@ -134,7 +135,9 @@ class TestPipelineIsDeterministic:
             "from fastapi.testclient import TestClient;"
             "from forgemind.api.main import app;"
             "c = TestClient(app);"
-            "r = c.post('/api/pipeline/run', json={'symbols':['600519','000001'],"
+            "from forgemind.api.main import MCP_CLIENT_HEADER, MCP_CLIENT_VALUE;"
+            "r = c.post('/api/pipeline/run', headers={MCP_CLIENT_HEADER: MCP_CLIENT_VALUE},"
+            "json={'symbols':['600519','000001'],"
             "'start':'2024-01-01','end':'2024-03-31'});"
             "d = r.json();"
             "print(json.dumps([d.get('sharpe'), d.get('max_drawdown'),"
@@ -152,7 +155,7 @@ class TestPipelineIsDeterministic:
             f"两个进程算出的结果不一样: {outs}")
 
     def test_declares_its_data_source(self, client):
-        r = client.post("/api/pipeline/run", json={
+        r = client.post("/api/pipeline/run", headers=local_headers("/api/pipeline/run"), json={
             "symbols": ["600519"], "start": "2024-01-01", "end": "2024-03-31"})
         assert r.status_code == 200, r.text
         d = r.json()

@@ -15,10 +15,9 @@ bug 历史:
   K 线面板显示 600519.SH 2024 全年真 K 线,高 1900 低 1200 close 1444.42
 """
 import json
-import os
 
 import duckdb
-import pytest
+from _local_client import local_headers
 
 
 def _seed_kline_daily(db_path: str, symbol: str = "600519"):
@@ -63,7 +62,7 @@ def test_get_kline_returns_real_bars():
     # TestClient 走 in-process,会复用 singleton
     from forgemind.api.main import app
     with TestClient(app) as client:
-        r = client.post("/mcp/tools/call", json={
+        r = client.post("/mcp/tools/call", headers=local_headers("/mcp/tools/call"), json={
             "name": "get_kline",
             "arguments": {"symbol": "600519.SH", "limit": 10},
         })
@@ -89,7 +88,7 @@ def test_get_kline_handles_missing_symbol():
 
     from forgemind.api.main import app
     with TestClient(app) as client:
-        r = client.post("/mcp/tools/call", json={
+        r = client.post("/mcp/tools/call", headers=local_headers("/mcp/tools/call"), json={
             "name": "get_kline",
             "arguments": {"symbol": "999999.SH", "limit": 10},
         })

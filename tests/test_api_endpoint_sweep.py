@@ -95,17 +95,7 @@ BAD_REQUESTS = [
 DECIDE_ENDPOINT = ("POST", "/api/v1/agent/decide")
 
 
-#: 桌面端 sidecar 带的自定义头。本机专用端点(/mcp、/api/pipeline)
-#: 认这个头 —— 浏览器里的网页发它会触发 CORS 预检,预检被允许来源
-#: 列表挡下,于是网页驱动不了用户本机的库。
-CLIENT_HEADERS = {"X-ForgeMind-Client": "tauri-sidecar"}
-
-
-def _headers(path: str) -> dict:
-    """本机专用端点要带桌面端那个头。"""
-    if any(path.startswith(p) for p in ("/mcp", "/api/pipeline")):
-        return dict(CLIENT_HEADERS)
-    return {}
+from _local_client import local_headers  # noqa: E402
 
 
 @pytest.fixture
@@ -148,9 +138,9 @@ class TestResponseHasNoInternals:
     )
     def test_success_response_has_no_internals(self, client, method, path, params, body):
         if method == "GET":
-            r = client.get(path, params=params, headers=_headers(path))
+            r = client.get(path, params=params, headers=local_headers(path))
         else:
-            r = client.post(path, json=body, headers=_headers(path))
+            r = client.post(path, json=body, headers=local_headers(path))
         payload = r.json()
         self._assert_clean(method, path, payload, json.dumps(payload, ensure_ascii=False))
 
@@ -164,9 +154,9 @@ class TestResponseHasNoInternals:
         塞进 detail,一句 "CatalogException: ..." 就出去了。
         """
         if method == "GET":
-            r = client.get(path, params=body, headers=_headers(path))
+            r = client.get(path, params=body, headers=local_headers(path))
         else:
-            r = client.post(path, json=body, headers=_headers(path))
+            r = client.post(path, json=body, headers=local_headers(path))
         assert 400 <= r.status_code < 500, f"{method} {path} -> {r.status_code}: {r.text[:300]}"
         payload = r.json()
         self._assert_clean(method, path, payload, json.dumps(payload, ensure_ascii=False))
@@ -180,9 +170,9 @@ class TestEndpointSweep:
     )
     def test_endpoint_answers_with_content(self, client, method, path, params, body):
         if method == "GET":
-            r = client.get(path, params=params, headers=_headers(path))
+            r = client.get(path, params=params, headers=local_headers(path))
         else:
-            r = client.post(path, json=body, headers=_headers(path))
+            r = client.post(path, json=body, headers=local_headers(path))
         assert r.status_code < 500, f"{method} {path} -> {r.status_code}: {r.text[:400]}"
         payload = r.json()
         assert payload, f"{method} {path} 返回了空体"
@@ -312,9 +302,9 @@ class TestLocalOnlyEndpointsRefuseBrowsers:
     )
     def test_with_the_client_header_it_works(self, client, method, path, body):
         if method == "GET":
-            r = client.get(path, headers=CLIENT_HEADERS)
+            r = client.get(path, headers=local_headers(path))
         else:
-            r = client.post(path, json=body, headers=CLIENT_HEADERS)
+            r = client.post(path, json=body, headers=local_headers(path))
         assert r.status_code != 403, f"{path} 带了对的头还是被拒: {r.text[:200]}"
 
     def test_cors_is_not_wide_open_by_default(self):

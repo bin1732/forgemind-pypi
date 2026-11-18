@@ -25,6 +25,7 @@ import urllib.request
 from pathlib import Path
 
 import pytest
+from _local_client import local_headers
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -81,12 +82,13 @@ def mcp_call(payloads, timeout=150):
 
 def http_json(port, path, payload=None, method=None, timeout=40):
     url = f"http://127.0.0.1:{port}{path}"
+    headers = dict(local_headers(path))
     if payload is None:
-        req = urllib.request.Request(url)
+        req = urllib.request.Request(url, headers=headers)
     else:
         req = urllib.request.Request(
             url, data=json.dumps(payload).encode(),
-            headers={"Content-Type": "application/json"},
+            headers={**headers, "Content-Type": "application/json"},
             method=method or "POST")
     try:
         with urllib.request.urlopen(req, timeout=timeout) as r:

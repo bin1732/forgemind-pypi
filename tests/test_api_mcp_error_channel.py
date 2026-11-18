@@ -14,6 +14,7 @@ MCP 规范把失败分成两类:调用本身不合法(未知工具、参数非�
 from __future__ import annotations
 
 import pytest
+from _local_client import local_headers
 from fastapi.testclient import TestClient
 
 from forgemind.api import main as api_main
@@ -42,7 +43,7 @@ def _failing_server():
 class TestMcpErrorChannelOverHttp:
     def test_execution_failure_becomes_a_server_error(self, client, monkeypatch):
         monkeypatch.setattr(api_main, "_get_mcp_server", _failing_server)
-        r = client.post("/mcp/tools/call", json={
+        r = client.post("/mcp/tools/call", headers=local_headers("/mcp/tools/call"), json={
             "name": "get_feature", "arguments": {"name": "kmid"}})
         assert r.status_code == 500, r.text
         body = r.json()
@@ -51,20 +52,20 @@ class TestMcpErrorChannelOverHttp:
         assert "上游行情接口超时" in text, body
 
     def test_unknown_tool_becomes_a_client_error(self, client):
-        r = client.post("/mcp/tools/call", json={
+        r = client.post("/mcp/tools/call", headers=local_headers("/mcp/tools/call"), json={
             "name": "no_such_tool", "arguments": {}})
         assert r.status_code == 400, r.text
         assert r.json()["error"]["code"] == -32601, r.text
 
     def test_invalid_arguments_become_a_client_error(self, client):
-        r = client.post("/mcp/tools/call", json={
+        r = client.post("/mcp/tools/call", headers=local_headers("/mcp/tools/call"), json={
             "name": "get_feature", "arguments": {"wrong": "x"}})
         assert r.status_code == 400, r.text
         assert r.json()["error"]["code"] == -32602, r.text
 
     def test_non_object_arguments_are_rejected_before_dispatch(self, client):
         """arguments 不是对象时,请求模型就拦下了(422),压根到不了工具"""
-        r = client.post("/mcp/tools/call", json={
+        r = client.post("/mcp/tools/call", headers=local_headers("/mcp/tools/call"), json={
             "name": "get_feature", "arguments": ["not", "an", "object"]})
         assert r.status_code == 422, r.text
         assert "arguments" in r.text, r.text

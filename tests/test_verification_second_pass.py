@@ -28,6 +28,7 @@ import pytest
 
 ROOT = Path(__file__).resolve().parent.parent
 
+from _local_client import local_headers  # noqa: E402
 from _path_setup import child_env, prefer_source_tree  # noqa: E402
 
 prefer_source_tree()
@@ -265,7 +266,8 @@ class TestApiThroughHttp:
         base = f"http://127.0.0.1:{port}"
         try:
             for ep in ("/health", "/api/v1/info", "/mcp/tools/list"):
-                with urllib.request.urlopen(base + ep, timeout=30) as r:
+                req = urllib.request.Request(base + ep, headers=local_headers(ep))
+                with urllib.request.urlopen(req, timeout=30) as r:
                     assert r.status == 200, ep
 
             for body in ({"start_date": "bad", "end_date": "2024-06-01"},
