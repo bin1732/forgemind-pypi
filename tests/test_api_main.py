@@ -148,7 +148,10 @@ class TestFastAPIApp:
         body = json.loads(response.body)
         # code 字段是 int 1001 (ConfigError 默认 code)
         assert body["code"] == 1001
-        assert "ConfigError" in body["error"]
+        # error 字段是同一个稳定错误码 —— **不是异常类名**。类名是内部
+        # 实现的名字,响应体里不该有它;调用方该看的是错误码与说明。
+        assert body["error"] == 1001
+        assert "ConfigError" not in json.dumps(body, ensure_ascii=False)
         assert "test error" in body["message"]
 
 
