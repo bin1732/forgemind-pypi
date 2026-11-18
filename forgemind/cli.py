@@ -879,12 +879,23 @@ def cmd_info(args):
     # US 数据源状态:让用户一眼看到「我现在能不能拉美股」
     us_token = os.environ.get("FORGEMIND_US_TOKEN", "").strip()
     if us_token:
-        masked = us_token[:4] + "***" + us_token[-2:] if len(us_token) > 6 else "***"
-        print(f"  US source: {os.environ.get('FORGEMIND_US_PROVIDER', 'polygon')}, token={masked}")
+        # 只说"配了",不露 token 的任何字符。这行会被截图、贴到工单里、
+        # 出现在 CI 日志里 —— 露前四位后两位没有任何用处,却多一处泄露。
+        print(
+            f"  US source: {os.environ.get('FORGEMIND_US_PROVIDER', 'polygon')}, token=*** (已配置)"
+        )
     else:
         print(
             "  US source: NOT configured (设 FORGEMIND_US_TOKEN=... 启用;免费 tier 见 polygon.io / tiingo.com)"
         )
+    # A 股数据源是**默认**的那一个:免费、不需要密钥。它没装的话,etl
+    # 会在取数前就失败 —— 诊断命令该先说清楚,别让人等 ETL 报错才知道。
+    import importlib.util
+
+    if importlib.util.find_spec("akshare") is not None:
+        print("  CN source: akshare (已安装)")
+    else:
+        print("  CN source: akshare 未安装 —— 拉 A 股数据要先装它: pip install 'forgemind[cn]'")
 
 
 def build_parser() -> argparse.ArgumentParser:

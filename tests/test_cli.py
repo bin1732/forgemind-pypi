@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import argparse
+import os
 import sys
 from unittest.mock import patch
 
@@ -36,6 +37,7 @@ class TestCLICommands:
     def test_cmd_info(self):
         """info 命令 — 显示配置"""
         from forgemind.cli import cmd_info
+
         args = self._make_args()
         # 应能跑通(只是 print)
         cmd_info(args)
@@ -43,24 +45,28 @@ class TestCLICommands:
     def test_cmd_signal(self):
         """signal 命令 — 显示研究层说明"""
         from forgemind.cli import cmd_signal
+
         args = self._make_args()
         cmd_signal(args)
 
     def test_cmd_backtest_ma_cross(self):
         """backtest + ma_cross"""
         from forgemind.cli import cmd_backtest
+
         args = self._make_args(strategy="ma_cross", fast=5, slow=20)
         cmd_backtest(args)
 
     def test_cmd_backtest_other_strategy(self):
         """backtest + bollinger 策略"""
         from forgemind.cli import cmd_backtest
+
         args = self._make_args(strategy="bollinger", fast=10, slow=30)
         cmd_backtest(args)
 
     def test_cmd_router_demo(self):
         """router-demo 命令"""
         from forgemind.cli import cmd_router_demo
+
         args = self._make_args()
         # quick_route_demo 打印 provider info
         try:
@@ -71,6 +77,7 @@ class TestCLICommands:
     def test_cmd_pick_no_symbols(self):
         """pick 无 symbols — 用默认"""
         from forgemind.cli import cmd_pick
+
         args = self._make_args(symbols=None, top_n=3)
         # StockPickerAgent 会尝试 AKShare,可能失败
         try:
@@ -81,6 +88,7 @@ class TestCLICommands:
     def test_cmd_agent(self):
         """agent 命令 — portfolio context"""
         from forgemind.cli import cmd_agent
+
         args = self._make_args(symbol="600519.SH", cash=80_000.0)
         # 可能因数据缺失失败,但应至少跑通 init
         try:
@@ -119,9 +127,7 @@ class TestCLICommands:
             encoding="utf-8",
         )
         try:
-            stdout, stderr = proc.communicate(
-                json.dumps(request) + "\n", timeout=60
-            )
+            stdout, stderr = proc.communicate(json.dumps(request) + "\n", timeout=60)
         except subprocess.TimeoutExpired:
             proc.kill()
             proc.communicate()
@@ -161,10 +167,15 @@ class TestCLICommands:
         assert code in (0, 1, 2, 3, 4), f"退出码应为受支持的取值,实际 {code}"
         if code != 0:
             # 任何非零退出都要说明原因,并给出可行动的下一步
-            reasons = ("失败原因分类", "取数超时", "上游行情源", "内存不足",
-                       "磁盘空间不足", "未能开始取数")
-            assert any(word in out for word in reasons), \
-                f"失败时未给出可行动原因,输出: {out!r}"
+            reasons = (
+                "失败原因分类",
+                "取数超时",
+                "上游行情源",
+                "内存不足",
+                "磁盘空间不足",
+                "未能开始取数",
+            )
+            assert any(word in out for word in reasons), f"失败时未给出可行动原因,输出: {out!r}"
 
 
 class TestMain:
@@ -173,6 +184,7 @@ class TestMain:
     def test_main_help(self):
         """main --help 应打印帮助"""
         from forgemind.cli import main
+
         with patch.object(sys, "argv", ["forgemind", "--help"]):
             with pytest.raises(SystemExit):
                 main()
@@ -184,6 +196,7 @@ class TestMain:
         该改参数还是该查审批状态。
         """
         from forgemind.cli import main
+
         with patch.object(sys, "argv", ["forgemind"]):
             with pytest.raises(SystemExit) as exc_info:
                 main()
@@ -192,12 +205,14 @@ class TestMain:
     def test_main_info(self):
         """main info 子命令"""
         from forgemind.cli import main
+
         with patch.object(sys, "argv", ["forgemind", "info"]):
             main()
 
     def test_main_signal(self):
         """main signal 子命令"""
         from forgemind.cli import main
+
         with patch.object(sys, "argv", ["forgemind", "signal"]):
             main()
 
@@ -246,8 +261,9 @@ class TestETLResourceFailures:
         monkeypatch.setattr(mod, "AKShareETL", Fake)
         buf = io.StringIO()
         with contextlib.redirect_stdout(buf), pytest.raises(SystemExit) as ei:
-            cmd_etl(argparse.Namespace(
-                symbols="600519,000001", start="2024-01-01", end="2024-12-31"))
+            cmd_etl(
+                argparse.Namespace(symbols="600519,000001", start="2024-01-01", end="2024-12-31")
+            )
         return buf.getvalue(), (ei.value.code if isinstance(ei.value.code, int) else 1)
 
     def test_memory_error_gives_actionable_advice(self, monkeypatch):
@@ -280,5 +296,42 @@ class TestETLResourceFailures:
 
         monkeypatch.setattr(mod, "AKShareETL", Fake)
         with contextlib.redirect_stdout(io.StringIO()), pytest.raises(PermissionError):
-            cmd_etl(argparse.Namespace(
-                symbols="600519", start="2024-01-01", end="2024-12-31"))
+            cmd_etl(argparse.Namespace(symbols="600519", start="2024-01-01", end="2024-12-31"))
+
+
+class TestInfoReportsRealState:
+    """诊断命令说的每个状态都得是真的。
+
+    `forgemind info` 是用户问"我现在能不能用"的第一站。它漏报的,
+    用户要等别的命令失败才知道 —— 那一路上他可能已经改错了方向。
+    """
+
+    def _run_info(self, capsys, **env):
+        from forgemind.cli import cmd_info
+
+        with patch.dict(os.environ, env, clear=False):
+            cmd_info(argparse.Namespace())
+        return capsys.readouterr().out
+
+    def test_cn_source_state_is_reported(self, capsys, monkeypatch):
+        """A 股数据源是默认那个,免费且不需要密钥 —— 它的状态该被报出来"""
+        import importlib.util
+
+        installed = importlib.util.find_spec("akshare") is not None
+        out = self._run_info(capsys)
+        assert "CN source:" in out, out
+        if installed:
+            assert "akshare (已安装)" in out, out
+        else:
+            assert "未安装" in out, out
+            # 没说怎么装,用户还是没法往下走
+            assert "pip install" in out, out
+
+    def test_us_token_is_not_partially_shown(self, capsys):
+        """配了 token 就只说"配了" —— 这行会被截图、贴工单、进 CI 日志"""
+        secret = "SUPERSECRETTOKENVALUE1234"
+        out = self._run_info(capsys, FORGEMIND_US_TOKEN=secret)
+        assert "已配置" in out, out
+        assert secret[:4] not in out, out
+        assert secret[-2:] not in out, out
+        assert secret not in out, out
