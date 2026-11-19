@@ -1467,6 +1467,11 @@ class ForgeMindMCPServer:
             "status": "PENDING_HUMAN_REVIEW",
             "thread_id": state.get("thread_id", ""),
             "symbol": symbol,
+            # 论点是谁说的:规则还是模型。模型只负责措辞,事实仍由规则给。
+            "thesis_sources": {
+                "bull": bull.get("thesis_source", "rule"),
+                "bear": bear.get("thesis_source", "rule"),
+            },
             # 依据的行情截止到哪天 —— 计算用的可能是几周前的收盘价。
             "data_as_of": {
                 "last_date": _tech.get("last_date"),

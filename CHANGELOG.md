@@ -53,6 +53,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   path calls the provider adapters, the note has to go; if it does not,
   the note must be there and the interface may not say "AI decision".
 
+### Added
+- The model can now write the wording of the bull and bear cases.
+  **The facts stay with the rules**: the technical readings, the
+  evidence, the target weight and the size of the order are all
+  computed, and the model never touches a number. It only phrases what
+  the readings support.
+
+  It is off by default — set `FORGEMIND_DECISION_LLM_PROVIDER` to turn
+  it on. When it is off, when there is no key, when the call fails or
+  when the model returns nothing usable, the wording falls back to the
+  rule's, and the report says which one wrote the sentence. Calling a
+  rule's sentence "the model's" is worse than having no model at all.
+
 ### Fixed
 - The interface now shows the equity the backend computed. The panel
   worked it out again itself, with a different rule: the backend counts

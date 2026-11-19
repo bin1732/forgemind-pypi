@@ -175,6 +175,12 @@ class Settings(BaseSettings):
     gemini_api_key: str = ""
     mistral_api_key: str = ""
 
+    # 决策链路用的模型:留空 = 不用模型 —— 多空论点由规则生成,报告里会
+    # 标明来源。配了就让模型写**措辞**,事实仍由规则给(见
+    # forgemind/core/agents/llm_analyst.py)。
+    decision_llm_provider: str = ""
+    decision_llm_model: str = ""
+
     # Brokers: ForgeMind 不内置券商 SDK(v1.0 起完全解耦)
     # 用户用 vnpy / nautilus_trader / 自己 broker SDK 执行信号
     # 见 §24 L7 信号输出层

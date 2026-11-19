@@ -625,6 +625,12 @@ def cmd_agent(args):
     print(f"  thread_id: {thread_id}")
     print(f"  bull: {bull.get('thesis', '')}")
     print(f"  bear: {bear.get('thesis', '')}")
+    # 论点是谁说的 —— 规则还是模型。不说的话,读的人没法判断依据。
+    _src = {
+        "bull": bull.get("thesis_source", "rule"),
+        "bear": bear.get("thesis_source", "rule"),
+    }
+    print(f"  论点来源: 多头={_src['bull']} / 空头={_src['bear']}")
     print(f"  confidence: {state.get('confidence', 0):.2%}")
     # 依据的行情截止到哪天:计算用的可能是几周前的收盘价,不说的话
     # 用户会把"上个月的形态"当成"今天的形态"。

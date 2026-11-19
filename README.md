@@ -28,11 +28,11 @@
 | **169 Alpha Factors** | Alpha158 (152) · Alpha101 (11) · Barra 风险模型 · IC 监控 |
 | **Stock Screening Agent** | Multi-factor scoring · 说明由真实因子读数拼装(不调模型) |
 | **Backtest Engine** (`forgemind backtest`) | Event-driven 事件驱动 · 3 种滑点模型(fixed / linear / sqrt) · 9 个策略这条命令跑得起来(`forgemind backtest --list-strategies` 看全部,以及另一些策略为什么跑不了) |
-| **Decision Agent** | LangGraph 6-node pipeline · 六个节点目前都是规则(技术面读数驱动)· LLM provider 适配层(9 家)已就绪,但决策链路尚未接上模型 · 人工审批 gating |
+| **Decision Agent** | LangGraph 6-node pipeline · 事实由规则算,多空论点的**措辞**可由模型写(默认不用)· 人工审批 gating |
 | **Desktop App** | Tauri 2.x · Next.js 15 frontend · MCP protocol (Claude Desktop / Cursor) — 需本机已装 Python 3.11+ 与本包(桌面端启动 Python sidecar,未捆绑解释器) |
 | **Free Data** | AKShare · A-shares + CN macro(PMI / CPI / PPI / M2 / 国债收益率 / 汇率)· DuckDB · *(US 需配置 FORGEMIND_US_TOKEN,见 `forgemind info`)* |
 
-**当前这条链路上,什么在跑模型、什么还没有:** 决策的六个节点(fundamentals / technical / news / bull / bear / pm)目前**全是规则** —— 多空论点由技术面读数按固定条件生成,基本面与新闻如实报"未接入数据源"。`forgemind/core/ai/providers.py` 里的 9 家 provider 适配层是完整可用的,但**生产链路还没有任何一处调用它**;`forgemind router-demo` 也只看路由结果、不调模型。写在这里是因为"决策用了模型"这句话与实际行为不符,而这类不符比缺功能更误导人。
+**当前这条链路上,模型负责什么、规则负责什么:** 决策的六个节点里,**事实全部由规则算** —— 技术面读数、证据、目标权重、下单量,模型一个都不碰。**多空论点的措辞**可以交给模型:设 `FORGEMIND_DECISION_LLM_PROVIDER` 才启用(9 家 provider 适配层都可用),没配就用规则的措辞;模型这一路没走通(没密钥、调用失败、返回空话)也一样回落规则。命令输出、接口响应与 MCP 返回里都带着**这句话是模型写的还是规则写的** —— 把规则写的说成模型写的,比缺功能更误导人。基本面与新闻如实报"未接入数据源"。
 
 ---
 
@@ -444,11 +444,11 @@ $ forgemind agent --symbol 600519.SH --cash 100000
 
 ```bash
 pytest tests/ -v
-# 692 test files · 10547 tests
+# 693 test files · 10553 tests
 
 # 常规档位:真实业务用例,起真实子进程与真实数据库
 pytest tests/ -m "not heavy"
-# 8707 cases
+# 8713 cases
 
 # 重并发档位:百万级真实运算,单独用更宽的超时执行
 pytest tests/ -m heavy

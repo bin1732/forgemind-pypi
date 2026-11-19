@@ -514,7 +514,56 @@ def _evidence(state: AgentState) -> tuple[list[str], list[str], float]:
     return bull, bear, float(tech.get("confidence") or 0.0) * 0.5
 
 
-def bull_node(state: AgentState) -> dict:
+async def _decision_provider():
+    """决策链路要用的模型 —— 没配置就返回 None(那就用规则)。"""
+    from forgemind.core.config.settings import get_settings
+
+    name = (get_settings().decision_llm_provider or "").strip().lower()
+    if not name:
+        return None
+    try:
+        from forgemind.core.ai.providers import (
+            ProviderConfig,
+            ProviderType,
+            create_provider,
+        )
+
+        ptype = ProviderType(name)
+    except Exception:  # noqa: BLE001 —— 认不出的 provider 就当没配
+        return None
+    try:
+        return create_provider(
+            ProviderConfig(
+                provider_type=ptype,
+                model_name=get_settings().decision_llm_model or "",
+            )
+        )
+    except Exception:  # noqa: BLE001
+        return None
+
+
+async def _compose_thesis(
+    state: AgentState, kind: str, evidence: list[str], gaps: list[str], rule_text: str
+) -> tuple[str, str, str | None]:
+    """论点 = 模型的措辞 + 规则的证据;模型这一路没走通就用规则的措辞。
+
+    返回 (论点, 来源, 原因)。来源只有 model 与 rule 两种 —— 报告里必须
+    带着它,读的人才知道这句话是谁说的。
+    """
+    from forgemind.core.agents.llm_analyst import (
+        SOURCE_MODEL,
+        SOURCE_RULE,
+        model_thesis,
+    )
+
+    provider = await _decision_provider()
+    outcome = await model_thesis(provider, str(state.get("symbol", "")), kind, evidence, gaps)
+    if outcome.get("thesis"):
+        return str(outcome["thesis"]), SOURCE_MODEL, None
+    return rule_text, SOURCE_RULE, outcome.get("reason")
+
+
+async def bull_node(state: AgentState) -> dict:
     """多方研究员 — 论据来自**真实**技术面读数
 
     thesis 是基于实际读数, 不是硬编码的"基本面+技术面+新闻均偏多,可建仓"
@@ -527,6 +576,8 @@ def bull_node(state: AgentState) -> dict:
         return {
             "bull_case": {
                 "thesis": f"无技术面数据({tech.get('reason', '数据不可用')}),无法给出看多论据",
+                "thesis_source": "rule",
+                "thesis_source_reason": "没有技术面读数",
                 "evidence": [],
                 "target_weight": 0.0,
                 "entry_trigger": None,
@@ -536,10 +587,14 @@ def bull_node(state: AgentState) -> dict:
             }
         }
     gaps = ["fundamentals", "news"]
-    thesis = ";".join(bull) if bull else "技术面未提供看多证据"
+    rule_text = ";".join(bull) if bull else "技术面未提供看多证据"
+    thesis, source, reason = await _compose_thesis(state, "bull", bull, gaps, rule_text)
     return {
         "bull_case": {
             "thesis": thesis,
+            # 论点是谁说的 —— 规则还是模型。读的人据此知道依据。
+            "thesis_source": source,
+            "thesis_source_reason": reason,
             "evidence": bull,
             # 证据越少,目标仓位越低 —— 一个维度不该支撑满仓
             "target_weight": round(0.10 * (0.5 if bull else 0.0) * 2, 4) or 0.02,
@@ -551,7 +606,7 @@ def bull_node(state: AgentState) -> dict:
     }
 
 
-def bear_node(state: AgentState) -> dict:
+async def bear_node(state: AgentState) -> dict:
     """空方研究员 — 论据来自**真实**技术面读数"""
     logger.info("agent_node", node="bear", symbol=state.get("symbol"))
     _bull, bear, conf = _evidence(state)
@@ -560,21 +615,28 @@ def bear_node(state: AgentState) -> dict:
         return {
             "bear_case": {
                 "thesis": f"无技术面数据({tech.get('reason', '数据不可用')}),无法给出看空论据",
+                "thesis_source": "rule",
+                "thesis_source_reason": "没有技术面读数",
                 "concerns": [],
                 "max_weight": 0.0,
                 "gaps": ["technical"],
                 "confidence": 0.0,
             }
         }
-    thesis = ";".join(bear) if bear else "技术面未提供看空证据"
+    gaps = ["fundamentals", "news"]
+    rule_text = ";".join(bear) if bear else "技术面未提供看空证据"
+    thesis, source, reason = await _compose_thesis(state, "bear", bear, gaps, rule_text)
     return {
         "bear_case": {
             "thesis": thesis,
+            # 论点是谁说的 —— 规则还是模型。读的人据此知道依据。
+            "thesis_source": source,
+            "thesis_source_reason": reason,
             "evidence": bear,
             "concerns": bear or ["技术面无明显看空信号,但缺少基本面与新闻验证"],
             # 只有一个维度可用,风险上限相应收紧
             "max_weight": 0.05,
-            "gaps": ["fundamentals", "news"],
+            "gaps": gaps,
             "confidence": round(conf, 3),
         }
     }

@@ -21,6 +21,8 @@ LangGraph 的编排和人工审批 gating 是真的,但"分析"全是常量。
 技术面能由 OHLCV 推出,就该给真实读数。
 """
 
+import asyncio
+
 import pytest
 
 from forgemind.core.agents.portfolio_context import (
@@ -55,10 +57,12 @@ class TestNoHardcodedAnalysis:
         assert "etl" in r["next_step"]
 
     def test_bull_bear_without_data_refuse_to_advise(self):
-        st = {"symbol": "600519", "technical_analysis": {
-            "status": "unavailable", "reason": "没有 K 线"}}
-        b = bull_node(st)["bull_case"]
-        s = bear_node(st)["bear_case"]
+        st = {
+            "symbol": "600519",
+            "technical_analysis": {"status": "unavailable", "reason": "没有 K 线"},
+        }
+        b = asyncio.run(bull_node(st))["bull_case"]
+        s = asyncio.run(bear_node(st))["bear_case"]
         assert b["target_weight"] == 0.0
         assert s["max_weight"] == 0.0
         assert b["confidence"] == 0.0 and s["confidence"] == 0.0
@@ -77,13 +81,15 @@ class TestTechnicalAnalysisIsComputed:
                 PRIMARY KEY (date, symbol))""")
             # 一条**真实形态**的下跌序列:RSI 应进入超卖区
             import math
+
             px = 1800.0
             for i in range(90):
-                px *= (1 - 0.008 - 0.002 * math.sin(i / 5))
+                px *= 1 - 0.008 - 0.002 * math.sin(i / 5)
                 db.execute(
                     "INSERT OR REPLACE INTO kline_daily VALUES "
                     f"('2024-0{(i // 28) + 1}-{(i % 28) + 1:02d}','600519',"
-                    f"{px},{px * 1.003},{px * 0.997},{px},1000000,'sina')")
+                    f"{px},{px * 1.003},{px * 0.997},{px},1000000,'sina')"
+                )
         return tmp_path
 
     def test_reads_real_numbers_from_duckdb(self, seeded):
@@ -104,11 +110,12 @@ class TestTechnicalAnalysisIsComputed:
         with DuckDBStorage() as db:
             px = 50.0
             for i in range(90):
-                px *= (1 + 0.010)
+                px *= 1 + 0.010
                 db.execute(
                     "INSERT OR REPLACE INTO kline_daily VALUES "
                     f"('2024-0{(i // 28) + 1}-{(i % 28) + 1:02d}','000001',"
-                    f"{px},{px * 1.003},{px * 0.997},{px},1000000,'sina')")
+                    f"{px},{px * 1.003},{px * 0.997},{px},1000000,'sina')"
+                )
 
         a = technical_node({"symbol": "600519"})["technical_analysis"]
         b = technical_node({"symbol": "000001"})["technical_analysis"]
@@ -116,13 +123,16 @@ class TestTechnicalAnalysisIsComputed:
         assert a["ma5"] < a["ma20"] and b["ma5"] > b["ma20"], "涨跌方向应相反"
 
     def test_thesis_mentions_actual_readings(self, seeded):
-        st = {"symbol": "600519",
-              "technical_analysis": technical_node({"symbol": "600519"})["technical_analysis"]}
-        bull = bull_node(st)["bull_case"]
-        bear = bear_node(st)["bear_case"]
+        st = {
+            "symbol": "600519",
+            "technical_analysis": technical_node({"symbol": "600519"})["technical_analysis"],
+        }
+        bull = asyncio.run(bull_node(st))["bull_case"]
+        bear = asyncio.run(bear_node(st))["bear_case"]
         assert bull["evidence"], "有技术面数据就该给出论据"
-        assert "RSI" in " ".join(bull["evidence"] + bear["evidence"]) or \
-               "MA" in " ".join(bull["evidence"] + bear["evidence"])
+        assert "RSI" in " ".join(bull["evidence"] + bear["evidence"]) or "MA" in " ".join(
+            bull["evidence"] + bear["evidence"]
+        )
         # 论据里应出现真实数字
         nums = " ".join(bull["evidence"] + bear["evidence"])
         assert any(ch.isdigit() for ch in nums), f"论据里没有实际读数:{nums}"
@@ -130,10 +140,9 @@ class TestTechnicalAnalysisIsComputed:
         # 之前只查 evidence,于是"evidence 真实 + thesis 硬编码"能蒙混过关 ——
         # 注入硬编码的 thesis 后测试照样全绿。
         thesis = bull["thesis"]
-        assert thesis == ";".join(bull["evidence"]) or thesis in (
-            "技术面未提供看多证据",), (
-            f"thesis 应由真实论据拼成,实际是独立文案:{thesis!r} vs "
-            f"{bull['evidence']!r}")
+        assert thesis == ";".join(bull["evidence"]) or thesis in ("技术面未提供看多证据",), (
+            f"thesis 应由真实论据拼成,实际是独立文案:{thesis!r} vs {bull['evidence']!r}"
+        )
         # 缺口必须被列出,不能假装三个维度都看过
         assert "fundamentals" in bull["gaps"] and "news" in bull["gaps"]
 
@@ -154,15 +163,15 @@ class TestNodesActuallyReadTheirInput:
 
         tree = ast.parse(inspect.getsource(mod))
         for n in tree.body:
-            if not (isinstance(n, ast.FunctionDef)
-                    and n.name in {"technical_node", "bull_node", "bear_node"}):
+            if not (
+                isinstance(n, ast.FunctionDef)
+                and n.name in {"technical_node", "bull_node", "bear_node"}
+            ):
                 continue
             seg = ast.get_source_segment(inspect.getsource(mod), n) or ""
-            assert "symbol" in seg, (
-                f"{n.name} 从未引用 symbol —— 它对任何股票都会给出同一份结论")
+            assert "symbol" in seg, f"{n.name} 从未引用 symbol —— 它对任何股票都会给出同一份结论"
 
-    def test_technical_reads_klines_for_the_requested_symbol(self, tmp_path,
-                                                             monkeypatch):
+    def test_technical_reads_klines_for_the_requested_symbol(self, tmp_path, monkeypatch):
         """技术面必须按请求的 symbol 查库,而不是取第一只票
 
         用 monkeypatch.chdir 而不是 os.chdir:后者离开测试后不还原,
@@ -189,7 +198,8 @@ class TestNodesActuallyReadTheirInput:
                     db.execute(
                         "INSERT OR REPLACE INTO kline_daily VALUES "
                         f"('{day}','{sym}',"
-                        f"{base},{base * 1.01},{base * 0.99},{base},1,'sina')")
+                        f"{base},{base * 1.01},{base * 0.99},{base},1,'sina')"
+                    )
         a = _load_kline("AAA")
         b = _load_kline("BBB")
         assert a is not None and b is not None

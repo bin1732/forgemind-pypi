@@ -426,6 +426,8 @@ class AgentPrepareResponse(BaseModel):
     #: 依据的行情截止到哪天。计算用的可能是几周前的收盘价,不说的话
     #: 读的人会把"上个月的形态"当成"今天的形态"。
     data_as_of: dict = Field(default_factory=dict)
+    #: 论点是谁说的:规则还是模型。模型只负责措辞,事实仍由规则给。
+    thesis_sources: dict = Field(default_factory=dict)
 
 
 class AgentApprovalRequest(BaseModel):
@@ -494,6 +496,10 @@ async def agent_decide(req: AgentRequest):
         confidence=state.get("confidence", 0.0),
         portfolio_used={**portfolio.describe(), "source": "arguments"},
         data_as_of=_data_as_of(state),
+        thesis_sources={
+            "bull": bull.get("thesis_source", "rule"),
+            "bear": bear.get("thesis_source", "rule"),
+        },
         reasoning=(
             "PM 节点被 interrupt_before 拦住 — 任何交易动作(下单/调仓)"
             "必须先 POST /api/v1/agent/{thread_id}/approve 或 /reject"
