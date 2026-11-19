@@ -444,11 +444,11 @@ $ forgemind agent --symbol 600519.SH --cash 100000
 
 ```bash
 pytest tests/ -v
-# 693 test files · 10553 tests
+# 693 test files · 10556 tests
 
 # 常规档位:真实业务用例,起真实子进程与真实数据库
 pytest tests/ -m "not heavy"
-# 8713 cases
+# 8716 cases
 
 # 重并发档位:百万级真实运算,单独用更宽的超时执行
 pytest tests/ -m heavy

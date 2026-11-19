@@ -67,6 +67,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   rule's sentence "the model's" is worse than having no model at all.
 
 ### Fixed
+- The confidence of a decision now counts only the dimensions that have
+  real readings. The fundamentals and the news have no source, so their
+  confidence is zero — which means "no reading here", not "no trust at
+  all". Taking the smallest of the three made it zero every time, and
+  the interface showed "confidence 0%" for a decision that was based on a
+  real technical reading.
+
 - The interface now shows the equity the backend computed. The panel
   worked it out again itself, with a different rule: the backend counts
   the holdings at their price, the panel at their cost. With a position

@@ -205,3 +205,61 @@ class TestNodesActuallyReadTheirInput:
         assert a is not None and b is not None
         assert a["close"].iloc[-1] == pytest.approx(10.0)
         assert b["close"].iloc[-1] == pytest.approx(1000.0)
+
+
+class TestConfidenceCountsOnlyTheDimensionsThatHaveReadings:
+    """置信度只由有真实读数的维度决定。
+
+    基本面与新闻没有数据源时,它们的 confidence 是 0 —— 那表示"这个维度
+    没有读数",不是"完全不信任"。把它们一起 min 进 PM 的置信度,结果
+    恒为 0:界面永远显示"置信度 0%",读起来像"完全没信心",而实际是
+    "有两个维度没有数据"。缺维度要说明缺,不能冒充成不信任。
+    """
+
+    def _pm(self, **over):
+        from forgemind.core.agents.portfolio_context import portfolio_manager_node
+
+        state = {
+            "symbol": "600519.SH",
+            "portfolio": {"total_equity": 200_000.0, "positions": []},
+            "technical_analysis": {
+                "status": "ok",
+                "last_close": 120.0,
+                "last_date": "2024-02-09",
+                "ma5": 121.0,
+                "ma20": 118.0,
+                "rsi": 55.0,
+                "macd_hist": 0.3,
+                "signal": "buy",
+                "confidence": 0.6,
+            },
+            "fundamentals_analysis": {"status": "unavailable", "confidence": 0.0},
+            "news_analysis": {"status": "unavailable", "confidence": 0.0},
+            "bull_case": {"target_weight": 0.1, "thesis": "b"},
+            "bear_case": {"max_weight": 0.05, "thesis": "s"},
+        }
+        state.update(over)
+        return portfolio_manager_node(state)["pm_decision"]
+
+    def test_missing_dimensions_do_not_drag_it_to_zero(self):
+        pm = self._pm()
+        assert pm["confidence"] == pytest.approx(0.6), pm
+
+    def test_all_dimensions_missing_means_zero(self):
+        pm = self._pm(
+            technical_analysis={"status": "unavailable", "confidence": 0.0},
+        )
+        assert pm["confidence"] == 0.0, pm
+
+    def test_a_dimension_without_a_number_does_not_count(self):
+        """status=ok 但没有 confidence 的维度不算数。"""
+        pm = self._pm(
+            technical_analysis={
+                "status": "ok",
+                "last_close": 120.0,
+                "last_date": "2024-02-09",
+                "confidence": 0.65,
+            },
+            fundamentals_analysis={"status": "ok", "confidence": None},
+        )
+        assert pm["confidence"] == pytest.approx(0.65), pm

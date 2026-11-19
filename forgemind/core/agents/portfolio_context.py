@@ -894,11 +894,18 @@ def portfolio_manager_node(state: AgentState) -> dict:
         direction = "sell"
         quantity = int((abs(delta_weight) * total_equity) / price)
 
-    confidence = min(
-        fund.get("confidence", 0) if fund else 0,
-        tech.get("confidence", 0) if tech else 0,
-        news.get("confidence", 0) if news else 0,
-    )
+    # 置信度只由**有真实读数**的维度决定。
+    #
+    # 基本面与新闻没有数据源时,它们的 confidence 是 0(那表示"这个维度
+    # 没有读数",不是"完全不信任")。把这两个 0 一起 min 进来,PM 的置信
+    # 度就恒为 0 —— 界面永远显示"置信度 0%",读起来像"完全没信心",
+    # 而实际是"有两个维度没有数据"。缺维度要说明缺,不能冒充成不信任。
+    _dims = [
+        d.get("confidence")
+        for d in (fund, tech, news)
+        if (d or {}).get("status") == "ok" and d.get("confidence") is not None
+    ]
+    confidence = min(_dims) if _dims else 0.0
 
     # 依据的行情截止到哪天 —— 与"选股"那条用的是同一套说法
     # (data_freshness),别一处说"依据的行情最新日期"、另一处只给个数。
