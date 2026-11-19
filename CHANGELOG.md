@@ -68,6 +68,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   steps of the release pipeline itself, which are the release and not a
   check of the artifact.
 
+- The HTTP endpoint and the MCP tool now give the portfolio the same
+  shape. They read the same table, but each had its own wording, so a
+  caller had to learn two shapes for one thing. The shape lives in one
+  place now.
+
 ### Added
 - A checker for that last one: it reads the production path, and it
   reads the documentation against it.

@@ -24,6 +24,7 @@ from forgemind.core.agents.portfolio_context import (  # noqa: E402
     PortfolioPosition,
     account_with_market_values,
     portfolio_snapshot_marked_to_market,
+    portfolio_view,
     resume_decision,
     run_decision,
 )
@@ -622,30 +623,7 @@ async def portfolio_state():
         if is_resource_error(exc):
             raise HTTPException(status_code=503, detail=resource_unavailable_reason(exc)) from exc
         raise
-    if snapshot is None:
-        return {
-            "status": "empty",
-            "cash": None,
-            "total_equity": None,
-            "currency": None,
-            "positions": [],
-            "snapshot_id": None,
-            "message": (
-                "还没有组合快照:库里没有落过组合。"
-                "先跑一次决策并审批落库,或在调用决策时显式给出账户状态。"
-            ),
-        }
-    return {
-        "status": "ok",
-        "cash": snapshot["cash"],
-        "total_equity": snapshot["total_equity"],
-        # 口径要标明:同一个"总权益"有两个算法,不标明就核不了。
-        "equity_basis": snapshot.get("equity_basis", "cost"),
-        "currency": snapshot["currency"],
-        "positions": snapshot["positions"],
-        "snapshot_id": snapshot["snapshot_id"],
-        "message": None,
-    }
+    return portfolio_view(snapshot)
 
 
 @app.get("/api/v1/health/services")

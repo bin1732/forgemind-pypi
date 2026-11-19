@@ -75,6 +75,7 @@ class TestDecisionReportsItsAccount:
         import asyncio
 
         from _local_client import local_headers  # noqa: F401
+
         from forgemind.mcp.server import ForgeMindMCPServer
 
         srv = ForgeMindMCPServer()
@@ -180,3 +181,76 @@ class TestMissingCashExplainsWhereToGetIt:
         )
         # 有现金就不会因为现金被拒(后面失败是别的原因)
         assert r.status_code != 422 or "cash" not in r.text, r.text[:300]
+
+
+class TestBothChannelsSayTheSameThing:
+    """同一份组合，接口与 MCP 给的形状要一样。
+
+    两个通道对同一件事给两个说法，读的人得自己对 —— 而它们喂的是同一张
+    表。形状由共用的一处给出，这条用例盯住"共用"真的发生了。
+    """
+
+    def test_the_same_keys_on_both_channels(self, client, isolated_store):
+        import asyncio
+        import json
+
+        from forgemind.core.agents.portfolio_context import (
+            PortfolioContext,
+            PortfolioPosition,
+        )
+        from forgemind.core.data.storage import save_portfolio_snapshot
+        from forgemind.mcp.server import ForgeMindMCPServer
+
+        save_portfolio_snapshot(
+            PortfolioContext(
+                cash=43210.0,
+                positions=[PortfolioPosition(symbol="600519", quantity=20, avg_price=1500.0)],
+            )
+        )
+
+        api_body = client.get("/api/v1/portfolio").json()
+
+        srv = ForgeMindMCPServer()
+        resp = asyncio.run(
+            srv.handle_request(
+                {
+                    "jsonrpc": "2.0",
+                    "id": 1,
+                    "method": "tools/call",
+                    "params": {"name": "query_portfolio", "arguments": {}},
+                }
+            )
+        )
+        text = resp["result"]["content"][0]["text"]
+        mcp_body = json.loads(text)
+
+        # MCP 额外带两样与组合无关的东西(决策明细与风险指标)
+        mcp_only = {"decisions", "risk_metrics"}
+        assert set(api_body) == set(mcp_body) - mcp_only, (
+            f"两边形状不同: 接口 {sorted(api_body)} / MCP {sorted(mcp_body)}"
+        )
+        for key in ("status", "cash", "total_equity", "currency", "equity_basis"):
+            assert api_body[key] == mcp_body[key], (key, api_body, mcp_body)
+
+    def test_empty_store_says_the_same_thing_on_both_channels(self, client, isolated_store):
+        import asyncio
+        import json
+
+        from forgemind.mcp.server import ForgeMindMCPServer
+
+        api_body = client.get("/api/v1/portfolio").json()
+
+        srv = ForgeMindMCPServer()
+        resp = asyncio.run(
+            srv.handle_request(
+                {
+                    "jsonrpc": "2.0",
+                    "id": 1,
+                    "method": "tools/call",
+                    "params": {"name": "query_portfolio", "arguments": {}},
+                }
+            )
+        )
+        mcp_body = json.loads(resp["result"]["content"][0]["text"])
+        assert api_body["status"] == mcp_body["status"] == "empty", (api_body, mcp_body)
+        assert api_body["message"] == mcp_body["message"], (api_body, mcp_body)

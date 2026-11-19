@@ -1362,22 +1362,17 @@ class ForgeMindMCPServer:
         # 重估一次,才与界面上看到的是同一个。
         from forgemind.core.agents.portfolio_context import (
             portfolio_snapshot_marked_to_market,
+            portfolio_view,
         )
 
         snapshot = await asyncio.to_thread(portfolio_snapshot_marked_to_market, snapshot)
+        # 组合本身的形状由共用的一处给出 —— 接口与 MCP 对同一件事说同样的话。
+        view = portfolio_view(snapshot)
         if snapshot is None:
             return {
-                "status": "empty",
-                "cash": None,
-                "total_equity": None,
-                "positions": [],
+                **view,
                 "decisions": decisions,  # 即便没组合快照,backtest 可能已经跑过
                 "risk_metrics": risk_metrics,
-                "message": (
-                    "尚无组合快照。请先运行 `forgemind agent --symbol <code> "
-                    "--cash <金额> [--position-qty N --position-price P]`,"
-                    "该命令会把组合状态落盘到 DuckDB,本工具随后即可读取。"
-                ),
             }
 
         # 有 portfolio snapshot 时,risk_metrics 按持仓标的匹配(若空则取任意最近)
@@ -1389,13 +1384,7 @@ class ForgeMindMCPServer:
             )
 
         return {
-            "status": "ok",
-            "snapshot_id": snapshot["snapshot_id"],
-            "cash": snapshot["cash"],
-            "currency": snapshot["currency"],
-            "total_equity": snapshot["total_equity"],
-            "equity_basis": snapshot.get("equity_basis", "cost"),
-            "positions": snapshot["positions"],
+            **view,
             "decisions": decisions,
             "risk_metrics": risk_metrics,
         }

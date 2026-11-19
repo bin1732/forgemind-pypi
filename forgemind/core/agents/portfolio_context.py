@@ -157,6 +157,38 @@ def account_with_market_values(
     return ctx.marked_to_market(prices)
 
 
+#: 没有组合快照时给调用方的说明。一处写,接口与 MCP 都用它 ——
+#: 两个通道对同一件事给两个说法,读的人得自己对。
+NO_SNAPSHOT_MESSAGE = (
+    "还没有组合快照:库里没有落过组合。先跑一次决策并审批落库,或在调用决策时显式给出账户状态。"
+)
+
+
+def portfolio_view(snapshot: dict | None) -> dict:
+    """组合快照对外的统一形状 —— 接口与 MCP 共用这一处。"""
+    if snapshot is None:
+        return {
+            "status": "empty",
+            "cash": None,
+            "total_equity": None,
+            "currency": None,
+            "positions": [],
+            "snapshot_id": None,
+            "equity_basis": None,
+            "message": NO_SNAPSHOT_MESSAGE,
+        }
+    return {
+        "status": "ok",
+        "cash": snapshot.get("cash"),
+        "total_equity": snapshot.get("total_equity"),
+        "currency": snapshot.get("currency"),
+        "positions": snapshot.get("positions") or [],
+        "snapshot_id": snapshot.get("snapshot_id"),
+        "equity_basis": snapshot.get("equity_basis", "cost"),
+        "message": None,
+    }
+
+
 def portfolio_snapshot_marked_to_market(snapshot: dict | None) -> dict | None:
     """快照里的组合按现价重估 —— 读出来的账户也得是市值口径。
 
