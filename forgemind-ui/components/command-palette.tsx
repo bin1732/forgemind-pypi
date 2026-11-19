@@ -172,7 +172,7 @@ export function CommandPalette() {
     },
     {
       id: "agent-decide",
-      label: "AI 决策准备(停在人工审批前)",
+      label: "决策准备(停在人工审批前)",
       category: "pipeline",
       // 走 MCP agent_decide:3-Agent 取证后停在 PM 节点前,不下单。
       // 拍板要用下一步的"批准"命令 —— 人工审批是 gating,不是走过场。
@@ -185,7 +185,7 @@ export function CommandPalette() {
           const cash = st.cash;
           if (cash == null) {
             alert(
-              "还没有组合快照 —— AI 决策要按真实账户算仓位。\n" +
+              "还没有组合快照 —— 决策要按真实账户算仓位。\n" +
                 "等后端就绪并读到组合后再决策,或先用组合面板确认账户状态。",
             );
             return;
@@ -209,7 +209,7 @@ export function CommandPalette() {
           }>(raw);
           const threadId = r?.thread_id ?? "";
           if (!threadId) {
-            alert("AI 决策准备没有拿到 thread_id,无法进入审批");
+            alert("决策准备没有拿到 thread_id,无法进入审批");
             return;
           }
           useAppStore.getState().setPendingAgentDecision({
@@ -222,23 +222,23 @@ export function CommandPalette() {
             `${symbol} 决策已准备,停在人工审批前\n` +
               `多: ${r?.bull_thesis ?? ""}\n` +
               `空: ${r?.bear_thesis ?? ""}\n\n` +
-              `用"批准刚才的 AI 决策"拍板`,
+              `用"批准刚才的决策"拍板`,
           );
         } catch (e) {
-          alert(`AI 决策准备失败: ${e}`);
+          alert(`决策准备失败: ${e}`);
         }
       },
     },
     {
       id: "agent-approve",
-      label: "批准刚才的 AI 决策(PM 跑完并落库)",
+      label: "批准刚才的决策(PM 跑完并落库)",
       category: "pipeline",
       // 走 MCP agent_approve:PM 节点跑完,组合快照与 6 条决策明细落库,
       // 面板随后就能读到这次决策。
       action: async () => {
         const pending = useAppStore.getState().pendingAgentDecision;
         if (!pending) {
-          alert("还没有待审批的决策 —— 先跑一次 AI 决策准备");
+          alert("还没有待审批的决策 —— 先跑一次决策准备");
           return;
         }
         try {

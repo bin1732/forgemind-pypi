@@ -38,7 +38,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   either base — the order is the difference between the target value
   and the current value, divided by the price.
 
+### Fixed
+- The README and the interface now say what actually runs. The decision
+  pipeline has six nodes and all six are rules: the bull and bear cases
+  come from technical readings under fixed conditions, while the
+  fundamentals and news nodes report that no source is connected. The
+  nine provider adapters are complete and usable, but nothing in the
+  production path calls them, and `forgemind router-demo` only shows
+  the routing. "AI rationale generation" was a rule that puts sentences
+  together from real factor readings, and "9 LLM providers" sat in the
+  same row of the table as the decision.
+
+  A checker now asks the code rather than the wording: if the production
+  path calls the provider adapters, the note has to go; if it does not,
+  the note must be there and the interface may not say "AI decision".
+
 ### Added
+- A checker for that last one: it reads the production path, and it
+  reads the documentation against it.
 - The interface has an output checker of its own. The command line and
   MCP each had one; the HTTP endpoints did not, so an exception class
   name, a local path or a whole SQL statement could reach a caller

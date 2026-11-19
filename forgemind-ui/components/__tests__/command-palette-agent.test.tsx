@@ -1,5 +1,5 @@
 /**
- * 命令面板里的 AI 决策链路
+ * 命令面板里的决策链路
  *
  * 桌面端原来根本没有 agent 入口 —— 人工审批这条核心链路在界面上够不着:
  * API 与 MCP 都有,UI 不调。现在补上两个命令:决策准备(停在审批前)与
@@ -53,7 +53,7 @@ beforeEach(() => {
     pendingAgentDecision: null,
     currentSymbol: "600519.SH",
     // 真实组合快照。现金取一个不常见的数:固定的十万会让这条测试
-    // 也绿,于是"AI 决策其实拿着编出来的账户"这种事就藏住了。
+    // 也绿,于是"决策其实拿着编出来的账户"这种事就藏住了。
     cash: 88771.25,
     portfolio: [
       { symbol: "600519.SH", quantity: 30, avg_price: 1498.5, current_price: 1520 },
@@ -68,7 +68,7 @@ function clickCommand(label: string) {
   });
 }
 
-describe("命令面板的 AI 决策链路", () => {
+describe("命令面板里的决策链路", () => {
   it("决策准备把 thread_id 存下来,供下一步拍板", async () => {
     mcpTool.mockResolvedValue(
       toolResponse({
@@ -79,7 +79,7 @@ describe("命令面板的 AI 决策链路", () => {
     );
     render(<CommandPalette />);
     await act(async () => {
-      clickCommand("AI 决策准备(停在人工审批前)");
+      clickCommand("决策准备(停在人工审批前)");
     });
     expect(mcpTool).toHaveBeenCalledWith("agent_decide", expect.objectContaining({
       symbol: "600519.SH",
@@ -100,7 +100,7 @@ describe("命令面板的 AI 决策链路", () => {
     mcpTool.mockResolvedValue(toolResponse({ thread_id: "thread-abc" }));
     render(<CommandPalette />);
     await act(async () => {
-      clickCommand("AI 决策准备(停在人工审批前)");
+      clickCommand("决策准备(停在人工审批前)");
     });
     expect(mcpTool).not.toHaveBeenCalled();
     expect(alertSpy).toHaveBeenCalled();
@@ -127,7 +127,7 @@ describe("命令面板的 AI 决策链路", () => {
     });
     render(<CommandPalette />);
     await act(async () => {
-      clickCommand("批准刚才的 AI 决策(PM 跑完并落库)");
+      clickCommand("批准刚才的决策(PM 跑完并落库)");
     });
     expect(mcpTool).toHaveBeenCalledWith("agent_approve", expect.objectContaining({
       thread_id: "thread-abc",
@@ -155,7 +155,7 @@ describe("命令面板的 AI 决策链路", () => {
     });
     render(<CommandPalette />);
     await act(async () => {
-      clickCommand("批准刚才的 AI 决策(PM 跑完并落库)");
+      clickCommand("批准刚才的决策(PM 跑完并落库)");
     });
     expect(reloadPortfolio).toHaveBeenCalled();
   });
@@ -163,7 +163,7 @@ describe("命令面板的 AI 决策链路", () => {
   it("没有待审批的决策时,拍板不会去调后端", async () => {
     render(<CommandPalette />);
     await act(async () => {
-      clickCommand("批准刚才的 AI 决策(PM 跑完并落库)");
+      clickCommand("批准刚才的决策(PM 跑完并落库)");
     });
     expect(mcpTool).not.toHaveBeenCalled();
     expect(alertSpy).toHaveBeenCalled();
@@ -173,7 +173,7 @@ describe("命令面板的 AI 决策链路", () => {
     mcpTool.mockResolvedValue(toolResponse({ thread_id: "" }));
     render(<CommandPalette />);
     await act(async () => {
-      clickCommand("AI 决策准备(停在人工审批前)");
+      clickCommand("决策准备(停在人工审批前)");
     });
     expect(useAppStore.getState().pendingAgentDecision).toBeNull();
   });
@@ -196,7 +196,7 @@ describe("命令面板的 AI 决策链路", () => {
     });
     render(<CommandPalette />);
     await act(async () => {
-      clickCommand("批准刚才的 AI 决策(PM 跑完并落库)");
+      clickCommand("批准刚才的决策(PM 跑完并落库)");
     });
     const text = alertSpy.mock.calls.map((c) => String(c[0])).join("\n");
     expect(text).toContain("落库失败");

@@ -109,7 +109,7 @@ interface AppState {
   riskMetrics: RiskMetrics | null;
   setRiskMetrics: (m: RiskMetrics | null) => void;
 
-  // 待人工审批的 AI 决策 —— 决策准备跑完停在审批前,拍板后才有 pm_decision。
+  // 待人工审批的决策 —— 决策准备跑完停在审批前,拍板后才有 pm_decision。
   // thread_id 是拍板的凭据:没有它就批准不了,PM 节点也不会跑。
   pendingAgentDecision: {
     threadId: string;

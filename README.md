@@ -4,7 +4,7 @@
 
 **AI-Powered Quantitative Research & Trading Agent Framework**
 
-*Build, test, and deploy quantitative strategies with AI agents — no 50-engineer team required.*
+*Build, test, and deploy quantitative strategies with agents that read real market data — no 50-engineer team required.*
 
 </div>
 
@@ -26,11 +26,13 @@
 | | |
 |---|---|
 | **169 Alpha Factors** | Alpha158 (152) · Alpha101 (11) · Barra 风险模型 · IC 监控 |
-| **Stock Screening Agent** | Multi-factor scoring + AI rationale generation |
+| **Stock Screening Agent** | Multi-factor scoring · 说明由真实因子读数拼装(不调模型) |
 | **Backtest Engine** (`forgemind backtest`) | Event-driven 事件驱动 · 3 种滑点模型(fixed / linear / sqrt) · 9 个策略这条命令跑得起来(`forgemind backtest --list-strategies` 看全部,以及另一些策略为什么跑不了) |
-| **AI Decision Agent** | LangGraph 6-node pipeline · 9 LLM providers · 人工审批 gating |
+| **Decision Agent** | LangGraph 6-node pipeline · 六个节点目前都是规则(技术面读数驱动)· LLM provider 适配层(9 家)已就绪,但决策链路尚未接上模型 · 人工审批 gating |
 | **Desktop App** | Tauri 2.x · Next.js 15 frontend · MCP protocol (Claude Desktop / Cursor) — 需本机已装 Python 3.11+ 与本包(桌面端启动 Python sidecar,未捆绑解释器) |
 | **Free Data** | AKShare · A-shares + CN macro(PMI / CPI / PPI / M2 / 国债收益率 / 汇率)· DuckDB · *(US 需配置 FORGEMIND_US_TOKEN,见 `forgemind info`)* |
+
+**当前这条链路上,什么在跑模型、什么还没有:** 决策的六个节点(fundamentals / technical / news / bull / bear / pm)目前**全是规则** —— 多空论点由技术面读数按固定条件生成,基本面与新闻如实报"未接入数据源"。`forgemind/core/ai/providers.py` 里的 9 家 provider 适配层是完整可用的,但**生产链路还没有任何一处调用它**;`forgemind router-demo` 也只看路由结果、不调模型。写在这里是因为"决策用了模型"这句话与实际行为不符,而这类不符比缺功能更误导人。
 
 ---
 
@@ -442,11 +444,11 @@ $ forgemind agent --symbol 600519.SH --cash 100000
 
 ```bash
 pytest tests/ -v
-# 690 test files · 10533 tests
+# 691 test files · 10540 tests
 
 # 常规档位:真实业务用例,起真实子进程与真实数据库
 pytest tests/ -m "not heavy"
-# 8693 cases
+# 8700 cases
 
 # 重并发档位:百万级真实运算,单独用更宽的超时执行
 pytest tests/ -m heavy
