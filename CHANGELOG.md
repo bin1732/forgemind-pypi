@@ -39,6 +39,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   and the current value, divided by the price.
 
 ### Added
+- The interface has an output checker of its own. The command line and
+  MCP each had one; the HTTP endpoints did not, so an exception class
+  name, a local path or a whole SQL statement could reach a caller
+  without anything noticing. Every endpoint is now called with valid
+  arguments and the responses are scanned, including the state where the
+  library is held by another process: that one has to say it cannot read
+  the library, not that there is no data.
+
+- A decision now says which day's prices it was based on. The decision
+  is dated today, but the prices in the library can be weeks old, and
+  nothing said so. The wording is the one the stock picker already
+  uses, so the two do not describe the same thing in two different ways.
+
+### Fixed
+- The interface of the signal table now says where a signal came from.
+  The source was in the data all along; the front end dropped it, so a
+  conclusion from the model and a note written by hand looked the same.
+- The unrealized gain of a position is now reported as "not computed"
+  when it was not computed. Reading it as zero says the position has no
+  gain, and a loss of fifty thousand is not the same as no loss.
+- `forgemind info` reports the equity at the market value and says
+  which basis it used, the same number the decision works with.
+- The repository scanner now looks at the files that are ignored as
+  well. Adding a rule to .gitignore hides a file from `git status`, so a
+  rule that gets deleted later would go unnoticed — and the file would
+  still be sitting in the repository, waiting for the next `git add -A`.
+
+### Added
 - The Release page is rewritten on every publish. It names the version
   that was just published, lists the artifacts that are actually
   downloadable, and links to the changelog. It used to keep the text

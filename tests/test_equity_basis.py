@@ -242,3 +242,58 @@ class TestCurrentWeightUsesMarketValue:
         assert pm["direction"] == "sell", pm
         assert pm["quantity"] == 60, pm
         assert pm["price"] == 1000.0, pm
+
+
+class TestUnrealizedPnlIsNotZeroWhenNotComputed:
+    """没算过与真的是零,是两回事。
+
+    缺现价时浮盈浮亏**没算**,报成 0 就等于说"这个持仓没有盈亏"——
+    而浮亏 5 万与浮盈 0 在决策上完全不是一回事。
+    """
+
+    def test_default_is_not_computed(self):
+        assert (
+            PortfolioPosition(symbol="600519", quantity=10, avg_price=100.0).unrealized_pnl is None
+        )
+
+    def test_cost_basis_leaves_it_uncomputed(self):
+        ctx = account_with_market_values(
+            cash=0.0,
+            positions=[PortfolioPosition(symbol="600519", quantity=100, avg_price=1500.0)],
+            prices={},
+        )
+        assert ctx.positions[0].unrealized_pnl is None, ctx.positions[0]
+
+    def test_market_basis_computes_it(self):
+        ctx = account_with_market_values(
+            cash=0.0,
+            positions=[PortfolioPosition(symbol="600519", quantity=100, avg_price=1500.0)],
+            prices={"600519": 1000.0},
+        )
+        assert ctx.positions[0].unrealized_pnl == -50_000.0, ctx.positions[0]
+
+    def test_stored_and_read_back_as_not_computed(self, tmp_path, monkeypatch):
+        """落库再读回来,仍然是"没算过",不能变成 0。"""
+        data_dir = tmp_path / "data"
+        monkeypatch.setenv("FORGEMIND_DATA_DIR", str(data_dir))
+        monkeypatch.setenv("FORGEMIND_DUCKDB_PATH", str(data_dir / "duckdb" / "main.db"))
+        from forgemind.core.config.settings import get_settings
+
+        get_settings.cache_clear()
+
+        from forgemind.core.agents.portfolio_context import PortfolioContext
+        from forgemind.core.data.storage import (
+            load_latest_portfolio,
+            save_portfolio_snapshot,
+        )
+
+        save_portfolio_snapshot(
+            PortfolioContext(
+                cash=1000.0,
+                positions=[PortfolioPosition(symbol="600519", quantity=10, avg_price=100.0)],
+            )
+        )
+        snapshot = load_latest_portfolio()
+        assert snapshot is not None
+        assert snapshot["positions"][0]["unrealized_pnl"] is None, snapshot
+        get_settings.cache_clear()

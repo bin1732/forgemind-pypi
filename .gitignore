@@ -90,3 +90,6 @@ pytest-failure-report.txt
 
 # 发布流水线的中转目录
 here/
+
+# 本地 DuckDB 库文件(命令在仓根跑一次就会留下)
+*.duckdb

@@ -604,6 +604,8 @@ def save_portfolio_snapshot(portfolio) -> str:
             ],
         )
         for p in portfolio.positions:
+            _pnl = getattr(p, "unrealized_pnl", None)
+            _pnl_value = None if _pnl is None else float(_pnl)
             db.execute(
                 "INSERT INTO portfolio_position "
                 "(snapshot_id, symbol, quantity, avg_price, unrealized_pnl) VALUES (?, ?, ?, ?, ?)",
@@ -612,7 +614,8 @@ def save_portfolio_snapshot(portfolio) -> str:
                     p.symbol,
                     float(p.quantity),
                     float(p.avg_price),
-                    float(getattr(p, "unrealized_pnl", 0.0)),
+                    # 没算过就存 NULL —— 存 0.0 会把它说成"没有盈亏"
+                    _pnl_value,
                 ],
             )
     logger.info(
@@ -959,7 +962,12 @@ def load_latest_portfolio() -> dict | None:
             "symbol": r["symbol"],
             "quantity": float(r["quantity"]),
             "avg_price": float(r["avg_price"]),
-            "unrealized_pnl": float(r["unrealized_pnl"]),
+            # 没算过就是没算过 —— 读成 0.0 会把它说成"没有盈亏"
+            # 没算过就是没算过 —— 读成 0.0 会把它说成"没有盈亏"。
+            # 列里的 NULL 经 pandas 读出来是 NaN,两种都算"没算过"。
+            "unrealized_pnl": (
+                None if _is_missing(r["unrealized_pnl"]) else float(r["unrealized_pnl"])
+            ),
         }
         for _, r in pos.iterrows()
     ]

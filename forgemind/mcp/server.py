@@ -1471,10 +1471,18 @@ class ForgeMindMCPServer:
         )
         bull = state.get("bull_case", {}) or {}
         bear = state.get("bear_case", {}) or {}
+        from forgemind.core.data.storage import data_freshness
+
+        _tech = state.get("technical_analysis") or {}
         return {
             "status": "PENDING_HUMAN_REVIEW",
             "thread_id": state.get("thread_id", ""),
             "symbol": symbol,
+            # 依据的行情截止到哪天 —— 计算用的可能是几周前的收盘价。
+            "data_as_of": {
+                "last_date": _tech.get("last_date"),
+                "freshness": data_freshness(_tech.get("last_date")),
+            },
             "bull_thesis": bull.get("thesis", ""),
             "bear_thesis": bear.get("thesis", ""),
             "confidence": state.get("confidence", 0),

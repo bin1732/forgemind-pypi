@@ -4,20 +4,24 @@
  * 对标 OpenBB Workspace / TradingAgents Dashboard
  */
 "use client";
-import { useAppStore } from "@/lib/store";
+import { Signal, useAppStore } from "@/lib/store";
 import { cn, formatPercent } from "@/lib/utils";
 
 export interface SignalTableProps {
-  /** 可选 — 显式传入 signals(测试 / 嵌入用);不传则从 store 读 */
-  signals?: Array<{
-    signal_id: string;
-    symbol: string;
-    side: "BUY" | "SELL" | "HOLD";
-    confidence: number;
-    rationale: string;
-    timestamp: string;
-  }>;
+  /** 可选 — 显式传入 signals(测试 / 嵌入用);不传则从 store 读。
+   *
+   * 用 store 里的 Signal 类型,别在这里再抄一份:抄的那份会缺字段
+   * (source 就是这么丢的)—— 界面于是分不出"模型给的结论"与"手动
+   * 记的一条"。 */
+  signals?: Signal[];
 }
+
+/** 信号来源的显示名。分不出来源,用户就分不出"系统给的结论"与
+ *  "手动记的一条"。 */
+const SOURCE_LABELS: Record<string, string> = {
+  mcp_output_signal: "模型分析",
+  forgemind_signal_cli: "命令行示例",
+};
 
 export function SignalTable(props: SignalTableProps = {}) {
   const storeSignals = useAppStore((s) => s.signals);
@@ -104,6 +108,11 @@ export function SignalTable(props: SignalTableProps = {}) {
                 </td>
                 <td className="px-3 py-2 text-muted-foreground max-w-xs truncate">
                   {s.rationale}
+                  {s.source && (
+                    <span className="ml-1 text-[10px] text-muted-foreground/80">
+                      [{SOURCE_LABELS[s.source] ?? s.source}]
+                    </span>
+                  )}
                 </td>
                 <td className="px-3 py-2 text-muted-foreground text-[10px]">
                   {new Date(s.timestamp).toLocaleString("zh-CN", { hour12: false })}

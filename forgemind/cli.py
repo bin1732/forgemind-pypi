@@ -626,6 +626,12 @@ def cmd_agent(args):
     print(f"  bull: {bull.get('thesis', '')}")
     print(f"  bear: {bear.get('thesis', '')}")
     print(f"  confidence: {state.get('confidence', 0):.2%}")
+    # 依据的行情截止到哪天:计算用的可能是几周前的收盘价,不说的话
+    # 用户会把"上个月的形态"当成"今天的形态"。
+    from forgemind.core.data.storage import data_freshness
+
+    _tech = state.get("technical_analysis") or {}
+    print(f"  依据的行情最新日期: {data_freshness(_tech.get('last_date'))}")
 
     pm = state.get("pm_decision")
     if pm is not None:
@@ -974,15 +980,24 @@ def cmd_info(args):
     # 组合状态:决策要按真实账户算仓位,而账户状态落在库里。诊断命令该
     # 说清有没有 —— 没有的话 `forgemind agent` 会让你先落一次。
     try:
+        from forgemind.core.agents.portfolio_context import (
+            portfolio_snapshot_marked_to_market,
+        )
         from forgemind.core.data.storage import load_latest_portfolio
 
         _snap = load_latest_portfolio()
         if _snap is None:
             print("  Portfolio: 还没有组合快照(跑一次决策并审批后落库)")
         else:
+            # 按现价重估后再报 —— 快照是落盘那一刻的市值,价格后来又变了。
+            # 报的数要与决策用的、界面显示的是同一个。
+            _snap = portfolio_snapshot_marked_to_market(_snap) or _snap
+            _basis = {"market": "按现价", "cost": "按成本"}.get(
+                _snap.get("equity_basis", "cost"), "按成本"
+            )
             print(
                 f"  Portfolio: 现金 {_snap['cash']:,.2f} / "
-                f"权益 {_snap['total_equity']:,.2f} / "
+                f"权益 {_snap['total_equity']:,.2f}({_basis}) / "
                 f"持仓 {len(_snap['positions'])} 个 "
                 f"(落于 {_snap.get('taken_at') or '时间未知'})"
             )

@@ -29,7 +29,10 @@ class PortfolioPosition(BaseModel):
     symbol: str
     quantity: int
     avg_price: float
-    unrealized_pnl: float = 0.0
+    #: 未实现盈亏。None = **没算**(缺现价,或还没按市价重估);
+    #: 0 = 算过,真的是零。两者混在一起,读的人就没法分"没有盈亏"与
+    #: "没算过"。
+    unrealized_pnl: float | None = None
 
 
 class PortfolioContext(BaseModel):
@@ -406,6 +409,9 @@ def technical_node(state: AgentState) -> dict:
         "technical_analysis": {
             "status": "ok",
             "n_bars": int(len(df)),
+            # 依据的是哪一天的收盘价 —— 决策报告里要说清楚,不然用户
+            # 看到的"上穿 MA20"不知道是上周的形态。
+            "last_date": str(df["date"].iloc[-1]),
             "last_close": float(close.iloc[-1]),
             "ma5": ma5,
             "ma20": ma20,
@@ -800,9 +806,18 @@ def portfolio_manager_node(state: AgentState) -> dict:
         news.get("confidence", 0) if news else 0,
     )
 
+    # 依据的行情截止到哪天 —— 与"选股"那条用的是同一套说法
+    # (data_freshness),别一处说"依据的行情最新日期"、另一处只给个数。
+    from forgemind.core.data.storage import data_freshness
+
+    _last_date = (tech or {}).get("last_date")
     pm_decision = {
         "direction": direction,
         "quantity": quantity,
+        "data_as_of": {
+            "last_date": _last_date,
+            "freshness": data_freshness(_last_date),
+        },
         # 下单用的股价与算出来的股数放在一起,看的人能自己核:
         # 股数 ≈ |目标金额 - 当前市值| / 股价
         "price": price,

@@ -352,6 +352,31 @@ check("cli:info",        lambda: _cli("info"))
 check("cli:signal",      lambda: _cli("signal"))
 check("cli:router-demo", lambda: _cli("router-demo"))
 
+def _agent_without_account():
+    """决策命令在没有账户状态时要说清怎么办 —— 用户第一次跑就撞这个。
+
+    决策的仓位按账户状态算,而账户状态不能由命令替用户编一个。所以没给
+    账户、库里也没有落过组合时,命令该退出来并指出去哪儿给 —— 而不是
+    拿一个编的账户把决策跑完。
+
+    这一段在临时数据目录里跑,库里没有落过组合,所以账户状态只有一条路:
+    命令行显式给。
+    """
+    import io, contextlib
+    buf = io.StringIO()
+    code = 0
+    with contextlib.redirect_stdout(buf), contextlib.redirect_stderr(buf):
+        sys.argv = ["forgemind", "agent", "--symbol", "600519.SH"]
+        try:
+            cli_main()
+        except SystemExit as exc:
+            code = exc.code or 0
+    text = buf.getvalue()
+    assert code == 2, f"没有账户状态时退出码应是 2,实际 {code}: {text[-300:]}"
+    assert "组合" in text or "账户" in text, text[-300:]
+    assert "--cash" in text, text[-300:]
+check("cli:agent-needs-account", _agent_without_account)
+
 def _bt():
     import io, contextlib
     buf = io.StringIO()

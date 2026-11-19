@@ -20,6 +20,9 @@ export interface Signal {
   side: "BUY" | "SELL" | "HOLD";
   confidence: number;
   rationale: string;
+  /** 信号从哪儿来的:模型分析、命令行示例… 界面上要标出来,否则
+      分不出"系统给的结论"与"人手动记的一条"。 */
+  source?: string;
   timestamp: string;
   /** 真落盘时间,DuckDB emitted_at,可显示"5 分钟前"之类 */
   emitted_at?: string;

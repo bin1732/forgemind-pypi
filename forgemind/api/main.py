@@ -422,6 +422,9 @@ class AgentPrepareResponse(BaseModel):
     #: 决策依据的是哪份账户状态。仓位按它算,而它平时看不见 ——
     #: 不报出来,读的人只能信结论,没法判断依据的是哪份状态。
     portfolio_used: dict = Field(default_factory=dict)
+    #: 依据的行情截止到哪天。计算用的可能是几周前的收盘价,不说的话
+    #: 读的人会把"上个月的形态"当成"今天的形态"。
+    data_as_of: dict = Field(default_factory=dict)
 
 
 class AgentApprovalRequest(BaseModel):
@@ -438,6 +441,15 @@ class AgentApprovalResponse(BaseModel):
     # 落库结果:组合快照与 6 条决策明细写没写成。桌面端据此显示"已落盘"
     # 还是"落盘失败"(error 里有原因),不假装写成了。
     persisted: dict | None = None
+
+
+def _data_as_of(state: dict) -> dict:
+    """依据的行情截止到哪天 —— 与命令行、MCP 同一套说法。"""
+    from forgemind.core.data.storage import data_freshness
+
+    tech = (state or {}).get("technical_analysis") or {}
+    last_date = tech.get("last_date")
+    return {"last_date": last_date, "freshness": data_freshness(last_date)}
 
 
 @app.post("/api/v1/agent/decide", response_model=AgentPrepareResponse)
@@ -480,6 +492,7 @@ async def agent_decide(req: AgentRequest):
         bear_thesis=bear.get("thesis", ""),
         confidence=state.get("confidence", 0.0),
         portfolio_used={**portfolio.describe(), "source": "arguments"},
+        data_as_of=_data_as_of(state),
         reasoning=(
             "PM 节点被 interrupt_before 拦住 — 任何交易动作(下单/调仓)"
             "必须先 POST /api/v1/agent/{thread_id}/approve 或 /reject"

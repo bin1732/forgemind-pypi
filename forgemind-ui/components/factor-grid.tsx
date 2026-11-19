@@ -192,6 +192,10 @@ export function FactorGrid() {
         </div>
       )}
 
+      <div className="text-[10px] text-muted-foreground">
+        IC 是近 5 个交易日的横截面 IC(与常规月度 IC 不是一回事,数值差得远)。
+      </div>
+
       <div className="flex flex-wrap gap-1">
         <button
           onClick={() => setFilter("all")}
@@ -245,7 +249,9 @@ export function FactorGrid() {
               </span>
             </div>
             <div className="mt-1 flex items-center justify-between">
-              <span className="text-[10px] text-muted-foreground">IC</span>
+              {/* IC 是近 5 个交易日的横截面 IC —— 不标窗口,读者会当成
+                  常规月度 IC,数值差得远。 */}
+              <span className="text-[10px] text-muted-foreground">IC · 5日</span>
               <span className={cn(
                 "font-mono font-semibold",
                 f.ic === undefined ? "text-muted-foreground" : f.ic > 0 ? "text-green-600" : "text-red-600"

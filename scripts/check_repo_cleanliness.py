@@ -54,10 +54,18 @@ REGRESSION_PHRASES = (
 )
 
 # 构建产物与诊断产物
-ARTIFACT_PATTERNS = (
+#: 诊断产物:进仓就是错。**被忽略是对的,但不能只靠忽略规则** ——
+#: 规则被删掉时没人发现,而产物就在仓根等着被一次 `git add -A` 带进去。
+DIAGNOSTIC_PATTERNS = (
     "ci-diagnostics",
     "ci-status.json",
     "pytest-failure-report",
+    # 本地库文件:命令在仓根跑一次就会留下一个。
+    ".duckdb",
+)
+
+#: 本地缓存:本地跑一次测试必然会有,被忽略是对的,不必拦。
+LOCAL_CACHE_PATTERNS = (
     ".coverage",
     ".pytest_cache",
     "__pycache__",
@@ -66,6 +74,8 @@ ARTIFACT_PATTERNS = (
     "build/",
     ".v/",
 )
+
+ARTIFACT_PATTERNS = DIAGNOSTIC_PATTERNS + LOCAL_CACHE_PATTERNS
 
 # 许可证头
 HEADER_MARK = "SPDX-License-Identifier: Apache-2.0"
@@ -167,6 +177,16 @@ def check_artifacts(repo: Path) -> list[str]:
         for pattern in ARTIFACT_PATTERNS:
             if pattern in name:
                 problems.append(f"未跟踪的产物文件: {name}")
+                break
+    # **被忽略的产物也要看**:加了 .gitignore 规则之后,`git status` 就
+    # 不列它们了 —— 于是"忽略规则被删掉"这件事没人发现,而产物就在
+    # 仓根等着被一次 `git add -A` 带进去。
+    for name in _run_git(
+        repo, "ls-files", "--others", "--ignored", "--exclude-standard"
+    ).splitlines():
+        for pattern in DIAGNOSTIC_PATTERNS:
+            if pattern in name:
+                problems.append(f"被忽略的产物文件: {name}")
                 break
     tracked = _run_git(repo, "ls-files")
     for line in tracked.splitlines():

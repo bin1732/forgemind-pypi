@@ -37,6 +37,14 @@ describe("FactorGrid", () => {
     expect(html).toMatch(/alpha|barra|因子/i);
   });
 
+  it("IC 标了窗口 —— 不标的话读者会当成常规月度 IC", () => {
+    render(<FactorGrid />);
+    const html = document.body.innerHTML;
+    // 5 日窗口:短窗口 IC 噪声大,与月度 IC 数值差得远
+    expect(html).toMatch(/5\s*日/);
+    expect(html).toMatch(/5\s*个交易日/);
+  });
+
   it("IC 还在算的时候不说无数据", () => {
     useAppStore.setState({ factorIcState: "loading" });
     render(<FactorGrid />);
