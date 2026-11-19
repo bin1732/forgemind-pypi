@@ -53,6 +53,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   path calls the provider adapters, the note has to go; if it does not,
   the note must be there and the interface may not say "AI decision".
 
+### Fixed
+- The interface now shows the equity the backend computed. The panel
+  worked it out again itself, with a different rule: the backend counts
+  the holdings at their price, the panel at their cost. With a position
+  that moved away from its cost the two numbers differ, and the one the
+  user saw was not the one the decision worked with. The panel now uses
+  the backend's number and says which rule it used.
+
+- The README now names every one of the checks. The list had six entries
+  while the repository runs twenty machine checks, so a reader took the
+  list for the whole. The checker now asks the code: every job in a
+  workflow has to be named in that table, unless it is exempt — the
+  steps of the release pipeline itself, which are the release and not a
+  check of the artifact.
+
 ### Added
 - A checker for that last one: it reads the production path, and it
   reads the documentation against it.

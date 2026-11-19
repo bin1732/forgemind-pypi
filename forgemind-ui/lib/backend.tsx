@@ -23,6 +23,9 @@ export function useBackend(): BackendState {
   const setPipelineResult = useAppStore((s) => s.setPipelineResult);
   const setAgentDecisions = useAppStore((s) => s.setAgentDecisions);
   const setRiskMetrics = useAppStore((s) => s.setRiskMetrics);
+  // 总权益与口径由后端算好后给 —— 界面自己再算一遍用的是另一套规则。
+  const setTotalEquity = useAppStore((s) => s.setTotalEquity);
+  const setEquityBasis = useAppStore((s) => s.setEquityBasis);
 
   const setFactors = useAppStore((s) => s.setFactors);
   const setStrategies = useAppStore((s) => s.setStrategies);
@@ -58,7 +61,8 @@ export function useBackend(): BackendState {
         window.addEventListener("beforeunload", stopOnLeave);
         const un = await on("python-sidecar-ready", () => {
           if (!cancelled) setState("ready");
-          void refreshPortfolio(setPortfolio, setCash, setPipelineResult, setAgentDecisions, setRiskMetrics);
+          void refreshPortfolio(setPortfolio, setCash, setTotalEquity, setEquityBasis,
+        setPipelineResult, setAgentDecisions, setRiskMetrics);
           void loadCatalog(setFactors, setStrategies, setSymbols);
           void loadSignals(setSignals);
           // 读最新 currentSymbol (避免 stale 闭包: 切 symbol 期间重跑 useEffect
@@ -69,7 +73,8 @@ export function useBackend(): BackendState {
         if (cancelled) return;
         if (status) {
           setState("ready");
-          await refreshPortfolio(setPortfolio, setCash, setPipelineResult, setAgentDecisions, setRiskMetrics);
+          await refreshPortfolio(setPortfolio, setCash, setTotalEquity, setEquityBasis,
+          setPipelineResult, setAgentDecisions, setRiskMetrics);
           await loadCatalog(setFactors, setStrategies, setSymbols);
           await loadSignals(setSignals);
           // 后台算所有因子 IC (5-10s, 不 await — 让 UI 先 ready 显示)
@@ -88,7 +93,7 @@ export function useBackend(): BackendState {
     return () => {
       cancelled = true;
     };
-  }, [setPortfolio, setCash, setPipelineResult, setAgentDecisions, setRiskMetrics, setFactors, setStrategies, setSymbols, setSignals]);
+  }, [setPortfolio, setCash, setTotalEquity, setEquityBasis, setPipelineResult, setAgentDecisions, setRiskMetrics, setFactors, setStrategies, setSymbols, setSignals]);
 
   return state;
 }
@@ -104,6 +109,8 @@ export async function reloadPortfolio(): Promise<void> {
   await refreshPortfolio(
     s.setPortfolio,
     s.setCash,
+    s.setTotalEquity,
+    s.setEquityBasis,
     s.setPipelineResult,
     s.setAgentDecisions,
     s.setRiskMetrics,
@@ -113,6 +120,8 @@ export async function reloadPortfolio(): Promise<void> {
 async function refreshPortfolio(
   setPortfolio: (p: PortfolioPosition[]) => void,
   setCash: (c: number | null) => void,
+  setTotalEquity: (v: number | null) => void,
+  setEquityBasis: (v: string | null) => void,
   setPipelineResult: (r: unknown) => void,
   setAgentDecisions: (d: AgentDecision[]) => void,
   setRiskMetrics: (m: RiskMetrics | null) => void,
@@ -161,6 +170,10 @@ async function refreshPortfolio(
   // 后端没给现金 = 还没有组合快照,置成"不知道"(null),不要留 0 ——
   // 面板会把 0 渲染成 ¥0,读的人以为这是个空组合。
   setCash(typeof snap.cash === "number" ? snap.cash : null);
+  // 总权益与口径都用后端算好的那个:界面自己再算一遍,用的就是另一套
+  // 算法(现价 vs 成本),持仓有浮盈浮亏时两个数不是一个。
+  setTotalEquity(typeof snap.total_equity === "number" ? snap.total_equity : null);
+  setEquityBasis(typeof snap.equity_basis === "string" ? snap.equity_basis : null);
   if (snap) setPipelineResult(snap);
 
   const decisions = (snap.decisions ?? []) as AgentDecision[];

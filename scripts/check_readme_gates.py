@@ -27,6 +27,44 @@ GATE_ROW = re.compile(
     r"^\|\s*[^|]+?\s*\|\s*[^|]+?\s*\|\s*`([^`]+\.yml)`\s*/\s*([^|`]+?)\s*\|\s*$", re.M
 )
 
+#: 不对外承诺的作业(附理由)。
+#:
+#: 发布流水线自己的步骤不算"对构件的检查" —— 它是发布本身。其余每一个
+#: 作业都是真检查,README 那张表必须点名,否则读者会以为关卡比实际少。
+EXEMPT_JOBS = {
+    ("ship.yml", "resolve-source"): "发布流水线自己的准备步骤",
+    ("ship.yml", "build-wheel"): "发布流水线自己的构建步骤",
+    ("ship.yml", "build-standalone"): "发布流水线自己的构建步骤",
+    ("ship.yml", "ship"): "发布动作本身,不是对构件的检查",
+}
+
+
+def missing_from_table(listed: set[tuple[str, str]], workflows_dir: Path) -> list[str]:
+    """实际存在的作业里,哪些没在 README 的表里被点名。
+
+    单独抽出来,好让测试用**造出来的**流水线目录双向验:规则本身要能
+    验,不能靠"当前这仓碰巧合规"来证明。
+    """
+    problems: list[str] = []
+    if not workflows_dir.is_dir():
+        return problems
+    for workflow_file in sorted(workflows_dir.glob("*.yml")):
+        try:
+            data = yaml.safe_load(workflow_file.read_text(encoding="utf-8")) or {}
+        except Exception:  # noqa: BLE001
+            continue
+        for key, job in (data.get("jobs") or {}).items():
+            name = str((job or {}).get("name") or key)
+            if (workflow_file.name, key) in EXEMPT_JOBS:
+                continue
+            if (workflow_file.name, name) in listed or (workflow_file.name, key) in listed:
+                continue
+            problems.append(
+                f"流水线里有作业没在 README 的表里点名: {workflow_file.name} / {name}"
+                f" —— 读者会以为关卡比实际少"
+            )
+    return problems
+
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="核对 README 承诺的关卡")
@@ -56,13 +94,22 @@ def main() -> int:
                 f"承诺的作业不存在: {workflow_name} / {job_name}(该流水线现有作业: {names})"
             )
 
+    # 反向:实际存在的每一个作业都要在那张表里被点名,除非有豁免。
+    # 只做正向的话,表漏掉的作业没人发现 —— 而"少说"在承诺型文档里
+    # 同样是误导:读者会以为那就是全部。
+    listed_names = {(w, j.strip()) for w, j in rows}
+    problems.extend(missing_from_table(listed_names, repo / ".github" / "workflows"))
+
     if problems:
         print(f"{readme.name} 承诺的关卡与实际流水线对不上:")
         for item in problems:
             print(" -", item)
         return 1
 
-    print(f"{readme.name} 承诺的 {len(rows)} 道关卡都有对应的流水线作业")
+    print(
+        f"{readme.name} 承诺的 {len(rows)} 道关卡都有对应的流水线作业,"
+        f"而流水线里的每个作业都在表里被点名"
+    )
     return 0
 
 

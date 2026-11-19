@@ -95,7 +95,16 @@ interface AppState {
   setPortfolio: (p: PortfolioPosition[]) => void;
   // null = 还没有组合快照(不知道),与"现金真的是 0"是两回事
   cash: number | null;
+  /** 总权益 —— 由**后端**按统一口径算好后给(现金加持仓市值)。
+   * 界面自己再算一遍就会与决策用的那个数不是一个数:持仓有浮盈浮亏时
+   * 两边差整段浮盈浮亏,而用户看到的与 AI 算的必须是同一个。
+   * null = 还没有组合快照。 */
+  totalEquity: number | null;
+  /** 权益口径:market = 按现价,cost = 按成本(库里没有该标的的行情时)。 */
+  equityBasis: string | null;
   setCash: (c: number | null) => void;
+  setTotalEquity: (v: number | null) => void;
+  setEquityBasis: (v: string | null) => void;
 
   // 6 Agent 决策明细 — 来自 query_portfolio.decisions
   agentDecisions: AgentDecision[];
@@ -209,6 +218,10 @@ export const useAppStore = create<AppState>()(
       setPortfolio: (portfolio) => set({ portfolio }),
       cash: null,
       setCash: (cash) => set({ cash }),
+      totalEquity: null,
+      setTotalEquity: (v) => set({ totalEquity: v }),
+      equityBasis: null,
+      setEquityBasis: (v) => set({ equityBasis: v }),
 
       agentDecisions: [],
       setAgentDecisions: (agentDecisions) => set({ agentDecisions }),

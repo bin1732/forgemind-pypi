@@ -35,8 +35,14 @@ export function PortfolioPanel() {
   // 没有组合快照时(cash 为 null)整套金额都算不出来 —— 显示 "—",
   // 不显示 ¥0:"¥0" 看着像"这个组合一分钱没有",实际是"还没有快照"。
   const hasSnapshot = cash != null;
+  // 总权益用**后端算好的那个**:后端与决策用的是同一套口径(现金加持仓
+  // 市值),界面自己再算一遍用的就是另一套(现价 vs 成本),持仓有浮盈浮亏
+  // 时两个数不是一个 —— 而用户看到的与 AI 算的必须是同一个。后端没给
+  // 才回落到本地算。
+  const backendEquity = useAppStore((s) => s.totalEquity);
+  const equityBasis = useAppStore((s) => s.equityBasis);
   const totalEquity = hasSnapshot
-    ? cash + portfolio.reduce((sum, p) => sum + p.quantity * livePrices(p), 0)
+    ? backendEquity ?? cash + portfolio.reduce((sum, p) => sum + p.quantity * livePrices(p), 0)
     : null;
   const totalCost = hasSnapshot
     ? cash + portfolio.reduce((sum, p) => sum + p.quantity * p.avg_price, 0)
@@ -54,7 +60,10 @@ export function PortfolioPanel() {
             <span className="font-mono">{formatCurrency(cash)}</span>
           </div>
           <div className="flex justify-between text-sm">
-            <span className="text-muted-foreground">总权益</span>
+            <span className="text-muted-foreground">
+              总权益
+              {equityBasis === "market" ? "(按现价)" : equityBasis === "cost" ? "(按成本)" : ""}
+            </span>
             <span className="font-mono font-semibold">{formatCurrency(totalEquity)}</span>
           </div>
           <div className="border-t pt-2">

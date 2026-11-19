@@ -444,11 +444,11 @@ $ forgemind agent --symbol 600519.SH --cash 100000
 
 ```bash
 pytest tests/ -v
-# 691 test files · 10540 tests
+# 692 test files · 10545 tests
 
 # 常规档位:真实业务用例,起真实子进程与真实数据库
 pytest tests/ -m "not heavy"
-# 8700 cases
+# 8705 cases
 
 # 重并发档位:百万级真实运算,单独用更宽的超时执行
 pytest tests/ -m heavy
@@ -482,12 +482,19 @@ forgemind mcp                       # 以标准输入输出的方式启动 MCP �
 | 构件构建 | 从源码构建 wheel 与源码包,校验安装后能导入 | `verify.yml` / verify-wheel |
 | 命令行冒烟 | 逐个执行全部子命令,确认退出码与输出 | `verify.yml` / verify-wheel |
 | 接口校验 | 真实起服务,逐个请求接口,校验参数校验与错误响应 | `verify.yml` / verify-wheel |
+| 构件与声明对账 | 核对发布出去的构件、清单、索引与文档里的声明对得上 | `verify.yml` / 构件与声明对账 |
+| 三平台二进制实跑 | 下载发布出来的三个平台二进制并实跑,确认能启动 | `verify.yml` / verify-binaries |
 | 真实取数 | 拉真实行情并落库,确认多源回退可用 | `verify-live.yml` / live-akshare |
-| 桌面端 | 下载发布出来的三个平台二进制并实跑,确认能启动 | `verify-desktop.yml` / build-desktop |
+| 桌面端构建 | 构建三个平台的桌面端二进制 | `verify-desktop.yml` / build-desktop |
+| 桌面端 Rust 侧编译 | 单独编译桌面端的 Rust 代码,确认没有编不过的分支 | `verify-desktop.yml` / cargo check (lib.rs) |
+| 流水线自检 | 核对 runner 标签与各平台配置一致 | `verify-desktop.yml` / 工作流自检 (runner 标签 / 平台一致) |
 | 用户旅程 | 从公开索引页出发:下载、核对校验值、装进干净环境、跑命令、握 MCP 协议 | `verify.yml` / 真实用户旅程 |
-| 代码质量与安全 | 代码风格、拼写、依赖漏洞扫描 | `ci-lint.yml` / `ci-security.yml` |
-| 源码上的全量测试 | 常规档与重并发档,真实起子进程与真实数据库 | `ci-tests.yml` / `ci-tests.yml` |
-| 界面 | Next.js 组件测试与界面数据来源核对 | `ci-ui.yml` / `ci-ui.yml` |
+| 代码质量 | 代码风格、拼写、仓库残留扫描 | `ci-lint.yml` / Code Quality |
+| 依赖漏洞扫描 | 扫已声明依赖的已知漏洞 | `ci-security.yml` / Security Scan |
+| 常规测试 | 源码树上的全量用例,真实起子进程与真实数据库 | `ci-tests.yml` / Python 测试 (常规) |
+| 重并发抽样 | 按文件分组抽样跑重并发档,机器跑不完时的妥协 | `ci-tests.yml` / 重并发测试 (heavy) |
+| 界面测试 | Next.js 组件测试与界面数据来源核对 | `ci-ui.yml` / UI 测试 (Next.js + Jest) |
+| 关卡汇总 | 汇总各档结论,任一档红就不算通过 | `ci-status.yml` / 汇总校验结论 |
 | 重并发完整规模 | 关掉按文件分组抽样，把重并发档的全部用例完整跑一遍 | `ci-heavy-full.yml` / 重并发测试 (完整规模) |
 | 装出来的构件 | 下载发布出去的那一个 wheel,装进干净环境,把全量测试跑在上面 | `ci-wheel-suite.yml` / 全量测试跑在发布出去的 wheel 上 |
 
